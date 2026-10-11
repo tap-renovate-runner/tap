@@ -204,7 +204,7 @@ def _step_label(step: dict[str, Any], index: int) -> str:
 def scan_workflow(path: Path, raw: str, data: dict[str, Any]) -> list[str]:
     """Return violation messages for one parsed workflow file.
 
-    TAP-IMPLEMENTS: req-dev-localexec-runner-interpreter@0b2738139e7e/751803df980b (enforcement) — the one
+    TAP-IMPLEMENTS: req-dev-localexec-runner-interpreter@eb7a2c1e2bc9/751803df980b (enforcement) — the one
         predicate deciding whether a workflow job runs repo Python on an interpreter derived from
         requires-python.
     """
