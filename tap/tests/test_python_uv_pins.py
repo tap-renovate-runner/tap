@@ -80,28 +80,32 @@ def test_required_version_is_one_uv_minor_and_the_image_satisfies_it() -> None:
     assert next_minor not in spec, f"required-version `{spec}` admits uv {next_minor}: bound it to one minor"
 
 
-def _root_is_this_repo(steps: list[Any]) -> bool:
-    """True when some checkout step puts THIS repository at the workspace root."""
-    for step in steps:
-        if not (isinstance(step, dict) and str(step.get("uses", "")).startswith(_CHECKOUT)):
-            continue
-        with_block = step.get("with") or {}
-        if with_block.get("path") in (None, "", "."):
-            repo = str(with_block.get("repository", "")).strip()
-            if repo in ("", "${{ github.repository }}"):
-                return True
-    return False
+def _puts_this_repo_at_root(step: Any) -> bool:
+    """True when this step is a checkout of THIS repository at the workspace root."""
+    if not (isinstance(step, dict) and str(step.get("uses", "")).startswith(_CHECKOUT)):
+        return False
+    with_block = step.get("with") or {}
+    repo = str(with_block.get("repository", "")).strip()
+    return with_block.get("path") in (None, "", ".") and repo in ("", "${{ github.repository }}")
 
 
 def setup_uv_problems(name: str, data: dict[str, Any]) -> list[str]:
-    """Every setup-uv step that does not derive uv's version from a pyproject."""
+    """Every setup-uv step that does not derive uv's version from a pyproject.
+
+    Order matters: setup-uv reads the root pyproject when it RUNS, so only a root checkout of
+    this repository in an EARLIER step counts. Limit, named: a `version-file` is accepted on
+    its path suffix alone. Which repository sits at that path (`_tooling`'s is a workflow
+    input) cannot be resolved from the YAML.
+    """
     problems: list[str] = []
     for job_name, job in (data.get("jobs") or {}).items():
         if not isinstance(job, dict):
             continue
-        steps = job.get("steps") or []
-        root_ok = _root_is_this_repo(steps)
-        for index, step in enumerate(steps):
+        root_ok = False
+        for index, step in enumerate(job.get("steps") or []):
+            if _puts_this_repo_at_root(step):
+                root_ok = True
+                continue
             if not (isinstance(step, dict) and str(step.get("uses", "")).startswith(_SETUP_UV)):
                 continue
             with_block = step.get("with") or {}
@@ -110,8 +114,8 @@ def setup_uv_problems(name: str, data: dict[str, Any]) -> list[str]:
                 problems.append(f"{where}: a `version:` literal — derive it from required-version")
             elif not str(with_block.get("version-file", "")).endswith("pyproject.toml") and not root_ok:
                 problems.append(
-                    f"{where}: the workspace root is not this repository and there is no `version-file` "
-                    "naming a pyproject.toml, so setup-uv installs `latest`"
+                    f"{where}: no earlier step checks this repository out at the workspace root and there "
+                    "is no `version-file` naming a pyproject.toml, so setup-uv installs `latest`"
                 )
     return problems
 
@@ -145,3 +149,18 @@ jobs:
     assert setup_uv_problems("plugin-ci.yml", broken) == []
     broken["jobs"]["tooling"]["steps"][2]["with"] = {"version": "0.12.20"}
     assert setup_uv_problems("plugin-ci.yml", broken)
+
+
+@pytest.mark.spec("req-dev-localexec-runner-interpreter-6")
+def test_a_root_checkout_after_setup_uv_does_not_count() -> None:
+    sha = "0" * 40
+    late = yaml.safe_load(f"""
+jobs:
+  j:
+    steps:
+      - uses: {_SETUP_UV}{sha}
+      - uses: {_CHECKOUT}{sha}
+""")
+    assert setup_uv_problems("wf.yml", late)
+    late["jobs"]["j"]["steps"].reverse()
+    assert setup_uv_problems("wf.yml", late) == []
