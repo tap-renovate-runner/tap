@@ -381,6 +381,20 @@ def test_the_mirror_mapping_redirects_only_digest_pinned_ecr_library_images(
     ]
 
 
+# `repository:` values a reusable workflow may check out with no `ref`, matched EXACTLY. A
+# substring test would also pass `${{ github.repository_owner }}/other`, which is a foreign repo.
+UNPINNED_CHECKOUT_REPOSITORIES = {
+    # The caller's own repository: with no `ref`, checkout takes the caller's commit.
+    "${{ github.repository }}",
+    # The plugin under test. Core's nightly passes each plugin repo here on purpose, to test that
+    # plugin's default branch as it stands: plugins float against a pinned core.
+    "${{ inputs.plugin_repo || github.repository }}",
+    # The product under test in product-health.yml, the same shape: the thing being checked,
+    # not tooling the check executes.
+    "${{ inputs.product_repo || github.repository }}",
+}
+
+
 def cross_repo_checkout_problems(name: str, data: dict[str, Any]) -> list[str]:
     """Checkouts of ANOTHER repository, in a reusable workflow, that name no `ref`.
 
@@ -389,8 +403,7 @@ def cross_repo_checkout_problems(name: str, data: dict[str, Any]) -> list[str]:
     `<workflow>.yml@<sha>`, but what the job then checks out is not covered by that pin, so two
     runs of the same caller commit can execute different code. `plugin-release-sbom.yml` took
     its SBOM tooling from tap's default branch this way until it was given `job.workflow_sha`.
-    A checkout of the caller's own repository (`github.repository`, alone or as a fallback) is
-    the caller's commit, and is not flagged.
+    Only the exact values in `UNPINNED_CHECKOUT_REPOSITORIES` are exempt.
     """
     # PyYAML (YAML 1.1) reads the bare key `on` as the boolean True.
     keys: dict[Any, Any] = data
@@ -404,7 +417,7 @@ def cross_repo_checkout_problems(name: str, data: dict[str, Any]) -> list[str]:
                 continue
             inputs = step.get("with") or {}
             repository = str(inputs.get("repository", ""))
-            if repository and "github.repository" not in repository and not inputs.get("ref"):
+            if repository and repository.strip() not in UNPINNED_CHECKOUT_REPOSITORIES and not inputs.get("ref"):
                 problems.append(f"{name} job {job_id} step {step.get('name', index)}: {repository} with no ref")
     return problems
 
@@ -442,3 +455,25 @@ jobs:
     ]
     before["on"] = {"push": {}}
     assert cross_repo_checkout_problems("before.yml", before) == [], "only a called workflow runs as its caller"
+
+
+def test_an_expression_that_merely_mentions_the_caller_repo_is_not_exempt() -> None:
+    """Non-vacuity: `github.repository_owner` contains `github.repository` but names a foreign repo."""
+    data: dict[str, Any] = yaml.safe_load(
+        """
+on:
+  workflow_call: {}
+jobs:
+  build:
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ${{ github.repository_owner }}/other
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ${{ github.repository }}
+"""
+    )
+    assert cross_repo_checkout_problems("x.yml", data) == [
+        "x.yml job build step 0: ${{ github.repository_owner }}/other with no ref"
+    ]
