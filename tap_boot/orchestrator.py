@@ -1,9 +1,9 @@
 """The bootloader orchestrator — fixed-phase standup (req-boot-phases).
 
-TAP-IMPLEMENTS: req-boot-app@45a8b458c10d/3fe2dd568afe (derivation) — run_boot is the single
+TAP-IMPLEMENTS: req-boot-app@45a8b458c10d/ef212cb4ff86 (derivation) — run_boot is the single
     canonical standup path the command and the spawn bridge both invoke.
 
-TAP-IMPLEMENTS: req-boot-phases@cece2d5ed283/3fe2dd568afe (derivation) — the fixed,
+TAP-IMPLEMENTS: req-boot-phases@cece2d5ed283/ef212cb4ff86 (derivation) — the fixed,
     code-defined phase order lives here; profiles cannot reorder it.
 
 `run_boot` is the single canonical standup path for both dev (`spawn-session.sh`,
@@ -193,8 +193,18 @@ def run_boot(profile: BootProfile | None, *, echo: Echo | None = None, record: N
             _phase_grid_infra(say)
 
         if profile is None or not profile.has_population:
-            logger.info("[f89d] boot: no population steps; auth-only standup complete")
-            say("No population steps — auth-only standup complete.")
+            if profile is None:
+                logger.info("[f89d] boot: no population steps; auth-only standup complete")
+                say("No population steps — auth-only standup complete.")
+            else:
+                # A step-less profile still installs plugins, and their collectors need grid
+                # nodes to be run from the grid; population is the only other place they get
+                # them (tap#1010). It is a local grid write, so the standup stays no-network.
+                # `--allow-empty` (no profile) stays auth-only (req-boot-profile-4).
+                with acting_as(get_builtin_actor(BOOTLOADER)), rec.phase("collectors"):
+                    _reconcile_collectors(say)
+                logger.info("[2c71] boot: no population steps; standup complete")
+                say("No population steps — standup complete.")
             with rec.phase("web"):
                 _phase_web(profile, say, rec)
             rec.finish_ok()
@@ -353,18 +363,23 @@ def _phase_web(profile: BootProfile | None, say: Echo, rec: NullBootRecord) -> N
     say(f"Landing page: {landing.describe()}")
 
 
-def _phase_population(profile: BootProfile, bootloader: object, say: Echo, rec: NullBootRecord) -> None:
-    """population phase: pre-resolve (no mutation), reconcile, preflight, apply ordered steps."""
+def _reconcile_collectors(say: Echo) -> None:
+    """Materialize a grid node for every registered collector (a local grid write, no fire)."""
     from tap_cares.registry import reconcile_collector_nodes
 
+    logger.info("[f193] boot: reconciling collector nodes")
+    say("Reconciling collector grid nodes ...")
+    reconcile_collector_nodes()
+
+
+def _phase_population(profile: BootProfile, bootloader: object, say: Echo, rec: NullBootRecord) -> None:
+    """population phase: pre-resolve (no mutation), reconcile, preflight, apply ordered steps."""
     # Pre-resolution happens FIRST, against in-memory registries only — so an
     # unknown plugin slug / collector key / bundle name aborts before ANY grid
     # mutation, including the collector-node reconcile below (req-boot-population-4).
     plan = _resolve_steps(profile, say)
 
-    logger.info("[f193] boot population phase: reconciling collector nodes")
-    say("Population phase: reconciling collector grid nodes ...")
-    reconcile_collector_nodes()
+    _reconcile_collectors(say)
 
     # Readiness preflight (req-boot-obs-preflight): self-test every collector the
     # profile will fire, before the first seed-plugin step mutates the grid. Under

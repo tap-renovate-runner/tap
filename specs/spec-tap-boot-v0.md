@@ -146,7 +146,7 @@ A boot profile is a single config-as-code document composed of named sections.
 - The profile supersedes the flat collector-only profile shape: the existing collector list becomes the `fire-collector` steps of the `population` section (`req-boot-population`).
 - A profile carries only declarative state and secret *references* (`req-boot-secrets`), never secret values.
 - Each section's shape is defined by its owning app's mandatory JSON Schema fragment; the profile as a whole is the composition of those fragments plus a thin bootloader-owned envelope (version, profile metadata, section ordering-within-population).
-- A profile with no `population` outbound steps is a safe, no-network standup (identity + auth only).
+- A profile with no `population` steps is a safe, no-network standup: identity and auth, plus the local reconcile that gives each installed plugin's collectors their grid nodes. Nothing is fired. Without the reconcile, a step-less profile such as `core_dev` installs collectors the grid cannot see (tap#1010). `--allow-empty` (no profile) stays auth-only.
 
 #### Acceptance Criteria
 
@@ -157,6 +157,7 @@ A boot profile is a single config-as-code document composed of named sections.
 | req-boot-profile-3 | References Not Secrets | Proposed | Profiles contain only declarative state and secret references. | |
 | req-boot-profile-4 | Opt-In Outbound | Implemented | An explicit `--allow-empty` (no profile) is an auth-only standup that reaches out to nothing. | |
 | req-boot-profile-5 | Profile Required By Default | Implemented | Boot requires an explicit profile by default; a missing profile fails loud (single escape hatch: `--allow-empty`), never a silent empty-but-healthy start. No inverted `--require-profile` flag. | |
+| req-boot-profile-6 | Step-Less Profile Reconciles Collectors | Implemented | A profile with no population steps still reconciles collector grid nodes for every registered collector, as the bootloader, and fires none. `--allow-empty` writes no collector node. | |
 
 ---
 

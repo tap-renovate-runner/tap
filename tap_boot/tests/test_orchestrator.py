@@ -91,6 +91,33 @@ def test_auth_only_standup_syncs_auth():
     assert get_user_model().objects.filter(tap_builtin_key=BOOTLOADER).exists()
 
 
+@pytest.mark.spec("req-boot-profile-6")
+@pytest.mark.django_db
+def test_step_less_profile_reconciles_collector_nodes_and_fires_none(monkeypatch):
+    # core_dev's shape: plugins installed, no population steps. Its collectors must still
+    # reach the grid, or nothing can run them from there (tap#1010).
+    from tap_cares.models import Collector
+
+    def no_fire(*args, **kwargs):
+        raise AssertionError("a step-less profile must fire no collector")
+
+    monkeypatch.setattr("tap_cares.services.fire_collector_and_await", no_fire)
+    lines: list[str] = []
+    run_boot(_profile(), echo=lines.append)
+    assert Collector.objects.filter(collector_registry=_TEST_COLLECTOR).exists()
+    assert any("standup complete" in line and "auth-only" not in line for line in lines)
+
+
+@pytest.mark.spec("req-boot-profile-6")
+@pytest.mark.django_db
+def test_allow_empty_standup_writes_no_collector_node():
+    from tap_cares.models import Collector
+
+    before = Collector.objects.count()
+    run_boot(None)
+    assert Collector.objects.count() == before
+
+
 @requires_plugins("validation_sample")  # seeds the fixture's GRIFT bundle — needs it installed
 @pytest.mark.django_db
 def test_seed_population_runs_and_is_idempotent():
