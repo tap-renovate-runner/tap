@@ -12,7 +12,15 @@ readme = "README.md"
 # root; NOTICE carries the attribution required for the third-party assets vendored
 # into the source tree. This field is the machine-legible declaration of the same fact.
 license = "Apache-2.0"
-requires-python = ">=3.14"
+# One minor line, bounded on both sides. This is the single place CI derives its Python
+# from (req-dev-localexec-runner-interpreter: setup-python's `python-version-file`, and
+# uv for `uv sync`/`uv run`), and the image installs Wolfi's `python-3.14` packages. With
+# an open `>=3.14`, a resolver picks the NEWEST Python it can get: uv 0.13.0 made 3.15
+# its default download on 2026-10-09, plugin CI's tooling sync got CPython 3.15.0, and the
+# locked closure has no cp315 wheels (pyyaml 6.0.3), so `--no-build` refused it (tap#1008).
+# Moving to 3.15 is a deliberate edit: this bound, the Dockerfile's python-3.x packages
+# and a relock, together — tap/tests/test_python_uv_pins.py holds them in step.
+requires-python = ">=3.14,<3.15"
 
 # -----------------------------------------------------------------------------
 # Dependencies
@@ -176,6 +184,12 @@ dev = [
 # tap_plugins/specs/spec-tap-plugin-architecture.md req-tap-plugin-arch-python-deps.
 
 [tool.uv]
+# The uv release line CI and the image run. `setup-uv` reads this when it installs uv
+# (plugin CI points `version-file` at the core's pyproject), so a new uv release can't
+# change CI overnight: unpinned, it fell back to `latest` and took uv 0.13.0's new
+# Python default with it (tap#1008). The Dockerfile's `ghcr.io/astral-sh/uv:<tag>` must
+# satisfy it (tap/tests/test_python_uv_pins.py); a bump to a new minor edits both.
+required-version = ">=0.12.20,<0.13"
 # Build `cryptography` from source (its sdist) against the SYSTEM OpenSSL rather than
 # installing the PyPI wheel. The wheel statically bundles its OWN OpenSSL, which ignores
 # the image's system FIPS provider config entirely — so webauthn/PyJWT would silently do

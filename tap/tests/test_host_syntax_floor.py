@@ -221,7 +221,9 @@ def test_the_floor_is_below_the_container_interpreter() -> None:
     second copy of that number is the drift this whole file exists to prevent.
     """
     pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    match = re.search(r'requires-python\s*=\s*">=\s*(\d+)\.(\d+)"', pyproject)
+    # The lower bound only: requires-python also carries an upper bound (`">=3.14,<3.15"`,
+    # tap#1008), and the floor is compared with the oldest interpreter the container may run.
+    match = re.search(r'requires-python\s*=\s*">=\s*(\d+)\.(\d+)[,"]', pyproject)
     assert match, "could not read requires-python from pyproject.toml"
     container = (int(match.group(1)), int(match.group(2)))
     assert HOST_SYNTAX_FLOOR < container, (
