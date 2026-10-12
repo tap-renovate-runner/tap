@@ -87,10 +87,18 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       # Core repo for the SBOM tooling (scripts/sbom + vendored schemas) — the
-      # single implementation every plugin release uses.
+      # single implementation every plugin release uses. Checked out at THIS workflow's
+      # own commit, not tap's default branch: the caller pins
+      # `plugin-release-sbom.yml@<sha>`, and tooling taken from whatever main is at
+      # release time would make that pin govern only the YAML, not the code it runs —
+      # two releases of the same plugin commit could then get different SBOMs.
+      # `job.workflow_sha` is the commit of the file that defines THIS job — the reusable
+      # workflow's, when the job comes from one. `github.workflow_sha` is the CALLER's
+      # (observed 2026-09-09 on tap-plugin-identity-core PR# 3: "not our ref").
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: unified-systems-com/tap
+          ref: ${{ job.workflow_sha }}
           path: _core
           persist-credentials: false
       - name: Resolve identity + release version

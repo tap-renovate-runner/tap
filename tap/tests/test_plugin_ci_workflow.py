@@ -154,13 +154,15 @@ def test_the_gate_uses_the_release_gates_trivy_and_flags(workflow: dict[str, Any
     asserting it."""
     steps = _steps(workflow["jobs"][SCAN_JOB])
     gate = next(step for step in steps if step.get("id") == "gate_scan")
-    release_pin = next(
-        step["uses"]
+    release = next(
+        step
         for job in _load(RELEASE_TAGS)["jobs"].values()
         for step in _steps(job)
         if str(step.get("uses", "")).startswith(TRIVY)
     )
-    assert gate["uses"] == release_pin
+    assert gate["uses"] == release["uses"]
+    # The action pin alone is not "one Trivy": the binary is its own input, named on both.
+    assert gate["with"]["version"] == release["with"]["version"]
     assert gate["with"]["severity"] == "HIGH,CRITICAL"
     assert gate["with"]["exit-code"] == "1"
     # Without this the action builds SARIF at EVERY severity and `severity:` is silently ignored.
@@ -377,3 +379,66 @@ def test_the_mirror_mapping_redirects_only_digest_pinned_ecr_library_images(
     assert lines[1:-1] == [
         f"public.ecr.aws/docker/library/node:24-alpine@{digest}=docker-image://mirror.gcr.io/library/node@{digest}"
     ]
+
+
+def cross_repo_checkout_problems(name: str, data: dict[str, Any]) -> list[str]:
+    """Checkouts of ANOTHER repository, in a reusable workflow, that name no `ref`.
+
+    A reusable workflow runs in its caller's context, so a checkout of a different repository
+    with no `ref` takes that repository's default branch at run time. The caller pins
+    `<workflow>.yml@<sha>`, but what the job then checks out is not covered by that pin, so two
+    runs of the same caller commit can execute different code. `plugin-release-sbom.yml` took
+    its SBOM tooling from tap's default branch this way until it was given `job.workflow_sha`.
+    A checkout of the caller's own repository (`github.repository`, alone or as a fallback) is
+    the caller's commit, and is not flagged.
+    """
+    # PyYAML (YAML 1.1) reads the bare key `on` as the boolean True.
+    keys: dict[Any, Any] = data
+    triggers = keys.get("on", keys.get(True)) or {}
+    if not isinstance(triggers, dict) or "workflow_call" not in triggers:
+        return []
+    problems = []
+    for job_id, job in (data.get("jobs") or {}).items():
+        for index, step in enumerate(_steps(job)):
+            if not str(step.get("uses", "")).startswith("actions/checkout@"):
+                continue
+            inputs = step.get("with") or {}
+            repository = str(inputs.get("repository", ""))
+            if repository and "github.repository" not in repository and not inputs.get("ref"):
+                problems.append(f"{name} job {job_id} step {step.get('name', index)}: {repository} with no ref")
+    return problems
+
+
+def test_every_reusable_workflow_pins_what_it_checks_out_of_another_repo() -> None:
+    problems = [
+        problem
+        for path in sorted(WORKFLOWS.glob("*.y*ml"))
+        for problem in cross_repo_checkout_problems(path.name, _load(path))
+    ]
+    assert not problems, problems
+
+
+def test_the_unpinned_release_tooling_checkout_fails_the_check() -> None:
+    """Non-vacuity: plugin-release-sbom.yml's tooling checkout as it stood before the fix."""
+    before: dict[str, Any] = yaml.safe_load(
+        """
+on:
+  workflow_call: {}
+jobs:
+  release:
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: unified-systems-com/tap
+          path: _core
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ${{ inputs.plugin_repo || github.repository }}
+"""
+    )
+    assert cross_repo_checkout_problems("before.yml", before) == [
+        "before.yml job release step 0: unified-systems-com/tap with no ref"
+    ]
+    before["on"] = {"push": {}}
+    assert cross_repo_checkout_problems("before.yml", before) == [], "only a called workflow runs as its caller"
