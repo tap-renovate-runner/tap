@@ -162,9 +162,12 @@ jobs:
       # uv.lock records, no project install. Never `pip install x==v`: that restated a
       # version the lock owns (jsonschema 4.23.0 vs the lock's 4.26.0) and verified no
       # bytes (tap#507, SonarCloud S8541). No Actions cache: this job feeds a signing job.
+      # uv's version from core's `required-version`; the plugin checkout at the workspace root
+      # has none of its own, and unpinned setup-uv falls back to `latest` (tap#1008).
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: false
+          version-file: _core/pyproject.toml
       - name: Sync the SBOM tooling's locked dependency group
         run: uv sync --project _core --frozen --no-build --no-install-project --only-group ci-tooling
       - name: Build the wheel at the tag

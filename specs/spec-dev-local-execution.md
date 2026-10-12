@@ -408,6 +408,18 @@ escape hatch is a job-level `# guard-allow: req-dev-localexec-runner-interpreter
 Scope limit, named: workflow YAML only — a script a step calls (`scripts/change-tier`) runs
 its own `python3` and stays the floor's to police.
 
+Deriving the interpreter is only half of it: the source has to name ONE version. An open
+`requires-python = ">=3.14"` lets every resolver take the newest Python it can get, and on
+2026-10-09 uv 0.13.0 made 3.15 its default download. Plugin CI's tooling sync, on a
+`setup-uv` with no version, took both the new uv and CPython 3.15.0. The locked closure had no
+cp315 wheels, so every plugin nightly failed at install (`tap#1008`). So `requires-python`
+admits exactly one minor line, the one the image's Wolfi `python-3.N` packages carry. The uv
+release line is pinned once too, as `[tool.uv] required-version` in the same file:
+`setup-uv` reads it, a job whose workspace root is not this repository points `version-file`
+at the core's `pyproject.toml`, and the Dockerfile's `ghcr.io/astral-sh/uv:<tag>` must satisfy
+it. Moving to a new Python or uv minor is one deliberate commit that edits the bound and the
+image together. `tap/tests/test_python_uv_pins.py` holds them in step.
+
 #### Acceptance Criteria
 
 | ACID | Title | Status | Description |
@@ -416,6 +428,8 @@ its own `python3` and stays the floor's to police.
 | req-dev-localexec-runner-interpreter-2 | The Version Is Never A Literal | Implemented | A `setup-python` step with a `python-version:` literal, or without a `python-version-file` naming a `pyproject.toml`, is a violation and does not satisfy -1. |
 | req-dev-localexec-runner-interpreter-3 | Only The Host Interpreter Counts | Implemented | `uv run`/`uvx`, container-side commands (`docker run|exec`, `docker compose`, `scripts/dc`, job `container:`), version probes, and stdlib-only inline code are not violations; an exemption covers only the simple command holding the interpreter (split at unquoted `;` `&&` `||` `|`), never the rest of the line; a job-level `guard-allow` annotation exempts the job. |
 | req-dev-localexec-runner-interpreter-4 | Catches The Break It Exists For | Implemented | The scan flags the pre-`tap#518` `publish-images.yml` manifest job and passes the fixed one. |
+| req-dev-localexec-runner-interpreter-5 | One Minor Line, Bounded | Implemented | `requires-python` admits exactly one Python minor version, and it is the minor of the Wolfi `python-3.N` packages the Dockerfile installs; an open upper bound fails. |
+| req-dev-localexec-runner-interpreter-6 | The uv Version Is Derived Too | Implemented | `[tool.uv] required-version` names a range within one uv minor that the Dockerfile's `ghcr.io/astral-sh/uv:<tag>` satisfies. Every `setup-uv` step carries no `version:` literal, and either runs where this repository is checked out at the workspace root or sets `version-file` to a `pyproject.toml`; a job whose root is another repository and that sets neither fails. |
 
 ---
 
