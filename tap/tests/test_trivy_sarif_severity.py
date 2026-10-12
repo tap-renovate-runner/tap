@@ -16,6 +16,9 @@ silently became "block on anything fixable" (tap#824; run 36062129201 logs the l
 The check is DERIVED over every workflow rather than pinned to one job, so the next
 severity-scoped SARIF step cannot reintroduce it. Report-only scans that set no `severity` are
 deliberately untouched: all severities is what the Security tab should show.
+
+The file also holds the scanner binaries named on every Trivy and Grype step (tap#1008's float
+audit): the action pin does not fix the binary, its default input does, and that moves with the pin.
 """
 
 from __future__ import annotations
@@ -79,3 +82,57 @@ def test_the_release_gate_is_one_of_the_steps_checked() -> None:
     assert _severity_scoped_sarif(inputs), "the release gate must scope its SARIF to the gated severities"
     assert {s.strip() for s in str(inputs["severity"]).split(",")} == {"HIGH", "CRITICAL"}
     assert _limits_sarif(inputs)
+
+
+# The scanner BINARY is a separate input from the action pin. Left unset, it is whatever the
+# pinned action defaults to, so a Renovate bump of the action SHA silently swaps the scanner and
+# changes what a gate can see. Every step names it, and every Trivy step names the same one.
+GRYPE_ACTION = "anchore/scan-action@"
+SCANNER_VERSION_INPUT = {TRIVY_ACTION: "version", GRYPE_ACTION: "grype-version"}
+
+
+def scanner_version_problems(name: str, workflow: dict[str, Any]) -> tuple[list[str], set[str]]:
+    """(steps that leave the scanner binary to the action's default, the Trivy versions named)."""
+    unnamed: list[str] = []
+    trivy_versions: set[str] = set()
+    for job_id, job in (workflow.get("jobs") or {}).items():
+        for index, step in enumerate(job.get("steps") or []):
+            uses = str(step.get("uses", ""))
+            for action, key in SCANNER_VERSION_INPUT.items():
+                if not uses.startswith(action):
+                    continue
+                version = (step.get("with") or {}).get(key)
+                if not version:
+                    unnamed.append(f"{name} job {job_id} step {step.get('name', index)}: no `{key}`")
+                elif action == TRIVY_ACTION:
+                    trivy_versions.add(str(version))
+    return unnamed, trivy_versions
+
+
+def test_every_scanner_step_names_its_binary_and_trivy_is_one_version() -> None:
+    unnamed: list[str] = []
+    trivy_versions: set[str] = set()
+    for path in sorted(WORKFLOWS.glob("*.y*ml")):
+        found, versions = scanner_version_problems(path.name, yaml.safe_load(path.read_text(encoding="utf-8")) or {})
+        unnamed += found
+        trivy_versions |= versions
+    assert not unnamed, unnamed
+    assert len(trivy_versions) == 1, f"every Trivy step must run the same binary, found {sorted(trivy_versions)}"
+
+
+def test_a_scanner_step_left_on_the_action_default_fails_the_check() -> None:
+    """Non-vacuity: a step as every scanner step stood before the versions were named."""
+    before = {
+        "jobs": {
+            "scan": {
+                "steps": [
+                    {"uses": TRIVY_ACTION + "ed142fd0673e97e23eac54620cfb913e5ce36c25", "with": {"format": "sarif"}},
+                    {"uses": GRYPE_ACTION + "27805bf3b4e84b4a5c980df22ed233c00390a439", "with": {"sbom": "x"}},
+                    {"uses": TRIVY_ACTION + "ed142fd0673e97e23eac54620cfb913e5ce36c25", "with": {"version": "v0.1.0"}},
+                ]
+            }
+        }
+    }
+    unnamed, versions = scanner_version_problems("before.yml", before)
+    assert unnamed == ["before.yml job scan step 0: no `version`", "before.yml job scan step 1: no `grype-version`"]
+    assert versions == {"v0.1.0"}

@@ -84,6 +84,9 @@ jobs:
         uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
         id: grype
         with:
+          # The Grype binary, named rather than inherited from the action pin (v0.118.0 is
+          # 27805bf3's GrypeVersion.js default), so an action bump cannot move it unseen.
+          grype-version: v0.118.0
           sbom: declared-${{ matrix.image }}.cdx.json
           output-format: sarif
           output-file: grype-declared-${{ matrix.image }}.sarif
