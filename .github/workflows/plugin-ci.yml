@@ -950,6 +950,9 @@ jobs:
       - name: Scan the closure — report (every severity)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          # The Trivy binary, named rather than inherited from the action pin (v0.70.0 is
+          # ed142fd0's default). tap/tests/test_trivy_sarif_severity.py keeps every copy equal.
+          version: v0.70.0
           scan-type: sbom
           scan-ref: dependency-closure.cdx.json
           format: sarif
@@ -962,6 +965,9 @@ jobs:
         continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          # The Trivy binary, named rather than inherited from the action pin (v0.70.0 is
+          # ed142fd0's default). tap/tests/test_trivy_sarif_severity.py keeps every copy equal.
+          version: v0.70.0
           scan-type: sbom
           scan-ref: dependency-closure.cdx.json
           format: sarif
