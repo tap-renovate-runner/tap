@@ -477,3 +477,13 @@ jobs:
     assert cross_repo_checkout_problems("x.yml", data) == [
         "x.yml job build step 0: ${{ github.repository_owner }}/other with no ref"
     ]
+
+
+def test_the_failure_probe_cannot_change_the_boot_job_result() -> None:
+    """The tap#1013 crypto probe runs only after a failure, and its own failure is ignored."""
+    steps = _steps(_load(PLUGIN_CI)["jobs"]["boot-and-test"])
+    names = [step.get("name", "") for step in steps]
+    probe = steps[names.index("Probe the web image's Python and crypto on failure")]
+    assert probe["if"] == "failure()"
+    assert probe["continue-on-error"] is True
+    assert names.index("Dump web logs on failure") < names.index(probe["name"])

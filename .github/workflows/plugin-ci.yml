@@ -883,6 +883,61 @@ jobs:
         if: failure()
         run: docker compose --env-file .env logs web | tail -200
 
+      # Forensics for a crypto failure the log alone cannot explain (tap#1013: `migrate` died
+      # on `md5(usedforsecurity=False)` raised from a `<string>` frame, on CI only). A one-off
+      # container from the same image and the same venv volume prints which interpreter the
+      # venv runs, where `hashlib.md5` comes from, and the OpenSSL providers, first bare and
+      # then after `django.setup()` loads the installed plugins the way `migrate` did. Runs
+      # only on failure, prints no secrets, and cannot change the job's result.
+      - name: Probe the web image's Python and crypto on failure
+        if: failure()
+        continue-on-error: true
+        timeout-minutes: 5
+        run: |
+          docker compose --env-file .env run --rm --no-deps -T --entrypoint sh web -s <<'PROBE'
+          echo "venv python: $(readlink -f /app/.venv/bin/python 2>/dev/null || echo none)"
+          cat /app/.venv/pyvenv.cfg 2>/dev/null
+          openssl version
+          openssl list -providers 2>&1 | grep -E 'name:|version:|status:' | grep -v pointer
+          env | grep -E '^(OPENSSL_|PYTHON|UV_PYTHON)' | sort
+          cd /app && /app/.venv/bin/python - <<'PY'
+          import hashlib
+          import os
+          import sys
+
+
+          def origin(fn):
+              code = getattr(fn, "__code__", None)
+              return f"{code.co_filename}:{code.co_firstlineno}" if code else type(fn).__name__
+
+
+          def probe(label):
+              try:
+                  hashlib.md5(b"x", usedforsecurity=False)
+                  result = "OK"
+              except Exception as exc:
+                  result = f"FAILS {type(exc).__name__}: {exc}"
+              print(f"[{label}] hashlib.md5 from {origin(hashlib.md5)}; md5(usedforsecurity=False) {result}")
+
+
+          print("interpreter:", sys.executable, sys.version.split()[0])
+          print("hashlib:", hashlib.__file__)
+          probe("bare")
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "tap.settings")
+          try:
+              import django
+
+              django.setup()
+          except Exception as exc:
+              print("django.setup() failed:", type(exc).__name__, exc)
+          else:
+              from django.db.backends import utils
+
+              probe("after django.setup()")
+              print("django.db.backends.utils.md5 from", origin(utils.md5))
+          PY
+          PROBE
+
   # ---------------------------------------------------------------------------
   # Scan the plugin's own closure (tap#772). Read-only, and no plugin code runs here: the
   # input is the CycloneDX document boot-and-test walked, the waiver ledger is the plugin
