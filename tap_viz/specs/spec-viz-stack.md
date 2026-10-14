@@ -29,6 +29,8 @@ Two quantities are kept deliberately distinct. **Depth** is how many layers are 
 | req-viz-stack-primitive | [Runtime Primitive](#runtime-primitive) | Implemented | `applyStack(cy, opts)` runtime module, called by layout modules |
 | req-viz-stack-proxy-collapse | [Proxy Collapse](#proxy-collapse) | Implemented | Representative stays visible; other members hidden via `tap-stack-collapsed` |
 | req-viz-stack-depth | [Depth Cards](#depth-cards) | Implemented | Up to `depthCap - 1` decorative offset cards; capped, never a count |
+| req-viz-stack-shading | [Shading](#shading) | Implemented | The front border is strongest; each card behind it has a fainter border |
+| req-viz-stack-layering | [Layering](#layering) | Implemented | Cards sit directly behind the representative, in its own nesting layer |
 | req-viz-stack-direction | [Growth Direction](#growth-direction) | Implemented | `auto` fans away from scene center (POV); overridable enum + per-axis `offset` |
 | req-viz-stack-count-chip | [Count Chip](#count-chip) | Implemented | Neutral rounded-rect straddling the representative's bottom edge |
 | req-viz-stack-count-format | [Count Formatting](#count-formatting) | Implemented | Humanized k/M/B abbreviation with bounded width |
@@ -80,6 +82,26 @@ Trace: `non-python` — tap_viz/static/tap_viz/js/runtime/stack.js
 Behind the representative, `min(count, depthCap) - 1` decorative **depth cards** are drawn, each offset from the representative by a fixed per-card delta so the group reads as a fanned pile. Cards are non-interactive, reduced-opacity nodes that mirror the representative's shape and model colors (fill / border) but carry **no icon** — a faded blank token reads as "another one of these" without the icon-placement noise of a half-shown glyph on a small offset card. The cards are z-ordered front-to-back: the card nearest the front draws highest and each deeper card strictly below it, all below the representative, so the offset reads unambiguously as a stack rather than a scatter. When the representative has a nesting parent, cards are created within that same parent so they share its render layer and z-ordering.
 
 Depth is **capped decoration**. It does not scale with the count and carries no numeric meaning. A stack of 4 and a stack of 4,000 draw the same number of cards. The cap (`depthCap`, default 3) bounds the decoration so a large pile does not sprawl.
+
+### Shading
+----
+RID: `req-viz-stack-shading`
+
+Status: `Implemented`
+
+Trace: `non-python` — tap_viz/static/tap_viz/js/runtime/stack.js
+
+A pile reads front to back, so the border gets fainter with depth: the representative's border is drawn at full strength, and each depth card behind it has a fainter border than the card in front of it, falling in even steps (`(depthShown - depth) / depthShown`, where `depth` is 1 for the card nearest the front). The representative's full-strength border holds when the representative is a container, whose own style draws its border faint, so the front of a pile of containers is never fainter than the cards behind it. The shading is a function of the card's depth only, never of the count. The border opacities are style rules in `panel-graph.js` (`node[_is_stack_card]` and `node[_stack_front_id]`), fed by the card's `_stack_border_opacity` data.
+
+### Layering
+----
+RID: `req-viz-stack-layering`
+
+Status: `Implemented`
+
+Trace: `non-python` — tap_viz/static/tap_viz/js/runtime/stack.js
+
+The depth cards sit directly behind the representative in the representative's own layer: each card's z-index is the representative's z-index minus the card's depth. When the representative is nested inside containers, which draw at their own nesting layers, the cards therefore stay inside the same container, above it and behind the representative, and a layout does not lift them itself. The representative's z-index is read when the stack is applied, so a stack applied after nesting follows the nesting.
 
 ### Growth Direction
 ----

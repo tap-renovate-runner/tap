@@ -662,6 +662,8 @@ function initGraph(panelId) {
                     "label": "",
                     "events": "no",
                     "z-index": "data(_stack_z)",
+                    // Each card's border is fainter than the one in front of it (req-viz-stack-shading).
+                    "border-opacity": "data(_stack_border_opacity)",
                 },
             },
             {
@@ -671,6 +673,9 @@ function initGraph(panelId) {
                 selector: "node[_stack_front_id]",
                 style: {
                     "z-index": 20,
+                    // The front of the pile has the strongest border, even when it is a container, whose own
+                    // style draws its border faint (req-viz-stack-shading).
+                    "border-opacity": 1,
                 },
             },
             {

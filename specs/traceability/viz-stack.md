@@ -4,7 +4,7 @@
 
 | Bucket | Count |
 | --- | ---: |
-| excluded | 12 |
+| excluded | 14 |
 | unbuilt | 2 |
 | 0-ACID (payable) | 0 |
 
@@ -21,8 +21,10 @@ Reasons verbatim from each `Trace:` line; ⚠ marks zero-ACID exempt.
 | `req-viz-stack-direction` | non-python | ⚠ | tap_viz/static/tap_viz/js/runtime/stack.js |
 | `req-viz-stack-edge-collapse` | non-python | ⚠ | tap_viz/static/tap_viz/js/runtime/stack.js |
 | `req-viz-stack-idempotent` | non-python | ⚠ | tap_viz/static/tap_viz/js/runtime/stack.js |
+| `req-viz-stack-layering` | non-python | ⚠ | tap_viz/static/tap_viz/js/runtime/stack.js |
 | `req-viz-stack-min-collapse` | non-python | ⚠ | tap_viz/static/tap_viz/js/runtime/stack.js |
 | `req-viz-stack-name` | non-python | ⚠ | tap_viz/static/tap_viz/js/runtime/stack.js |
 | `req-viz-stack-noninteractive` | non-python | ⚠ | tap_viz/static/tap_viz/js/runtime/stack.js |
 | `req-viz-stack-primitive` | non-python | ⚠ | tap_viz/static/tap_viz/js/runtime/stack.js |
 | `req-viz-stack-proxy-collapse` | non-python | ⚠ | tap_viz/static/tap_viz/js/runtime/stack.js |
+| `req-viz-stack-shading` | non-python | ⚠ | tap_viz/static/tap_viz/js/runtime/stack.js |
