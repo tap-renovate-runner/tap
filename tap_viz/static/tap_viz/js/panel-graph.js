@@ -799,6 +799,15 @@ function initGraph(panelId) {
                 },
             },
             {
+                // Icon-centric-solo (icon-node.js, req-viz-icon-node-solo): the icon and the name with no
+                // card, border or fill. The box stays, invisible, so edges attach to it and it can be tapped.
+                selector: "node[?_icon_solo]",
+                style: {
+                    "background-opacity": 0,
+                    "border-width": 0,
+                },
+            },
+            {
                 // Shadow nodes: reduced opacity, dashed border to signal
                 // "this entity is present here but represented elsewhere."
                 selector: "node[_is_shadow]",

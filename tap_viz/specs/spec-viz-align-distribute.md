@@ -22,6 +22,7 @@ Two modes, one helper:
 | req-viz-align-distribute-order | [Order](#order) | Implemented | Members sorted by label by default; `sort: false` preserves caller order |
 | req-viz-align-distribute-step | [Staircase Step](#staircase-step) | Implemented | `step` drops each successive node on the cross axis; `stepFrom` picks the baseline end |
 | req-viz-align-distribute-node-anchor | [Reactive Node Anchor](#reactive-node-anchor) | Implemented | `anchorNode` tracks a node's live bbox + re-resolves on its events; `offset` nudges from it |
+| req-viz-align-distribute-align-only | [Align Only](#align-only) | Implemented | `distribute: false` sets only the cross-axis position and leaves the main axis alone |
 
 ## Runtime Helper
 
@@ -88,3 +89,13 @@ A static `anchor` point is a snapshot — it's read once, at call time. But a la
 `anchorNode` solves this by anchoring on a **node's live bounding box** instead of a fixed point: the row's main-axis center tracks the node's bbox center (the cross-axis line comes from `anchor` when supplied, else the node's bbox center), and — unless `reactive: false` — the layout **re-resolves whenever that node fires `position`/`bounds`, plus on the cy `layoutstop`**. This mirrors how the scope-box overlay (`spec-viz-layouts`) tracks its members, and the stack primitive's post-layout `auto`-direction settle (`spec-viz-stack`): event-bound re-resolution is the established runtime idiom for "stay correct as the scene settles", not a one-shot pass. `offset` (`{x,y}`) nudges the resolved anchor — e.g. to drop the row below the anchor node.
 
 Loop safety: the anchor node must not be an **ancestor** of any member — repositioning a member would change the ancestor's bbox and re-fire the handler endlessly. The helper detects this, skips the reactive bind, and warns. The returned handle's `destroy()` unbinds the listeners (Cytoscape's `node.on()` does not honor event namespaces for `position`/`bounds`, so the binding uses plain events and unbinds by handler reference).
+
+## Align Only
+
+RID: `req-viz-align-distribute-align-only`
+
+Status: `Implemented`
+
+Some nodes already have their columns, from a natural layout such as `ranked`, and only need to sit on one line with something else: the customer and their computer, and the developer, their laptop and GitHub, on the same horizontal line as the request path inside the product account. Re-distributing them would throw away the columns the layout gave them.
+
+With `distribute: false`, the helper does not space or re-order the members. It sets each member's cross-axis position (the `y` of a horizontal row, the `x` of a vertical one) to the anchor's and leaves the main-axis position exactly where it was. The anchor is resolved as usual, from `anchor` or from a live `anchorNode`, so the alignment keeps tracking a node that is still settling (`req-viz-align-distribute-node-anchor`). The anchor's position is that of its own box, without the name drawn below it, so an icon node lines up by its icon. `gap`, `anchorMode`, `step` and `sort` have no effect in this mode.

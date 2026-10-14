@@ -28,7 +28,8 @@ The card's size is a **parameter**, not a constant. A scene sets it per call and
 | --- | --- | :---: | --- |
 | req-viz-icon-node-primitive | [Runtime Primitive](#runtime-primitive) | Implemented | `applyIconNodes(cy, opts)` returns a handle `{destroy, resize, count}` |
 | req-viz-icon-node-form | [Card Form](#card-form) | Implemented | Bordered, filled card with the type icon centred |
-| req-viz-icon-node-label | [Label Position](#label-position) | Implemented | The name sits outside the card, below it |
+| req-viz-icon-node-label | [Label Position](#label-position) | Implemented | The name sits outside the card, below it, wrapped to the card's width |
+| req-viz-icon-node-solo | [Icon-Centric-Solo](#icon-centric-solo) | Implemented | `solo: true` drops the card: no border and no fill, only the icon and the name |
 | req-viz-icon-node-size | [Settable Dimensions](#settable-dimensions) | Implemented | `width` / `height` per call, per-node override, change after the fact with `resize` |
 | req-viz-icon-node-terminal | [Terminal Representation](#terminal-representation) | Implemented | Nesting treats an icon node as a leaf and hides what it would contain |
 | req-viz-icon-node-edges | [Edges](#edges) | Implemented | Edges to hidden contents are dropped, never re-pointed |
@@ -74,7 +75,19 @@ Status: `Implemented`
 
 Trace: `non-python` — tap_viz/static/tap_viz/js/panel-graph.js
 
-The node's name is drawn outside the card, centred below it. Long names wrap. The name belongs to the node and moves and scales with it. Whether the name later moves inside the card is left open; it is a style decision, not a structural one, and changing it touches only the style rule.
+The node's name is drawn outside the card, centred below it. Long names wrap at a multiple of the card's width (1.4 times, never under 96 model units), so the names of neighbouring icon nodes do not run together. The name belongs to the node and moves and scales with it. Whether the name later moves inside the card is left open; it is a style decision, not a structural one, and changing it touches only the style rule.
+
+### Icon-Centric-Solo
+----
+RID: `req-viz-icon-node-solo`
+
+Status: `Implemented`
+
+Trace: `non-python` — tap_viz/static/tap_viz/js/runtime/icon-node.js
+
+Icon-centric-solo is the icon node without its card. `applyIconNodes` takes `solo: true` (default false), and the node then draws no border and no fill: only the type icon and the name below it. The icon fills the node's box (default `iconRatio` 1 in place of 0.6), so the node's width and height are the icon's size. Solo is a flag on the same form, not a second primitive: size, terminal contents, edges, badges, stacking, fallback and re-run behave exactly as for the card form.
+
+The box is still there, invisible. Edges attach to its boundary and a tap on it selects the node, as for any node. A solo node with no resolved icon would draw nothing but its name, so the missing-icon fallback draws the card form for it (see [Missing Icon](#missing-icon)).
 
 ### Settable Dimensions
 ----
@@ -126,7 +139,7 @@ Status: `Implemented`
 
 Trace: `non-python` — tap_viz/static/tap_viz/js/panel-graph.js
 
-A node with no resolved icon renders as the same card with its name below and nothing in the middle. It is never dropped and never broken.
+A node with no resolved icon renders as the same card with its name below and nothing in the middle. It is never dropped and never broken. A solo node with no icon also renders as the card, because a solo node with nothing to draw would be invisible.
 
 ### Idempotent Re-Run
 ----
