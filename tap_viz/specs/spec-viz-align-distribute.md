@@ -96,6 +96,8 @@ RID: `req-viz-align-distribute-align-only`
 
 Status: `Implemented`
 
+Trace: `non-python` — tap_viz/static/tap_viz/js/runtime/align-distribute.js
+
 Some nodes already have their columns, from a natural layout such as `ranked`, and only need to sit on one line with something else: the customer and their computer, and the developer, their laptop and GitHub, on the same horizontal line as the request path inside the product account. Re-distributing them would throw away the columns the layout gave them.
 
 With `distribute: false`, the helper does not space or re-order the members. It sets each member's cross-axis position (the `y` of a horizontal row, the `x` of a vertical one) to the anchor's and leaves the main-axis position exactly where it was. The anchor is resolved as usual, from `anchor` or from a live `anchorNode`, so the alignment keeps tracking a node that is still settling (`req-viz-align-distribute-node-anchor`). The anchor's position is that of its own box, without the name drawn below it, so an icon node lines up by its icon. `gap`, `anchorMode`, `step` and `sort` have no effect in this mode.
