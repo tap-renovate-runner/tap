@@ -689,6 +689,89 @@ As for nodes, this is a tripwire against accidental writes, not a wall against i
 | req-grid-edge-internal-7 | They End With Their Endpoint | Implemented | Deleting an endpoint node ends its internal-only edges as it ends any other edge. | `tap_grid/tests/test_edge_internal.py::TestTheyEndWithTheirEndpoint`. |
 
 
+## Future
+
+### Compound Edges (proposed shape, not built)
+
+Recorded 2026-10-13 so the context is here when the idea is made official. It carries no requirement ID on purpose: nothing below is decided or built, and a RID would put it in the traceability accounting as if it were.
+
+#### The problem
+
+An edge joins two nodes, and an edge may not join an edge (`req-grid-edge-nono`). The grid so far records *where things are and how they are placed* (an ALB resides in a subnet, a role trusts an account). Some facts are not that: they involve a sender, a thing that happens, and a receiver. A backup process sends data to a vault; a customer's computer opens a TCP session to a load balancer; a deploy delivers an image to a service. A single binary edge cannot carry the thing in the middle: it has no identity of its own, nothing else can attach to it, and it cannot sit above or below another such fact (a backup process, carried over a TCP session, carried over IP traffic between two addresses).
+
+#### The shape
+
+A **compound edge** is stored as a node plus ordinary edges, not as one edge with several ends:
+
+- a *source* edge from the sender to the compound edge's node;
+- an *outbound* edge from that node to the destination;
+- optionally, edges from that node to the compound edges one level down (or up), so a higher-level flow can be tied to the lower-level ones that carry it.
+
+Because the middle is a node, it has its own identity, properties and dimensions, and other nodes and edges can attach to it. The grid's rules do not change: every stored edge is still binary and still between two nodes.
+
+#### Deleting one side, and compound stacks
+
+A compound edge has to retire sensibly when something it connects goes away. If a host that was making a TCP session is deleted, the session's node should not be left standing with one end gone; and what rode on the session should go with it. The behaviour needs thought and will be decided case by case, so this records the constraints, not the answer.
+
+What the grid does today (read from `spec-grid-service-delete.md` and the `add-model` skill, not run). Deleting a node ends every edge attached to it. A cascade (`cascade="contained"`) additionally retires far nodes, but only through the edge types a model lists in `CONTAINMENT_EDGES`, and that list must be a subset of the model's `OUTBOUND_EDGES`, so containment follows **outbound** edges only. A node with two live parents retires with the first parent that cascades. The closure is capped (`TAP_CASCADE_MAX_CLOSURE`, default 5000), and a read-only plan before apply (`req-grid-service-delete-cascade-plan`) is Backlog.
+
+What that means for a compound edge:
+
+- **Sender side** fits the existing mechanism: the sender's model could declare the source edge as containment, so deleting the sender retires the middle node.
+- **Receiver side** does not. The middle node reaches the destination through an outbound edge of its own, so deleting the destination cannot walk back to the middle node through containment. Ending the incident edges leaves the middle node with only its source edge. Either the middle node declares itself retired when either end goes, or the grid grows a way to follow the other direction. Undecided.
+- **Which end retires the middle node is not the same answer every time.** A TCP session ends when either host does. A backup process may well outlive a deleted vault and merit a flag, not a retirement. The rule is per kind of compound edge.
+- **Gone versus not seen:** a host that stops being observed is not a host that was deleted. Retirement of the ends, and of the middle node with them, has to respect how the grid distinguishes the two (reconciliation and tombstoning, `spec-grid-reconcile.md`).
+
+A **compound stack** is a set of compound edges linked vertically, each riding on the one below (an application-level exchange over a TCP session over IP traffic between two addresses). The maintainer's inclination is to call this a *compound-stack* and to make the vertical link carry the delete rule:
+
+- Deleting a **lower** compound edge retires the compound edges above that depend on it. If the TCP session goes, the application-level exchange it carried goes.
+- Deleting an **upper** one leaves the lower alone: the session may carry other things.
+- A lower compound edge carrying several upper ones retires all of them; an upper one riding on more than one lower one runs into the first-parent-retires rule above, which may or may not be what is wanted.
+- Whether a stack needs a name or a node of its own, or is simply what the vertical edges already say, is undecided. Nothing here asks for one yet.
+- A stack's closure is bounded by the cascade cap, and a plan-before-apply preview would matter more here than for ordinary containment.
+
+#### What is deliberately undecided
+
+- Cascade behaviour for compound edges and compound stacks, as above, including receiver-side deletion and per-kind rules.
+- The node type or types for the middle node (one base type, or one per kind of activity or traffic), and what plugin owns them.
+- The names of the source, outbound and layering edges, under the existing `<ACTION>_<OBJECT>` convention (`tap_grid/skills/add-edge/SKILL.md`), including how an action whose data flows backwards is marked.
+- Whether a compound edge is a standing fact or an observation with a time, and how that interacts with grid provenance.
+- How the viz layer draws one: three pieces on the grid should read as one arrow on a page, with the middle node collapsible and expandable at zoom.
+- Whether the network-layer node types `computing_core` already has (`host`, `ip_address`, `port`, `network_interface`, `tcp_connection`) are the lower layers of the stack or need rework. They were listed, not read.
+
+#### Until this is official
+
+A plugin does not mint an ad hoc edge to stand for a flow or an action. The structural edges the grid already has (placement, containment, trust, ownership) are drawn as they are; an arrow that would need a compound edge is recorded as a gap and left out. If a build seems to need one now, stop and bring it to the maintainer.
+
+#### The name
+
+"Compound edge" was chosen by the maintainer over the alternatives considered: *flow edge* (misleading: the middle is a node, and ArchiMate already uses "Flow" for a plain edge), *intermediate node* (Neo4j's term), *association* (UML, PROV-O), *activity* (PROV-O, OCSF) and *reified relation* (W3C). An aside: it was also called *hyperedge*, which sounds cool, and was set aside. A hyperedge is one edge with many ends, and the grid does not store that; the plain name says what is stored.
+
+Collisions checked (searched 2026-10-13, secondary sources for the first two):
+
+- **Cytoscape.js "compound nodes"** mean nesting. TAP's nested projection deliberately does not use them (`spec-viz-nested-projection.md`, `req-viz-nested-projection-bounded-layer-1`, "No Compound Parents"). A compound edge is a grid concept and has nothing to do with Cytoscape compound parents.
+- **Graphviz** `compound=true` lets an edge attach to a cluster (`lhead`, `ltail`). Unrelated.
+- **Same meaning:** a patent family titled "Representing compound relationships in a graph database" (US 9,378,303; EP 3144826) uses "compound" for an n-ary relationship held by a hub node. Read as search snippets only; the assignee, claims and status were not checked, and this is not a legal view.
+- No standard graph-theory meaning of "compound edge" was found.
+
+#### Prior art for the shape
+
+The reified-relation idea is old and common; these were read as summaries, not as full specifications.
+
+- W3C Note, [Defining N-ary Relations on the Semantic Web](https://www.w3.org/TR/swbp-n-aryRelations/) (2006): the relation among several individuals becomes an individual.
+- Neo4j GraphAcademy, [Intermediate Nodes](https://graphacademy.neo4j.com/courses/modeling-fundamentals/8-adding-intermediate-nodes/1-intermediate-nodes): a hyperedge "is impossible in Neo4j", so a node stands in the middle.
+- [TypeDB](https://typedb.com/docs/use-cases/hypergraph/index.md): relations with typed role players as n-ary hyperedges (vendor material).
+- STIX 2.1 `network-traffic`: `src_ref`, `dst_ref`, `protocols`, `encapsulates_refs` model a layered stack of traffic objects (property names from a [secondary listing](https://cpancover.com/latest/STIX-1.01/blib-lib-STIX-Observable-NetworkTraffic-pm.html); confirm against the OASIS spec).
+- W3C [PROV-O](https://www.w3.org/blog/2012/the-prov-ontology-an-update): an Activity that `used` inputs, `wasGeneratedBy` outputs and `wasAssociatedWith` an agent.
+- [OpenLineage](https://apxml.com/courses/data-governance-quality-observability-production/chapter-4-data-lineage-metadata-management/openlineage-standard): a Job (definition) and a Run (one execution) between input and output datasets.
+- IPFIX flow (a set of packets sharing properties at an observation point; early [draft wording](https://potaroo.net/ietf/all-ids/draft-ietf-ipfix-data-00.txt), RFC 7011 itself not read) and OCSF Network Activity.
+- UML association classes and ORM objectification, where Halpin cautions the move needs judgement ([Objectification of Relationships](https://www.academia.edu/122927300/Objectification_of_Relationships)).
+
+#### Related
+
+The edge types whose ambiguity prompted this are being split into specific ones: unified-systems-com/aws-core-tap#93 (`ROUTES_TRAFFIC`) and unified-systems-com/aws-core-tap#92 (`WRITES_LOGS`). Those cover structural facts; compound edges are for the flows that remain.
+
+
 ## Status Vocabulary
 
 | Status States |  |
