@@ -426,9 +426,10 @@
     tailSegment: function (cell, params) {
       // The last path segment of a slash-joined value ("owner/repo" → "repo"),
       // full value in the title. For a single-account instance the owner is
-      // noise on every row. params.sep overrides the separator.
+      // noise on every row. params.sep overrides the separator (any length: "__" splits
+      // "aws_core__aws_alb" into "aws_alb").
       var v = _safeStr(cell.getValue()); var sep = (params && params.sep) || "/";
-      var i = v.lastIndexOf(sep); var tail = i >= 0 ? v.slice(i + 1) : v;
+      var i = v.lastIndexOf(sep); var tail = i >= 0 ? v.slice(i + sep.length) : v;
       return '<span title="' + _escapeHtml(v) + '">' + _escapeHtml(tail) + '</span>';
     },
     painBadge: function (cell) {
