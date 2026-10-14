@@ -67,6 +67,8 @@ export function applyBadgeNodes(cy, opts = {}) {
         const url = n.data("icon_url");
         if (!url || url === "" || n.data("_is_badge")) return false;
         if (n.data("_is_stack_card") || n.data("_is_stack_chip")) return false;
+        // An icon node already shows its type icon as the centre of the card (req-viz-icon-node-composes).
+        if (n.data("_is_icon_node")) return false;
         if (!n.visible()) return false;
         if (excludeSet.size > 0 && excludeSet.has(n.data("entity_type"))) return false;
         return true;
