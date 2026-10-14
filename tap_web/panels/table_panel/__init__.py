@@ -99,6 +99,22 @@ TABLE_CONFIG_SCHEMA: dict[str, Any] = {
             "minItems": 1,
             "items": {"anyOf": [{"$ref": "#/$defs/column"}, {"$ref": "#/$defs/column_group"}]},
         },
+        # Optional initial sort, applied when the table first renders: the first
+        # item is the primary key. A column's own `sorter` decides how its values
+        # compare (see the column vocabulary).
+        "initial_sort": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["field"],
+                "properties": {
+                    "field": {"type": "string", "minLength": 1},
+                    "dir": {"type": "string", "enum": ["asc", "desc"]},
+                },
+            },
+        },
         # Optional declarative row grouping. The JS classifies each row into a
         # section by matching a field value against ordered {prefix, label}
         # rules; non-matches fall into default_label. Section order follows rule
@@ -179,6 +195,9 @@ TABLE_CONFIG_SCHEMA: dict[str, Any] = {
                 # href_field | href_template, external; elapsed: start, end;
                 # iconMap: icons, labels, show_text).
                 "formatter_params": {"type": "object"},
+                # A named sorter for the column. `severityRank` orders severity words
+                # (critical, high, medium, low and the like) by rank, not alphabetically.
+                "sorter": {"type": "string", "enum": ["severityRank"]},
                 "tooltip": {"type": "string", "enum": ["full_value"]},
                 # Explains the column to a reader: shown as the header's
                 # pop-over on hover. Plain text.
@@ -214,6 +233,7 @@ def _script_ids(panel: Panel) -> dict[str, str]:
         "table_data_script_id": f"tap-table-data-{pid}",
         "table_columns_script_id": f"tap-table-columns-{pid}",
         "table_groupby_script_id": f"tap-table-groupby-{pid}",
+        "table_initial_sort_script_id": f"tap-table-initialsort-{pid}",
     }
 
 
@@ -401,6 +421,7 @@ class TablePanelType:
             "table_height": config.get("height"),
             "table_refresh_seconds": config.get("refresh_seconds"),
             "table_group_by": group_by,
+            "table_initial_sort": config.get("initial_sort"),
             "table_error": None,
             **_script_ids(panel),
         }

@@ -54,6 +54,11 @@
     {{ table_group_by|json_script:table_groupby_script_id }}
     {% endif %}
 
+    {# Optional initial sort (panel.config.initial_sort). #}
+    {% if table_initial_sort %}
+    {{ table_initial_sort|json_script:table_initial_sort_script_id }}
+    {% endif %}
+
     {# Nav bar below table — right-aligned; none under minimal chrome (a one-row table has nothing to page) #}
     {% if panel.config.chrome != "minimal" %}
     <div class="mt-2">{% include "tap_web/panels/_table_nav_bar.html" with nav_align="right" %}</div>
