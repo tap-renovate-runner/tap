@@ -770,6 +770,35 @@ function initGraph(panelId) {
                 },
             },
             {
+                // Icon nodes (icon-node.js, req-viz-icon-node-form / -label): a bordered, filled
+                // card with the type icon in the centre and the name outside, below it. Neutral
+                // fill and border, deliberately not the model palette, so icon nodes of different
+                // types read as one family. Placed after the palette and label-position rules so
+                // it overrides them. The card size is inline (set by applyIconNodes), not here.
+                selector: "node[_is_icon_node]",
+                style: {
+                    "shape": "round-rectangle",
+                    "background-color": "#f8fafc",
+                    "background-opacity": 1,
+                    "border-width": 2,
+                    "border-color": "#64748b",
+                    "border-opacity": 1,
+                    "background-fit": "none",
+                    "background-position-x": "50%",
+                    "background-position-y": "50%",
+                    "background-clip": "none",
+                    "background-image-opacity": 1,
+                    "label": "data(label)",
+                    "color": "#1e293b",
+                    "text-valign": "bottom",
+                    "text-halign": "center",
+                    "text-margin-y": 8,
+                    "text-wrap": "wrap",
+                    "text-max-width": "160px",
+                    "font-size": "11px",
+                },
+            },
+            {
                 // Shadow nodes: reduced opacity, dashed border to signal
                 // "this entity is present here but represented elsewhere."
                 selector: "node[_is_shadow]",

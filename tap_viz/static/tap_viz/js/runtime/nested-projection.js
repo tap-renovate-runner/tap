@@ -25,6 +25,8 @@
  * Containment is purely positional.
  */
 
+import {ICON_NODE_HIDDEN_BY} from "./icon-node.js";
+
 // ---- Gryphon subset pattern parser ----
 // Matches: (parent:label)-[:TYPE]->(child:label) OR (parent:label)<-[:TYPE]-(child:label)
 const NESTING_PATTERN_RE = /^\(parent(?::(\w+))?\)\s*(?:-\[(?:\w+)?:?(\w+)\]->\s*\(child(?::(\w+))?\)|<-\[(?:\w+)?:?(\w+)\]-\s*\(child(?::(\w+))?\))$/;
@@ -231,6 +233,10 @@ export async function projectNested(cy, config) {
     const resolved = resolveNesting(cy, relationships);
     warnings.push(...resolved.warnings);
 
+    // Step 2b: An icon node is terminal (req-viz-icon-node-terminal). What it would contain, and everything
+    // inside that, is hidden for this pass and takes no part in sizing or placement.
+    _hideIconNodeContents(cy, resolved);
+
     // Step 3: Stamp _viewport_parent + hide containment edges.
     Object.keys(resolved.parentByChildId).forEach((childId) => {
         const node = cy.getElementById(childId);
@@ -281,7 +287,7 @@ export async function projectNested(cy, config) {
         const id = n.id();
         if (isContainer(id)) return;
         const et = n.data("entity_type") || "";
-        const base = baseSizes[et] || {width: 40, height: 40};
+        const base = _iconNodeSize(n) || baseSizes[et] || {width: 40, height: 40};
         resolvedSize[id] = {width: base.width, height: base.height};
     });
 
@@ -793,6 +799,53 @@ function _clearNestingState(cy) {
     });
     cy.edges("." + HIDDEN_CONTAINMENT_CLASS).removeClass(HIDDEN_CONTAINMENT_CLASS);
     // .tap-viewport-parent is diffed in step 7, not cleared here.
+}
+
+/**
+ * An icon node is terminal (req-viz-icon-node-terminal): the nodes nesting would put inside it, and the
+ * nodes inside those, are hidden for this pass and dropped from the resolved nesting. Nodes hidden by an
+ * earlier pass come back first, so a node that is no longer an icon node gets its contents back.
+ */
+function _hideIconNodeContents(cy, resolved) {
+    cy.nodes().forEach((n) => {
+        if (n.data(ICON_NODE_HIDDEN_BY) !== undefined) {
+            n.removeData(ICON_NODE_HIDDEN_BY);
+            n.removeClass(ELEVATION_HIDDEN_CLASS);
+        }
+    });
+    const icons = new Set(cy.nodes().filter((n) => n.data("_is_icon_node")).map((n) => n.id()));
+    if (icons.size === 0) return;
+    const parentOf = resolved.parentByChildId;
+    const owners = {};
+    Object.keys(parentOf).forEach((childId) => {
+        const seen = new Set([childId]);
+        let cur = childId;
+        while (parentOf[cur] && !seen.has(parentOf[cur])) {
+            cur = parentOf[cur];
+            seen.add(cur);
+            if (icons.has(cur)) {
+                owners[childId] = cur;
+                break;
+            }
+        }
+    });
+    Object.keys(owners).forEach((childId) => {
+        const node = cy.getElementById(childId);
+        if (!node.empty() && !node.hasClass(ELEVATION_HIDDEN_CLASS)) {
+            node.addClass(ELEVATION_HIDDEN_CLASS);
+            node.data(ICON_NODE_HIDDEN_BY, owners[childId]);
+        }
+    });
+    Object.keys(owners).forEach((childId) => {
+        delete parentOf[childId];
+    });
+}
+
+/** The size an icon node carries (set by applyIconNodes), or null for any other node. */
+function _iconNodeSize(node) {
+    if (!node.data("_is_icon_node")) return null;
+    const width = Number(node.data("_icon_w")), height = Number(node.data("_icon_h"));
+    return width > 0 && height > 0 ? {width, height} : null;
 }
 
 function _resolvePadding(parentNode, defaultPadding, perTypePaddings) {
