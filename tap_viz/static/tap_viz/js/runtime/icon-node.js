@@ -12,6 +12,9 @@
  * projectNested then treats an icon node as a leaf of exactly that size and hides what it would have
  * contained (nested-projection.js).
  *
+ * `solo: true` is the icon-centric-solo mode: the same icon and name with no card, no border and no fill,
+ * so only the icon shows. The icon then fills its box (default iconRatio 1).
+ *
  * The size is an input, never a constant: it is settable per call, per node (write `_icon_w` / `_icon_h`),
  * and after the fact with handle.resize(), so a later change can pre-scale the card for zoom and morph it
  * to the standard view. See spec-viz-icon-node.md.
@@ -23,6 +26,10 @@ export const ICON_NODE_HIDDEN_BY = "_icon_hidden_by";
 
 const DEFAULT_SIZE = 96;
 const DEFAULT_ICON_RATIO = 0.6;
+const DEFAULT_SOLO_ICON_RATIO = 1;
+// The name wraps at this multiple of the card's width (never below the minimum), so neighbours' names do not run together.
+const LABEL_WIDTH_FACTOR = 1.4;
+const LABEL_WIDTH_MIN = 96;
 
 // cy → Map(iconNodeId → ids of the nodes that pass changed)
 const _passes = new WeakMap();
@@ -42,7 +49,11 @@ function _passMap(cy) {
 
 function _style(node, width, height, ratio) {
     const pct = Math.round(ratio * 100) + "%";
-    node.style({"width": width, "height": height, "background-width": pct, "background-height": pct});
+    const labelWidth = Math.max(LABEL_WIDTH_MIN, Math.round(width * LABEL_WIDTH_FACTOR)) + "px";
+    node.style({
+        "width": width, "height": height, "background-width": pct, "background-height": pct,
+        "text-max-width": labelWidth,
+    });
 }
 
 function _restore(cy, key) {
@@ -58,8 +69,8 @@ function _restore(cy, key) {
             n.removeData(ICON_NODE_HIDDEN_BY);
             n.removeClass("tap-elevation-hidden");
         });
-        node.removeData("_is_icon_node _icon_key _icon_w _icon_h _icon_ratio");
-        node.removeStyle("width height background-width background-height");
+        node.removeData("_is_icon_node _icon_solo _icon_key _icon_w _icon_h _icon_ratio");
+        node.removeStyle("width height background-width background-height text-max-width");
     });
 }
 
@@ -71,7 +82,8 @@ function _restore(cy, key) {
  * @param {cytoscape.Collection} opts.members The nodes to show as icon nodes.
  * @param {number} [opts.width=96] Card width in model units.
  * @param {number} [opts.height=96] Card height in model units.
- * @param {number} [opts.iconRatio=0.6] The icon's share of the card.
+ * @param {boolean} [opts.solo=false] Icon-centric-solo: no card, border or fill; only the icon and the name.
+ * @param {number} [opts.iconRatio] The icon's share of the box (default 0.6, or 1 when solo).
  * @param {string} [opts.iconNodeId="default"] Key that makes a re-run replace the last pass.
  * @returns {{destroy: Function, resize: Function, count: number}}
  */
@@ -82,7 +94,8 @@ export function applyIconNodes(cy, opts = {}) {
     const members = opts.members && opts.members.length ? opts.members : cy.collection();
     const width = opts.width === undefined ? DEFAULT_SIZE : opts.width;
     const height = opts.height === undefined ? DEFAULT_SIZE : opts.height;
-    const ratio = opts.iconRatio === undefined ? DEFAULT_ICON_RATIO : opts.iconRatio;
+    const solo = opts.solo === true;
+    const ratio = opts.iconRatio === undefined ? (solo ? DEFAULT_SOLO_ICON_RATIO : DEFAULT_ICON_RATIO) : opts.iconRatio;
     if (!_validSize(width, height)) {
         throw new Error("applyIconNodes: width and height must be positive numbers");
     }
@@ -93,6 +106,8 @@ export function applyIconNodes(cy, opts = {}) {
         const w = Number(node.data("_icon_w")) > 0 ? Number(node.data("_icon_w")) : width;
         const h = Number(node.data("_icon_h")) > 0 ? Number(node.data("_icon_h")) : height;
         node.data({_is_icon_node: true, _icon_key: key, _icon_w: w, _icon_h: h, _icon_ratio: ratio});
+        // A solo node with no icon would draw nothing but its name, so it keeps the card (req-viz-icon-node-fallback).
+        if (solo && node.data("icon_url")) node.data("_icon_solo", true);
         _style(node, w, h, ratio);
         ids.push(node.id());
     });

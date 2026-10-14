@@ -59,6 +59,9 @@ function _toNodeArray(members) {
  *   un-stepped end the cascade descends away from): "left"/"right" for horizontal
  *   (default "left"), "top"/"bottom" for vertical (default "top"). Only meaningful
  *   when step != 0.
+ * @param {boolean} [opts.distribute=true]  When false the helper only ALIGNS: each member's cross-axis
+ *   position is set to the anchor's, and the main axis is left exactly where it is (no spacing, no
+ *   re-ordering). Use it to put nodes that already have their columns onto one line with an anchor node.
  * @param {string} [opts.label]  Optional — draw a titled box around the group.
  * @param {Object} [opts.style]  Optional scope-box style override (when labeled).
  * @returns {{destroy: Function, members: Array}}
@@ -94,7 +97,8 @@ function _alignDistribute(cy, opts, axis) {
     function resolveAnchor() {
         let pt;
         if (anchorNode) {
-            const bb = anchorNode.boundingBox();
+            // Align-only lines members up with the anchor's own box, not its box plus the name below it.
+            const bb = opts.distribute === false ? anchorNode.boundingBox({includeLabels: false, includeOverlays: false}) : anchorNode.boundingBox();
             pt = {x: (bb.x1 + bb.x2) / 2, y: (bb.y1 + bb.y2) / 2};
             if (opts.anchor && opts.anchor[cross] != null) pt[cross] = opts.anchor[cross];
         } else {
@@ -108,6 +112,14 @@ function _alignDistribute(cy, opts, axis) {
     // Distribute along the main axis (edge-to-edge gap), aligned on the cross axis
     // (optionally stepped into a staircase via `step` + `stepFrom`).
     function place(anchor) {
+        if (opts.distribute === false) {
+            ordered.forEach((n) => {
+                const pos = {...n.position()};
+                pos[cross] = anchor[cross];
+                n.position(pos);
+            });
+            return;
+        }
         const totalMain = ordered.reduce((s, n) => s + sizeMain(n), 0) + gap * (ordered.length - 1);
         let cursor = anchorMode === "center" ? anchor[main] - totalMain / 2 : anchor[main];
         const last = ordered.length - 1;

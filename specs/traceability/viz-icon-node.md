@@ -4,7 +4,7 @@
 
 | Bucket | Count |
 | --- | ---: |
-| excluded | 9 |
+| excluded | 10 |
 | unbuilt | 4 |
 | 0-ACID (payable) | 0 |
 
@@ -22,4 +22,5 @@ Reasons verbatim from each `Trace:` line; ⚠ marks zero-ACID exempt.
 | `req-viz-icon-node-label` | non-python | ⚠ | tap_viz/static/tap_viz/js/panel-graph.js |
 | `req-viz-icon-node-primitive` | non-python | ⚠ | tap_viz/static/tap_viz/js/runtime/icon-node.js |
 | `req-viz-icon-node-size` | non-python | ⚠ | tap_viz/static/tap_viz/js/runtime/icon-node.js |
+| `req-viz-icon-node-solo` | non-python | ⚠ | tap_viz/static/tap_viz/js/runtime/icon-node.js |
 | `req-viz-icon-node-terminal` | non-python | ⚠ | tap_viz/static/tap_viz/js/runtime/nested-projection.js |
