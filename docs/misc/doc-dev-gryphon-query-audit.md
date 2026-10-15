@@ -137,7 +137,7 @@ Cypher's node is a flat property bag. Gryphon splits the address space, **explic
 | --- | :--: | --- |
 | Graph envelope (`RETURN` omitted / bare vars) | shipped | The default. Returns `{nodes, edges}` at `lite`/`full`/`extended` layers. This is structurally what BloodHound's `RETURN p` is *for*. |
 | Field projection `n.data.x AS x` | shipped | `AS` optional; default alias is the last dot-step. |
-| `COUNT(v)` / `COUNT(v.f)` | shipped | The **only** aggregate (`executor.py:2716`). Implicit `GROUP BY` on the non-aggregated columns. **Requires at least one edge in the pattern** — `MATCH (n:T) RETURN n.data.k AS k, COUNT(n) AS c` is rejected: *"Advanced executor requires at least one edge in the MATCH pattern"* (verified). So there is no aggregation over a plain type scan. |
+| `COUNT(v)` / `COUNT(v.f)`, `MIN(v.data.f)`, `MAX(v.data.f)` | shipped | The aggregates (`req-grid-gryphon-count`, `-minmax`, `-nodeonly-agg`). Implicit `GROUP BY` on the non-aggregated columns. They work over an edge pattern and over a labelled node-only scan (`MATCH (n:T) RETURN n.data.k AS k, COUNT(n) AS c`); a labelless scan, several `MATCH` clauses and an `OPTIONAL MATCH` variable are refused. |
 | `SUM` / `MIN` / `MAX` / `AVG` / `COLLECT` / `COUNT(DISTINCT …)` | **absent** | Verified parse errors. |
 | Scalar functions (`toLower`, `size`, `coalesce`, `substring`, …) | **absent** | No function-call rule in the grammar at all. |
 | Arithmetic in expressions | absent | |

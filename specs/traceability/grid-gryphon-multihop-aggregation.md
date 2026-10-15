@@ -4,7 +4,7 @@
 
 | Bucket | Count |
 | --- | ---: |
-| mapped | 10 |
+| mapped | 11 |
 | unbuilt | 1 |
 | unaccounted | 1 |
 | 0-ACID (payable) | 0 |
@@ -18,6 +18,7 @@
 | `req-grid-gryphon-minmax` | Implemented | Implemented | `_extremum_aggregate` | — |
 | `req-grid-gryphon-multihop` | Implemented | Implemented | `_build_chain_queryset` | — |
 | `req-grid-gryphon-multihop-envelope` | Implemented | Implemented | `_build_chain_queryset` | — |
+| `req-grid-gryphon-nodeonly-agg` | Implemented | Implemented | `_typescan_aggregate_rows` | — |
 | `req-grid-gryphon-not-exists` | Implemented | Implemented | `_apply_not_exists` | — |
 | `req-grid-gryphon-optional-match` | Implemented | Implemented | `_execute_optional_match` | — |
 | `req-grid-gryphon-order-by` | Implemented | Implemented | `_resolve_order_cols` | — |

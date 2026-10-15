@@ -383,7 +383,7 @@ Today Gryphon supports `COUNT(...)`, `MIN(...)` and `MAX(...)` with implicit GRO
 
 **How it touches the executor today.** Maps to Django ORM `Sum/Min/Max/Avg` annotation. The existing aggregation path in `_compute_rows` already handles `Count`; extending to the other aggregates is parallel work, not a new dispatch path.
 
-**Status flag.** `MIN` and `MAX` landed (2026-10-15) as `req-grid-gryphon-minmax` in `spec-grid-gryphon-multihop-aggregation.md`: typed data-lane fields (integer, number, date-time, date), implicit GROUP BY shared with `COUNT`, NULLs ignored. `SUM` and `AVG` remain `wait-for-signal` (no concrete query yet).
+**Status flag.** `MIN` and `MAX` landed (2026-10-15) as `req-grid-gryphon-minmax` in `spec-grid-gryphon-multihop-aggregation.md`: typed data-lane fields (integer, number, date-time, date), implicit GROUP BY shared with `COUNT`, NULLs ignored. They also work over a node-only scan (`MATCH (a:T) RETURN MAX(a.data.f) AS m`, `req-grid-gryphon-nodeonly-agg`). `SUM` and `AVG` remain `wait-for-signal` (no concrete query yet).
 
 **Validation contract size.** ~5-6 Gridkin scenarios (one per aggregate, plus interaction with GROUP BY, plus NULL handling). `MIN`/`MAX` shipped with `scenarios/minmax.gridkin.json` (8 result scenarios, 13 rejections).
 
