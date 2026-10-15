@@ -1,0 +1,34 @@
+{% comment %}
+Stat Cards panel (req-web-stdpanel-statcards-render): one <li> per search row.
+A cell is rendered by the include below; `time`/`age` cells are finished in the
+browser (localtime.js / stat-cards.js) and read the exact ISO value without JS.
+{% endcomment %}
+<div class="tap-panel tap-panel--stat-cards" data-tap-stat-cards>
+    {% if not panel.config.hide_header %}{% include "tap_web/panel_header.html" %}{% endif %}
+    {% if cards_error %}
+    <div class="tap-panel-error rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">{{ cards_error }}</div>
+    {% elif cards_empty_text %}
+    <p class="tap-statcards__empty">{{ cards_empty_text }}</p>
+    {% else %}
+    <ul class="tap-statcards" aria-label="{{ panel.name }}">
+        {% for card in cards %}
+        <li class="tap-statcard tap-statcard--{{ card.tone }}" data-tap-tone="{{ card.tone }}">
+            {% if card.title %}<h3 class="tap-statcard__title">{% include "tap_web/panels/_stat_card_cell.html" with cell=card.title %}</h3>{% endif %}
+            <p class="tap-statcard__value">{% include "tap_web/panels/_stat_card_cell.html" with cell=card.value %}{% if card.unit and card.value.kind != "state" %} <span class="tap-statcard__unit">{{ card.unit }}</span>{% endif %}</p>
+            {% if card.tone_label %}<p class="tap-statcard__tone"><span class="tap-statcard__tone-mark" aria-hidden="true"></span>{{ card.tone_label }}</p>{% endif %}
+            {% if card.lines %}
+            <dl class="tap-statcard__lines">
+                {% for line in card.lines %}
+                <div class="tap-statcard__line">
+                    <dt>{{ line.label }}</dt>
+                    <dd>{% include "tap_web/panels/_stat_card_cell.html" with cell=line.cell %}</dd>
+                </div>
+                {% endfor %}
+            </dl>
+            {% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+    {% if cards_omitted %}<p class="tap-statcards__omitted">{{ cards_omitted }} more row{{ cards_omitted|pluralize }} not shown.</p>{% endif %}
+    {% endif %}
+</div>

@@ -196,7 +196,7 @@ The scope of this requirement is deliberately narrow. Numeric aggregates (`SUM`,
 | req-grid-gryphon-count-2 | AS Alias Required For Aggregates | Implemented | Every aggregate RETURN item must carry an `AS alias`; parse fails otherwise. | |
 | req-grid-gryphon-count-3 | Implicit GROUP BY | Implemented | Non-aggregate RETURN items become GROUP BY keys when any aggregate is present. | |
 | req-grid-gryphon-count-4 | All-Aggregate Returns Single Row | Implemented | Queries whose RETURN contains only aggregates produce exactly one result row. | |
-| req-grid-gryphon-count-5 | COUNT, MIN And MAX Are The Only Aggregates | Implemented | `SUM`, `AVG`, `COUNT(*)`, and `COUNT(DISTINCT ...)` are rejected with an unsupported-feature error. | Amended by `req-grid-gryphon-minmax`, which added `MIN` and `MAX`; each rejected form has a future-iteration upgrade path |
+| req-grid-gryphon-count-5 | COUNT, MIN And MAX Are The Only Aggregates | Implemented | `SUM`, `AVG`, `COUNT(*)`, and `COUNT(DISTINCT ...)` are rejected with an unsupported-feature error that names the aggregate and the supported ones (`COUNT`, `MIN`, `MAX`). | Amended by `req-grid-gryphon-minmax`, which added `MIN` and `MAX`; each rejected form has a future-iteration upgrade path |
 | req-grid-gryphon-count-6 | Integer Result | Implemented | Count results are integers in the rows envelope. | |
 
 #### Future
@@ -616,7 +616,7 @@ Built per the `build-gryphon-capability` skill: spec, grammar, AST, parser, exec
 | req-grid-gryphon-minmax-6 | Result Keeps The Field's Type | Implemented | Numeric fields return numbers; date-time fields return an ISO-8601 UTC string (`...Z`) and date fields `YYYY-MM-DD`, keeping rows primitives-only. | See the Result type note |
 | req-grid-gryphon-minmax-7 | JSON Scalar Sub-Key Parity | Implemented | `MIN(n.data.<...>)` over a JSON scalar sub-key lowers through the shared field-path resolver exactly as a column does. | |
 | req-grid-gryphon-minmax-8 | Applied Or Rejected On Every Aggregate Path | Implemented | The `_compute_rows` aggregate branch applies `MIN`/`MAX`; the OPTIONAL MATCH path rejects them with `SearchExecutionError`; no path silently drops them. | |
-| req-grid-gryphon-minmax-9 | Other Aggregates Still Rejected | Implemented | `SUM`, `AVG`, `COUNT(*)` and `COUNT(DISTINCT ...)` remain rejected with an unsupported-feature error. | Amends `req-grid-gryphon-count-5` |
+| req-grid-gryphon-minmax-9 | Other Aggregates Still Rejected | Implemented | `SUM`, `AVG`, `COUNT(*)` and `COUNT(DISTINCT ...)` remain rejected with a `GryphonParseError` (a `SearchExecutionError`, HTTP 422, on the search path) that names the unsupported aggregate and lists the supported ones (`COUNT`, `MIN`, `MAX`), never a bare grammar error. A field merely named `sum` or `avg` still parses. | Amends `req-grid-gryphon-count-5` |
 
 #### Future
 
