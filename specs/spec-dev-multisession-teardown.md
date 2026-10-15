@@ -161,6 +161,7 @@ The original safety design called for despawn to refuse on *both* dirty worktree
 | req-dev-multisession-teardown-safety-1 | Dirty worktree forces confirm | Implemented | A dirty worktree does not hard-stop, but forces an interactive `[y/N]` confirm even under `--yes`. | |
 | req-dev-multisession-teardown-safety-2 | Unpushed commits hard-stop | Implemented | A branch ahead of `origin/main` blocks despawn (non-destructively, exit non-zero); only `--abandon-unmerged` overrides, and `--yes` does not. | |
 | req-dev-multisession-teardown-safety-3 | Fail closed when unverifiable | Implemented | If `origin/main` cannot be fetched or does not exist, treat all branch commits as unpushed rather than assuming safety. | |
+| req-dev-multisession-teardown-safety-4 | Lite marker is not dirt | Implemented | The untracked `.lite-session` marker that `spawn-session.sh --lite` writes does not by itself make a worktree dirty, so a never-promoted lite session despawns without the forced confirm. Only that exact path is excluded; any other uncommitted or untracked file, including a `boot/*.boot.json`, still counts. | Exact-path match, no glob. |
 
 ## Manual Teardown (until the script lands)
 
