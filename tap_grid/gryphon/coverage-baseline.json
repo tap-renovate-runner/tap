@@ -1,10 +1,10 @@
 {
-  "executor_branch_pct_floor": 73,
-  "measured_branch_pct": 73.66,
-  "measured_covered_branches": 467,
-  "measured_num_branches": 634,
-  "measured_combined_pct": 79.38,
-  "measured_at_commit": "4ac10f1",
+  "executor_branch_pct_floor": 78,
+  "measured_branch_pct": 78.91,
+  "measured_covered_branches": 625,
+  "measured_num_branches": 792,
+  "measured_combined_pct": 83.98,
+  "measured_at_commit": "49f73c71",
   "suites": [
     "tap_grid/tests/test_gryphon.py",
     "tap_grid/tests/test_gryphon_sql_capture.py",
