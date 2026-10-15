@@ -75,6 +75,20 @@ remain the boot record's territory. The two compose; neither substitutes for the
 | req-cicd-sbom-14 | [Consumer Verification Docs](#consumer-verification-docs) | Proposed | The req-cicd-sbom-5 resolve-and-verify flow carried verbatim in the release/consumer documentation, once that surface exists |
 | req-cicd-sbom-15 | [Plugin SBOM Composition](#plugin-sbom-composition) | Proposed | The composition half of -10: bake-time single derivation reconciled against plugin-declared SBOMs; boot records reference release SBOMs by digest — rides the appliance arc with -9 |
 | req-cicd-sbom-16 | [Crypto Bill of Materials (CBOM) in the Image SBOM](#crypto-bill-of-materials-cbom-in-the-image-sbom) | Proposed | Close the CBOM gap inside the existing single derivation: `tap.crypto_bom` findings and dispositions ride the attested CycloneDX document as `tap:crypto:*` properties on the owning component; one document, one predicate. Providers only in the first slice; other assetTypes named, sourced and deferred. Ingestion verifies the attestation before it parses. |
+| req-cicd-sbom-17 | [Vulnerability Evidence Workflow](#vulnerability-evidence-workflow) | Proposed | ONE reusable CI workflow teams call: Syft CycloneDX 1.7, scan, merge, enrich, validate, attest; rescan mode; scanners in an unsigned job, a first-party job signs. Overview and the nine-decision ledger precede it. |
+| req-cicd-sbom-18 | [Merge and Enrichment](#merge-and-enrichment) | Proposed | Join scanner output by purl (Grype keeps 1 of 191 bom-refs); per-entry `tools`; dedupe with GHSA/CVE aliases; CVSS, CWE, SSVC (CISA-ADP), KEV (catalog-stamped), EPSS, each with provenance |
+| req-cicd-sbom-19 | [Scan Coverage - SBOM Scan and Image Cross-Check](#scan-coverage---sbom-scan-and-image-cross-check) | Proposed | Decided SV-2: scan both; the SBOM scan is the record, the image scan reports differences |
+| req-cicd-sbom-20 | [Document Revisions - One Merged Document](#document-revisions---one-merged-document) | Proposed | Decided SV-1: one merged document; each scan is the next `version` of the SAME `serialNumber`; all revisions kept (revisit); signature = CI ran the named tools |
+| req-cicd-sbom-21 | [Deploy Gate](#deploy-gate) | Proposed | Decided SV-5: block promotion of a KEV-listed image against the CURRENT catalog; fail closed; waiver path UNRULED |
+| req-cicd-sbom-22 | [Signer Trust](#signer-trust) | Proposed | Decided SV-8: default-deny signer list as data, one starting signer (the reusable workflow, pinned ref and signer digest); signature time is the log time |
+| req-cicd-sbom-23 | [Dependabot Intake](#dependabot-intake) | Proposed | Decided SV-7: fetch in CI; fork and Dependabot runs record `not-observed`, never an empty list; permission claim NOT OBSERVED |
+| req-cicd-sbom-24 | [Ingestion - SBOM Node, Parser and Ownership](#ingestion---sbom-node-parser-and-ownership) | Proposed | Decided SV-3: computing_core owns node and parser; verify first, parse only the verified predicate; metadata plus file reference, not the document |
+| req-cicd-sbom-25 | [Idempotency and Duplicates](#idempotency-and-duplicates) | Proposed | Document identity is the content digest; stable finding keys; unreported means resolved; counts group by (vulnerability, component version) |
+| req-cicd-sbom-26 | [Current Semantics, Counting and Triage](#current-semantics-counting-and-triage) | Proposed | Current = highest revision per digest; fleet counts over deployed images; triage judgements survive a new image |
+| req-cicd-sbom-27 | [Alert-Derived and SBOM-Derived Duplicates](#alert-derived-and-sbom-derived-duplicates) | Proposed | Decided SV-6: keep both and correlate on (vulnerability, component version, image); alerts give first-seen and dismissal, the SBOM gives presence now; retire alert component findings later |
+| req-cicd-sbom-28 | [Dependency Links as Edges (Provisional)](#dependency-links-as-edges-provisional) | Proposed | Decided SV-4: `dependsOn` becomes `REQUIRES_PACKAGE` edges, plain identity, provisional with revisit conditions |
+| req-cicd-sbom-29 | [Scanner Pin Maintenance](#scanner-pin-maintenance) | Proposed | Decided SV-9: Renovate managers for the Syft and Grype pins in one group (build later); Trivy waits on tap#1038 |
+| req-cicd-sbom-30 | [What This Feeds - CBOM and VDR](#what-this-feeds---cbom-and-vdr) | Proposed | How this feeds `req-cicd-sbom-16` and what a VDR consumer needs from the grid (VDR itself not specified) |
 
 ---
 
@@ -803,7 +817,7 @@ parser maps, with the computing_core vocabulary read from `specs/spec-computing-
 
 | CycloneDX element | Grid result | Method |
 | --- | --- | --- |
-| the whole document | one SBOM node: full JSON, subject digest, attestation reference | George's stated intent; node type and owner are Open Decision B |
+| the whole document | one SBOM node: metadata, subject digest, attestation reference and a reference to the stored file (the document is not stored in the database); owned by `computing_core` | George's rulings of 2026-10-15; `req-cicd-sbom-24` |
 | `components[]` with purl type `apk`/`pypi`/`npm` | `package` keyed `(ecosystem = purl type, name, version)`; `purl`, `cpe`, `license` copied; `architecture` from the purl `arch` qualifier; `source_document: sbom` | read (spec); ran (101 apk, 71 pypi, 15 npm, 2 github, 1 generic, 1 without purl, in the real documents) |
 | apk origin | `source_package` and `DERIVES_FROM_SOURCE_PACKAGE`, see below | ran |
 | supplemental components (`tap:supplemental`) | `library` (and `SHIPS_LIBRARY` where a package ships it) | inferred from the `library` section of the computing-core-tap spec |
@@ -825,13 +839,8 @@ needs a fallback branch because every package draws the edge.
 
 #### Open decisions for the maintainer (not decided here)
 
-* **A. Do the dependency links become edges?** The documents hold 458 `dependsOn` links on arm64 (356 apk to apk, 88 pypi to pypi, 14 npm to npm) and 420 on amd64 (318 apk) (ran), so the graph
-  differs per architecture while `package` identity does not (`(ecosystem, name, version)`, architecture is not identity). Options: (1) none: the SBOM node's JSON keeps the graph and packages are
-  nodes only (leaner, loses "what depends on this vulnerable library" in Gryphon); (2) a new package-to-package edge, needing a spec in the owning plugin and an arch discriminator or an accepted
-  union across arches; (3) edges for pypi/npm only. Recommendation: (1) for the first slice, revisit when a question needs the graph; the document retains it, so nothing is lost.
-* **B. Who owns the SBOM node and the parser?** (1) `computing_core`: the target types and edges are there, no new plugin; but that plugin is a vocabulary plugin and says "nothing in this plugin
-  emits these types yet; a collector or bundle does" (read). (2) a new `*_core` plugin depending downward on `computing_core`: document, attestation reference and parser live together, vocabulary stays neutral; costs one more plugin. (3) `compliance_core`: the
-  document is evidence, but it is not a finding. Recommendation: (2); fall back to (1) if the maintainer prefers fewer plugins.
+* **A. Do the dependency links become edges?** DECIDED 2026-10-15 (George): yes for now, provisional; see `req-cicd-sbom-28`. The documents hold 458 `dependsOn` links on arm64 (356 apk to apk, 88 pypi to pypi, 14 npm to npm) and 420 on amd64 (318 apk) (ran). The options and recommendation first written here (none; a new edge; pypi/npm only) are superseded.
+* **B. Who owns the SBOM node and the parser?** DECIDED 2026-10-15 (George): `computing_core`; see `req-cicd-sbom-24`. The recommendation first written here, a new `*_core` plugin depending downward on `computing_core`, is superseded, and no new plugin is created.
 * **C. Which assetTypes after providers, and from which source?** Decision 1 lists candidates; none is chosen. Recommendation: stop at providers until a consumer asks.
 * **D. What is the host for an image?** `host` is keyed `(realm, stable_id)` and a container is a host with `kind: container`; an image digest is not a running container. Needs a ruling on a `realm` for an image
   digest before `INSTALLS_PACKAGE` is drawn.
@@ -852,6 +861,613 @@ needs a fallback branch because every package draws the edge.
 | req-cicd-sbom-16-10 | One generic parser | Proposed | The CBOM mapping is a step of the same CycloneDX parser that maps packages, libraries and source packages; there is no second parser. | Decision 5. |
 | req-cicd-sbom-16-11 | Provider identity converges | Proposed | A parsed finding keys on `(scope, artifact, provider)` with the registry's own strings, so it updates an existing `crypto_provider` node and never creates a second. | Decision 5. |
 | req-cicd-sbom-16-12 | Source packages from the SBOM origin | Proposed | `source_package` nodes are derived from `syft:metadata:originPackage` (or `name` where equal), with the version taken from the members' shared version; a disagreeing member fails the parse. No type or edge changes. | Decision 5; observed 101/101, 69 origins, 11 multi-binary. |
+
+### Vulnerability Evidence from SBOMs - Overview and Decision Ledger
+----
+
+This group of requirements (`req-cicd-sbom-17` to `req-cicd-sbom-30`) turns the attested image SBOM into the thing that drives vulnerability status on the grid and, next, vulnerability detection and
+response (VDR) processing. Maintainer direction (George, 2026-10-15, relayed by the support session): stay on CycloneDX; work with teams to generate standardized CycloneDX SBOMs on their side; ingest
+them; use them to drive vulnerability status. Nothing here is built; every requirement is `Proposed`.
+
+**The flow, in plain steps.** (1) A team's CI calls ONE reusable workflow TAP ships, so no team writes its own. (2) The workflow builds the SBOM with Syft (CycloneDX 1.7). (3) It scans that SBOM with a
+vulnerability scanner, and scans the image as a cross-check. (4) It merges the scanner outputs into one list, one entry per vulnerability and component, saying which scanner saw it. (5) It adds facts from
+public records (CVSS, CWE, CISA's SSVC assessment, CISA's Known Exploited Vulnerabilities flag), each stamped with where and when it came from. (6) It validates the document and fails the run if it is
+malformed. (7) It signs the result as an attestation bound to the image digest. (8) Before an image is promoted, a gate checks the CURRENT KEV catalog and blocks a KEV-listed image. (9) TAP ingests: it
+verifies the attestation first, then parses only the verified content onto the grid as packages, libraries, source packages, vulnerabilities, findings, scan runs and scanners. (10) A dashboard counts
+vulnerabilities over the images that are currently deployed.
+
+**Method key used throughout.** `read` = I opened the file or page; `ran` = I executed the command and observed the output (2026-10-15, in the stat-card worktree with throwaway containers); `inferred` =
+reasoned, not observed. Anything not observed is marked NOT OBSERVED.
+
+#### Decision ledger
+
+| Id | Question | State | Where |
+| --- | --- | --- | --- |
+| SV-1 | One merged document, or a separate vulnerability document per digest? | Decided: one merged document, revised through CycloneDX serial and version; all revisions kept (revisit); the signature means CI ran the named tools | `req-cicd-sbom-20` |
+| SV-2 | Scan the SBOM, the image, or both? | Decided: both | `req-cicd-sbom-19` |
+| SV-3 | Which plugin owns the SBOM node and parser? | Decided: `computing_core` | `req-cicd-sbom-24` |
+| SV-4 | Do the `dependsOn` links become edges? | Decided: yes for now (provisional) | `req-cicd-sbom-28` |
+| SV-5 | Who owns the deploy gate and what does it block on? | Decided: block promotion on KEV; the waiver path is unruled | `req-cicd-sbom-21` |
+| SV-6 | How are alert-derived and SBOM-derived findings kept from double counting? | Decided: keep both and correlate; retire alert component findings later | `req-cicd-sbom-27` |
+| SV-7 | Dependabot: fetch in CI, or leave it to the existing collector? | Decided: fetch in CI | `req-cicd-sbom-23` |
+| SV-8 | Whose attestation signers does TAP trust? | Decided: default-deny list, one signer to start | `req-cicd-sbom-22` |
+| SV-9 | The Renovate gap for the scanner pins | Decided: add managers (build later) | `req-cicd-sbom-29` |
+
+All nine were ruled by George on 2026-10-15 through the support session, which relayed them to the coordinating session; the relayed text is the only record of the rulings at this time (SV-8 was
+confirmed a second time). Where a requirement fills in detail the ruling did not state (the waiver path, retention numbers, the edge name, the correlation key), that detail is this spec's proposal and
+says so.
+
+### Vulnerability Evidence Workflow
+----
+RID: `req-cicd-sbom-17`
+
+Status: `Proposed`
+
+TAP ships ONE reusable GitHub Actions workflow, called from each team's own repository, that produces signed vulnerability evidence for an image digest. Teams supply inputs (image reference by digest,
+supplemental manifest if any); they do not write scanner steps. This is the same declare-vs-decide pattern as `req-cicd-sbom-10`: the author's pipeline declares, TAP verifies and composes. It is the
+generalisation of the existing `sbom` and `attest-sbom` jobs of the publish pipeline (`req-cicd-sbom-1`, `-4`, `-6`, read) from "two TAP images" to "any team image".
+
+Stages, in order, each fail-closed unless marked:
+
+| # | Stage | Requirement | Method |
+| --- | --- | --- | --- |
+| 1 | Generate | Pinned Syft, one derivation per digest, CycloneDX 1.7 primary (`req-cicd-sbom-1`, `-6`). SPDX is emitted from the same scan; Syft v1.54.1 emits SPDX 3.0.1 (`-o spdx-json@3.0`, document `@context` is the 3.0.1 context) | ran (v1.54.1 on a one-file directory: CycloneDX `specVersion` 1.7 and SPDX 3.0.1 context); the current pin is v1.51.0 (read, `scripts/sbom/generate.py`), which emits 1.7 (read, the real documents) |
+| 2 | Scan the SBOM | Grype (see `req-cicd-sbom-19`) reads the SBOM as the component record | ran |
+| 3 | Scan the image | A cross-check by a second scanner, difference-reporting (`req-cicd-sbom-19`) | read (existing Trivy lane) |
+| 4 | Merge (as the next revision of the SAME document, `req-cicd-sbom-20`) | `req-cicd-sbom-18` | ran |
+| 5 | Enrich | `req-cicd-sbom-18` | ran |
+| 6 | Validate | Schema validation and the minimum-elements checks of `req-cicd-sbom-11` over the final document, not only the Syft output | read |
+| 7 | Attest | `actions/attest`, subject = the per-arch digest, signed in a first-party-only job (`req-cicd-sbom-4`, tap#507); the signer identity is the one `req-cicd-sbom-22` trusts | read |
+| 8 | Gate | `req-cicd-sbom-21`, at promotion rather than at build | inferred |
+
+A rescan mode is part of the same workflow: given a digest, it fetches and verifies the already-published SBOM attestation (`req-cicd-sbom-24`) and uses that document, never a regenerated one, as its input; it rescans with the current scanner database and produces the next revision of the same document (`req-cicd-sbom-20`). Rescans are what keep "current" current (`req-cicd-sbom-26`) and are what a scheduled caller invokes; the workflow does not schedule itself.
+
+**Scanner capability facts the stage list depends on (ran, 2026-10-15).** Grype v0.120.1 read the real tap-web arm64 CycloneDX 1.7 SBOM and emitted CycloneDX 1.7 plus its native JSON. Trivy 0.75.0
+and 0.76.0 both read the same 1.7 document and produced identical vulnerability sets (24 distinct ids, 24 of 24 also matched by Grype). Trivy is not required to read SPDX 3 and cannot (per the task
+brief; NOT OBSERVED by this author). Grype reading SPDX 3.0.1 is the support session's claim (a file `grype120-spdx3.json` exists in the support scratchpad; NOT re-run here).
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-cicd-sbom-17-1 | One reusable workflow | Proposed | Teams obtain vulnerability evidence by calling one TAP-owned reusable workflow; a team-authored scanner step is not the supported path. | |
+| req-cicd-sbom-17-2 | Digest-threaded | Proposed | Every stage addresses `ref@digest`; no stage resolves a mutable tag (`req-cicd-supply-chain-provenance-1`). | |
+| req-cicd-sbom-17-3 | Fail closed per stage | Proposed | A failed, skipped or unobservable stage 1, 2, 4, 5, 6 or 7 fails the run; stage 3 and the Dependabot intake record a visible not-observed marker instead (`req-cicd-sbom-19-3`, `req-cicd-sbom-23-2`). | Three states: done, failed, not observed. |
+| req-cicd-sbom-17-4 | Rescan mode | Proposed | The workflow can rescan a digest from its verified, already-published SBOM without regenerating it. | |
+| req-cicd-sbom-17-5 | Scanners are unsigned | Proposed | Scanner steps run in a read-only unsigned job; only a first-party job that merges and validates holds the signing token (`req-cicd-sbom-20-6`). | |
+
+### Merge and Enrichment
+----
+RID: `req-cicd-sbom-18`
+
+Status: `Proposed`
+
+**Merge rules** (the scanners disagree on identifiers, so the merge is where correctness is made):
+
+1. **Remap `bom-ref` by purl.** Grype regenerates every `bom-ref`; the original references do not survive. Measured: of 191 source `bom-ref`s, **1** appears unchanged in Grype's CycloneDX output, versus **191
+   of 191** in Trivy's (ran, arm64 document). Every scanner output is therefore joined to the SBOM by the component's purl (and by name+version for the one component without a purl, the `wolfi`
+   operating-system entry), never by `bom-ref`. All 182 distinct purls of the SBOM were present in Grype's output; Trivy's output held 179 of them plus 3 not in the source (ran; the 3 not investigated).
+2. **Attribute per entry.** Each merged vulnerability entry carries the scanner that reported it in the entry's own `tools` field (present in the vendored 1.6 schema, `definitions.vulnerability`, read).
+   An entry reported by two scanners lists both.
+3. **Dedupe by vulnerability and component.** One entry per (canonical vulnerability id, component purl). The canonical id is the CVE id when any alias is a CVE, otherwise the GHSA id (the same rule
+   as the `compliance_vulnerability` key, read). All other ids are kept as aliases.
+4. **Aliases must come from the scanner's native output.** Grype's CycloneDX output carries one id per entry (ran: 148 entries, `references` has exactly one element in all 148) and does not list the
+   CVE alias of a GHSA entry; Grype's native JSON does (`relatedVulnerabilities`: 73 of 148 matches carry one; 46 matches are GHSA-identified and 19 of those name a CVE; ran). The workflow therefore
+   runs Grype once and emits BOTH outputs from the same database state (`-o cyclonedx-json=... -o json=...`, ran in one invocation), merging aliases from the native JSON.
+5. **Keep every rating, with its source.** Ratings are not collapsed: Trivy emits one rating per vendor (ran: redhat, ghsa, nvd, azure, ubuntu, bitnami, amazon on the arm64 document); Grype emits CVSS
+   and a FIRST EPSS rating (ran: 121 EPSS ratings on 148 entries).
+6. **Fix versions** are kept per entry: Grype's native JSON states `fix.state` (ran: 78 fixed, 69 unknown, 1 not-fixed of 148) and CycloneDX carries `affects[].versions` and `recommendation`.
+
+**Enrichment rules** (done in CI so the attested document carries facts with provenance; every enrichment is stamped with its source, retrieval time and, where it has one, the source's version):
+
+| Fact | Source | Carried as | Method |
+| --- | --- | --- | --- |
+| CVSS, CWE | the CVE record (CVE Program JSON 5) | `ratings[]` with `source`, `method`, `vector`; `cwes[]` | ran (CVE-2021-44228 record fetched from `cveawg.mitre.org`) |
+| SSVC (Exploitation, Automatable, Technical Impact) | the CISA-ADP container of the CVE record: `containers.adp[]` with `providerMetadata.shortName` `CISA-ADP`, `metrics[].other.type` = `ssvc`, content version `2.0.3`, a timestamp | a rating with `method: SSVC`, the three options, and the assessment timestamp; `SSVC` is a member of the CycloneDX `scoreMethod` enum (read, vendored schema) | ran |
+| KEV | CISA's catalog JSON (`known_exploited_vulnerabilities.json`) | a rating with `method: other`, `source.name: CISA KEV Catalog`, `justification: Listed in CISA KEV`, plus `tap:kev:catalog-version`, `tap:kev:date-released`, `tap:kev:fetched-at` and `tap:kev:date-added` properties | ran: the catalog carries `catalogVersion` (`2026.10.15`), `dateReleased`, `count` (1746) |
+| EPSS | taken from Grype's FIRST rating as emitted | rating, `source.name: FIRST` | ran |
+
+KEV has no standard CycloneDX field. The convention TAP adopts is Grype's: Grype emits exactly that rating shape when a KEV match exists (ran: a probe SBOM of `log4j-core@2.14.1`, grype v0.120.1, gave the entry
+`GHSA-jfh8-c2jp-5v3q` with a `CISA KEV Catalog` rating, score 1, justification `Listed in CISA KEV`, and an EPSS rating of 0.99999). Two cautions from the same probe: Grype named the vulnerability by its GHSA id,
+not by CVE-2021-44228, so a KEV lookup MUST be done over the vulnerability's whole alias set, never its primary id alone; and Trivy has no native KEV or EPSS (the task brief cites aquasecurity/trivy#2558; NOT
+re-read here) and returned no entries for the maven probe (cause not investigated). The CISA-ADP container also carries a `kev` metric (ran); the catalog JSON remains the source because the gate needs the catalog's own version stamp.
+
+The 2026-10-15 tap-web arm64 measurement found **no KEV-listed vulnerability** among the 65 distinct ids (41 CVEs) Grype reported (ran: intersection with catalog 2026.10.15 is empty).
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-cicd-sbom-18-1 | Join by purl | Proposed | No scanner output is joined to the SBOM by `bom-ref`; the join key is purl (name+version for a component without one). | Grype: 1 of 191 `bom-ref`s survive. |
+| req-cicd-sbom-18-2 | Per-entry attribution | Proposed | Every merged entry names each reporting scanner and its version in `tools`. | |
+| req-cicd-sbom-18-3 | One entry per vulnerability and component | Proposed | The merged document has at most one entry per (canonical vulnerability id, component); GHSA and CVE aliases are kept. | |
+| req-cicd-sbom-18-4 | Provenance on every enrichment | Proposed | Each CVSS, SSVC and KEV fact carries its source, retrieval time and source version; a fact with no recorded source is refused. | |
+| req-cicd-sbom-18-5 | KEV over aliases | Proposed | A KEV match is evaluated over every alias of a vulnerability; the catalog version, release time and fetch time are stamped into the document. | |
+| req-cicd-sbom-18-6 | Not read is not false | Proposed | If the KEV catalog or a CVE record could not be read, the fact is recorded as not observed, never as "not KEV" or "no score". | `kev: null` versus `false`, as the vulnerability node's convention. |
+
+### Scan Coverage - SBOM Scan and Image Cross-Check
+----
+RID: `req-cicd-sbom-19`
+
+Status: `Proposed`
+
+**Decided (SV-2, George 2026-10-15): scan both.** The SBOM scan is the component record: it is what TAP ingests and counts. The image scan is a cross-check that reports differences; it does not feed
+counts by itself.
+
+Why both are needed, from the data (ran unless stated): the SBOM deliberately excludes the wheel-cache seed (`req-cicd-sbom-2`), yet an image scan reads it. Of the 400 code-scanning alerts in
+the local grid export (read from the stat-card scratchpad `code-scanning.grift.json`, dated 2026-10-14), 108 are located under `opt/uv-cache-seed` (106 fixed, 2 open).
+The converse also holds: the SBOM scan finds apk packages and the out-of-band FIPS provider (6 `pkg:generic` matches on arm64) that an image scan may attribute differently. Neither alone is complete.
+
+The cross-check output is a `tap:scan-differences` section of the document: findings reported by one scan and not the other, each with a reason class where one is known (`path-excluded-by-req-cicd-sbom-2`,
+`scanner-database-difference`, `unknown`). Differences are information, not failures, unless a KEV-listed vulnerability appears only in the image scan (then the gate treats it as present,
+`req-cicd-sbom-21`).
+
+**Scanner roles.** Grype is the required SBOM scanner (it matches on purl and on CPE; see the grype-nightly lane header, read, for why a CPE-only component such as the self-built FIPS provider is invisible to
+Trivy). Trivy at or above the pin of core PR #1036 (v0.75.0) is the image cross-check and MAY also scan the SBOM. On the same arm64 SBOM Grype reported 148 matches (49 distinct ids on 123 apk, 19 pypi, 6 generic
+components) and Trivy 24 (all 24 also reported by Grype; 5 apk, 19 pypi). Which of Grype's 124 additional apk and generic matches are true positives is NOT OBSERVED.
+
+**Why two Trivy counts exist (the 24 versus 7 question).** Trivy 0.75.0 and 0.76.0 return the same 24 vulnerabilities on the d86ebb77... arm64 SBOM (ran, identical id sets). The "7" is the result on a
+different document: the support session's `trivy76-cdx.json` is a scan of the SBOM for digest `sha256:a9149a88...` (the later `:latest` arm64 image), and running both Trivy versions on that other SBOM
+gives 7 (ran). The versions do not differ; the images do.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-cicd-sbom-19-1 | SBOM scan is the record | Proposed | Counts and ingestion use the SBOM-scan result; the image scan never adds findings to counts on its own. | |
+| req-cicd-sbom-19-2 | Differences are reported | Proposed | Every finding present in exactly one of the two scans appears in `tap:scan-differences` with a reason class. | |
+| req-cicd-sbom-19-3 | Missing cross-check is visible | Proposed | If the image scan could not run, the document records `tap:image-scan: not-observed` with the reason; it is never an empty difference list. | |
+| req-cicd-sbom-19-4 | Scanner pins are recorded | Proposed | The scanner name, version and database build time of each scan are recorded in the document. | Grype's native output carries the database build time (ran: `built` 2026-10-15T06:30:36Z, schema v6.1.10). |
+
+### Document Revisions - One Merged Document
+----
+RID: `req-cicd-sbom-20`
+
+Status: `Proposed`
+
+**Decided (SV-1, George 2026-10-15): one merged document.** The unit TAP ingests is a single CycloneDX document holding components, vulnerabilities and scanner information together: one source of truth,
+processed on TAP's side ("derive a fact once"); separate point updates are an optimization that does not generalize. An image digest is immutable, so its component list is fixed, but its
+vulnerabilities are not (new CVEs, KEV flips and SSVC assessments arrive daily, and a database correction can retract one), so the document is revised over time and each revision is true as of its timestamp.
+
+**The revision mechanism (proposed by the support session; evaluated here and ADOPTED, with the rules below).** CycloneDX has its own lineage. The vendored 1.6 schema (read,
+`scripts/sbom/schemas/bom-1.6.schema.json`, `properties.serialNumber` and `properties.version`) says: every BOM generated "SHOULD have a unique serial number, even if the contents of the BOM have not
+changed over time"; "Whenever an existing BOM is modified, either manually or through automated processes, the version of the BOM SHOULD be incremented by 1"; and "When a system is presented with multiple BOMs
+with identical serial numbers, the system SHOULD use the most recent version of the BOM". Applied:
+
+1. The build-time SBOM is **revision 1**: components only (version 1, as Syft writes it, read), signed once, preserved forever.
+2. Each scan produces the **next revision of the SAME `serialNumber`**: `version` incremented by 1, carrying the components unchanged plus that scan's vulnerabilities and scanner information, attested again.
+3. **Current = the highest `version` for a serial number, per subject digest.** Older revisions are history and are never deleted from the grid.
+4. Syft generates a fresh `serialNumber` on every run (read: the arm64 and amd64 documents differ; ran: Grype's own CycloneDX output carries a third, unrelated serial, `version` 1), so the merge step MUST carry the
+   ORIGINAL SBOM's `serialNumber` forward and MUST NOT take the serial from any scanner output. A scan input is the already-published, verified SBOM of the digest (`req-cicd-sbom-17` rescan mode), never a regenerated one.
+5. **Identity for idempotent ingest stays the content digest** (`req-cicd-sbom-25`), not serial and version: two documents can legitimately share serial and version if two scans race to revise the same revision N.
+   Both are ingested as distinct documents; "current" breaks the tie by the later signature time (`req-cicd-sbom-22`), then by content digest, deterministically.
+6. **Why the schema's wording is compatible.** The "unique serial number even if contents have not changed" sentence governs separately generated BOMs; a revision of a BOM is the schema's own "existing BOM is
+   modified" case. Where a consumer meets two revisions it uses the later, as the schema says.
+
+**Questions the mechanism raises, answered.**
+
+* **Retention - Decided (George 2026-10-15): keep ALL revisions; no retention policy for now** ("we're not storing the files in the db anymore, so who cares?"). **To REVISIT when volume matters.** The
+  volume is about 1 MB per revision per architecture per day (ran: components 0.62 MB, Grype's `vulnerabilities` section 0.29 MB and Trivy's 0.05 MB on the arm64 document; one revision a day for a year is about 365 MB
+  per architecture per image). Revisions live in the file store of tap#1035, never in the database. **The files are outside the database, so the backup contract decides whether they survive a restore.**
+  `spec-tap-backup.md` (read) captures a database dump, boot profile, plugins and logs; its manifest always declares a `media` component that is `none-exists` today, and says "a future upload feature must
+  change this entry or `verify` fails" (read, the manifest section). The stored SBOM files are exactly such a feature, so until the file store declares itself in the backup manifest, a restore keeps
+  the SBOM nodes and their file references but NOT the files, and a reference then points at nothing. Where the files live and what the backup does with them is an open question of tap#1035 (read: "where files
+  live (a volume, with what backup behaviour: `spec-tap-backup.md` is the existing contract)"); this spec does not answer it, and `req-cicd-sbom-20-8` requires that it be answered before the file store is
+  relied on.
+* **What the signature on the merged blob means - Decided (George 2026-10-15): CI is trusted.** ("If you can't trust CI who can you trust?") The signed document carries first-party component facts (what Syft saw
+  in the image) and scanner claims (what Grype and Trivy matched), and the signature may be read as: **the named CI job ran the named tools at the named versions and recorded their output**. Nothing more.
+  It does not make a scanner right: Trivy itself was compromised in March (CVE-2026-33634, as relayed by the maintainer; NOT re-read here), which is why tool pins are by immutable release and commit
+  (`req-cicd-sbom-29`; the existing `renovate.json5` rule for `trivy-action` was read and cites the same incident). Per-entry `tools` attribution (`req-cicd-sbom-18`) is kept because the page needs a scanner column and
+  for traceability, **not as a trust hedge**. TAP's trust check is by signer, as ruled (`req-cicd-sbom-22`).
+* **Separation of duties stays.** The merge-and-attest job is first-party and keeps the existing split of `publish-images.yml` (read: the `sbom` job holds a read-only token and runs generation and third-party
+  code; `attest-sbom` is "FIRST-PARTY STEPS ONLY" and holds `id-token`/`attestations`). Scanners run in an UNSIGNED job with a read-only token; their raw outputs travel as integrity-held workflow artifacts to
+  a first-party job that merges, enriches, validates and signs. No scanner and no third-party action shares the signing token (tap#507 unchanged).
+* **The release gate.** `req-cicd-sbom-4` requires at least one verifying SBOM attestation per digest before a version tag; with several revisions each is an attestation of the same predicate type, so that predicate
+  still holds ("at least one verifying bundle"); a consumer wanting the newest selects the highest `version`.
+
+**Considered and rejected: a separate vulnerability document per digest**, bound to an immutable SBOM by serial and digest. It would keep the SBOM hash-stable and match the two cadences, but it needs two documents,
+a second predicate type (the URI for a vulnerability-only CycloneDX document is NOT OBSERVED; only `https://cyclonedx.org/bom` and the SPDX URI have been seen on real attestations), a binding to verify on ingest (a new
+failure class), and a second source of truth to keep consistent. George chose one document so each fact is derived and held once.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-cicd-sbom-20-1 | One merged document | Proposed | The ingested unit is one CycloneDX document with components, vulnerabilities and scanner information. | |
+| req-cicd-sbom-20-2 | Revision 1 is the build SBOM | Proposed | The build-time SBOM, components only, is revision 1, signed once and never altered or deleted. | |
+| req-cicd-sbom-20-3 | A scan revises, it does not replace | Proposed | A scan emits `version` + 1 of the SAME `serialNumber`, attested again; the serial is carried from the verified input, never from a scanner. | |
+| req-cicd-sbom-20-4 | Current is the highest version | Proposed | Per subject digest and serial, the highest `version` is current; ties break by later signature time, then content digest; older revisions are never deleted from the grid. | |
+| req-cicd-sbom-20-5 | Attribution and what the signature covers | Proposed | Every vulnerability entry carries `tools` (for the scanner column and traceability); the signature is documented as covering that the named CI job ran the named tools at the named versions and recorded their output, and not that a scanner is right. | George: CI is trusted. |
+| req-cicd-sbom-20-6 | Separation of duties | Proposed | Scanners run in an unsigned read-only job; a first-party job merges, validates and signs. | |
+| req-cicd-sbom-20-7 | Every revision is kept | Proposed | Every revision file is kept in the tap#1035 file store, never in the database; no retention policy exists for now. | Decided; REVISIT when volume matters (about 1 MB per revision per architecture per day). |
+| req-cicd-sbom-20-8 | Restore keeps the files | Proposed | Before the file store is relied on, the backup manifest declares it, so a restore brings back the files its SBOM nodes refer to or states that they are absent. | Open question of tap#1035; `spec-tap-backup.md` `media` component. |
+
+### Deploy Gate
+----
+RID: `req-cicd-sbom-21`
+
+Status: `Proposed`
+
+**Decided (SV-5, George 2026-10-15): the gate BLOCKS PROMOTION of an image that has a KEV-listed vulnerability** ("block on images with KEV"), re-checked against the CURRENT catalog at promotion. The
+ownership, mechanics and the waiver path below are this spec's proposal for that ruling; the waiver path is UNRULED.
+
+* **Where it runs.** In the promotion job, the step that moves an image toward consumers. For TAP's own images that is the existing release gate (`retag` before a version tag, and `promote-latest`, `req-cicd-sbom-4`,
+  read). For team images it is a `gate` mode of the reusable workflow (`req-cicd-sbom-17`) that the team's promotion job must call before it moves a tag. The owner of the gate step is TAP (the workflow); the owner of
+  the decision to call it is the team's promotion job. A team that does not call it is not gated; making the call mandatory is a platform control outside this spec.
+* **What it reads.** (1) the verified attestation for the digest, which names the components and carries a KEV stamp as of build time; (2) a FRESH fetch of the KEV catalog at promotion; (3) a fresh scan
+  of the verified SBOM with the scanner's current database (`req-cicd-sbom-17` rescan mode). The attested KEV stamp is advisory: a vulnerability that became KEV-listed after the build is not
+  in it, and one the build-time database did not yet know is not in the build-time list. The decision uses (2) applied to the findings of (3) over every alias, plus any KEV-listed vulnerability that
+  appears only in the image cross-check (`req-cicd-sbom-19`).
+* **Fetch failure is a block.** If the catalog cannot be fetched, does not parse, lacks `catalogVersion` or `dateReleased`, or is empty, or the scan cannot complete, the gate fails closed (three states:
+  clear, blocked, not observable; the last blocks).
+* **Waiver (UNRULED, proposal).** A waiver is a committed data record naming the vulnerability id, the component purl, the image digest or a digest-independent scope, a reason, an approver, and an
+  expiry date; an expired or malformed waiver is ignored. A waived KEV finding does not block, is listed in the evidence, and is never hidden. Who may approve and whether a waiver may outlive one image are
+  questions for George and are not answered here.
+* **Evidence.** The gate leaves a JSON report as a workflow artifact, a job-summary table, and an attestation of the verdict bound to the digest: catalog version, release time, fetch time and SHA-256 of the
+  catalog bytes, scanner versions and database build time, the findings considered, each blocked or waived item, and the decision. The report is what a later auditor reads to learn why an image was or was not promoted.
+
+Measured today (ran): the tap-web arm64 digest `d86ebb77...` has no KEV-listed vulnerability (catalog 2026.10.15, 1746 entries), so the gate would pass it.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-cicd-sbom-21-1 | KEV blocks promotion | Proposed | An image with a finding whose any alias is in the freshly fetched KEV catalog is not promoted. | |
+| req-cicd-sbom-21-2 | Fresh, not attested | Proposed | The decision uses a catalog fetched at promotion and a rescan with the current database; the attested stamp alone never clears an image. | |
+| req-cicd-sbom-21-3 | Unobservable blocks | Proposed | A catalog fetch, parse or scan failure blocks promotion. | |
+| req-cicd-sbom-21-4 | Evidence is kept | Proposed | Every gate run, pass or block, emits the report described above, with the catalog stamp. | |
+| req-cicd-sbom-21-5 | Waivers are visible and expire | Proposed | Pending ruling: a waived item is listed in the report and its waiver expires. | UNRULED. |
+
+### Signer Trust
+----
+RID: `req-cicd-sbom-22`
+
+Status: `Proposed`
+
+**Decided (SV-8, George 2026-10-15).** TAP keeps a **default-deny trust list of signer identities**, declared as data (a committed JSON file with a JSON Schema and descriptions, per the repository rule for
+new structured formats). On ingest TAP verifies the attestation, then checks: the **signer identity** against the list; the **subject digest** against the image digest being ingested; and the **predicate
+type** against the expected type. The list starts with **exactly one** signer: the reusable workflow of `req-cicd-sbom-17` at a pinned ref, which teams call from their own repositories, so one identity scales to every team.
+
+**What was verified about identities.** The Sigstore certificate GitHub records carries these fields (read: the Fulcio OID table, `sigstore/fulcio` `docs/oid-info.md`; ran: the real tap-web
+bundle for digest `d86ebb77...`, which parsed with `openssl x509`):
+
+| Certificate field | Meaning (OID table, read) | Real value (ran) |
+| --- | --- | --- |
+| Subject Alternative Name (URI) | the signing workflow reference | `https://github.com/unified-systems-com/tap/.github/workflows/publish-images.yml@refs/heads/main` |
+| 1.3.6.1.4.1.57264.1.9 Build Signer URI | `job_workflow_ref` | same value |
+| 1.3.6.1.4.1.57264.1.10 Build Signer Digest | `job_workflow_sha` | `cbe3e70045100dd335a82904e6ad2a8fccdd0ebb` |
+| 1.3.6.1.4.1.57264.1.12 Source Repository URI | `repository` | `https://github.com/unified-systems-com/tap` |
+| 1.3.6.1.4.1.57264.1.14 Source Repository Ref | `ref` | `refs/heads/main` |
+| 1.3.6.1.4.1.57264.1.18 Build Config URI | `workflow_ref` | same as the signer (workflow not reusable) |
+| 1.3.6.1.4.1.57264.1.11 Runner Environment | `runner_environment` | `github-hosted` |
+| 1.3.6.1.4.1.57264.1.21 Run Invocation URI | the run and attempt | `.../actions/runs/36062106865/attempts/1` |
+
+**What was NOT verified, stated plainly.** The real bundles inspected are from a workflow that is NOT reusable, so signer, repository and config all name the same repository. For a reusable workflow, GitHub's
+page on reusable workflows and attestations says the signing workflow "will always be the workflow that uses the" attest action, "which may be a reusable workflow", and that the attestation is fetched from the
+caller (read, via a page fetch that returned summaries, not the full page). Combined with the OID table's mapping, the inference is: Build Signer URI and the SAN name the REUSABLE workflow, while Source
+Repository URI and Build Config URI name the CALLING repository and workflow, which gives per-team attribution. **This is inferred; no reusable-workflow bundle was inspected** (the plugin release lane
+`plugin-release-sbom.yml` is reusable, but its header comment says its attestations are "signed by the CALLING plugin repo's workflow identity", which disagrees with the inference; no plugin
+attestation was available to settle it, NOT OBSERVED). An implementation MUST test one real bundle from a called reusable workflow before the list is relied on.
+
+**Pinning.** The ref in the SAN is a tag or branch name and can move. The trust entry therefore pins the repository, workflow path and ref AND the **Build Signer Digest** (`job_workflow_sha`, an immutable
+commit), so a moved tag does not inherit trust. Tool pins (Syft, Grype, Trivy) are by immutable release and commit digest for the same reason (`req-cicd-sbom-29`).
+
+**Time.** The time TAP records for a document is the signature's own time: the transparency-log `integratedTime` in the bundle, never the document's self-reported `metadata.timestamp`. On the real bundle
+the tlog integrated time was 2026-09-24T21:39:05Z (`1790285945`, ran) against a document timestamp of 21:37:49Z, and the signing certificate was valid for ten minutes (21:39:05 to 21:49:05). Verification
+that the signing time falls within the certificate validity is performed by the verifier, not reimplemented by TAP.
+
+**What a verified attestation proves.** It says WHO produced a document (a trusted workflow identity, at a commit, in a repository) and WHEN it was signed, and, by George's ruling that CI is trusted, that
+the named CI job ran the named tools at the named versions and recorded their output. It does NOT say the contents are true: a scanner can be wrong or itself compromised (Trivy was, in March, as relayed), and a
+compromised or mistaken generation step can sign a false document bound to the right digest (the Residual named in `req-cicd-sbom-4`); a false-clean scan is signed just as validly as a true one.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-cicd-sbom-22-1 | Default deny | Proposed | An attestation whose signer is not in the trust list is refused; an absent or unreadable list refuses everything. | |
+| req-cicd-sbom-22-2 | Three checks on ingest | Proposed | Signer identity, subject digest and predicate type are each checked; failure of any one ingests nothing. | |
+| req-cicd-sbom-22-3 | One starting signer | Proposed | The list ships with exactly one entry, the reusable workflow at a pinned ref and signer digest. | |
+| req-cicd-sbom-22-4 | Signature time | Proposed | The recorded signing time is the transparency-log integrated time. | |
+| req-cicd-sbom-22-5 | Reusable-workflow identity is proven | Proposed | Before the list is relied on, a bundle from a real called reusable workflow is inspected and the signer and calling-repository fields recorded. | NOT OBSERVED at proposal time. |
+| req-cicd-sbom-22-6 | Per-team attribution | Proposed | The calling repository is recorded on the SBOM node alongside the signer. | Depends on 22-5. |
+
+### Dependabot Intake
+----
+RID: `req-cicd-sbom-23`
+
+Status: `Proposed`
+
+**Decided (SV-7, George 2026-10-15): Dependabot alerts are fetched in CI.** The lane lists the calling repository's Dependabot alerts through the REST API and carries them as findings of a scanner
+named Dependabot. GitHub's documentation, as the task brief cites it, says `security-events: read` lets a workflow list the repository's Dependabot alerts. **That permission claim is NOT OBSERVED**: the REST
+page I fetched states that classic tokens need the `security_events` scope (`public_repo` for public repositories only) and does not mention `GITHUB_TOKEN` or a workflow `security-events` permission; it was not tested
+(no token was used). It also does not say what the alert contains about the installed version: an alert records a vulnerable version range, not the installed version (inferred from the API shape; NOT OBSERVED
+in a live response), so matching to the SBOM requires evaluating the lockfile version against the range.
+
+**Cases where the token cannot read alerts.** Workflows triggered by Dependabot, and runs from forks, receive a read-only token without the repository's secrets and may not be granted the permission
+(GitHub's general rule for fork and Dependabot runs; NOT re-read in full here). In those cases, and on any 403, 404 or timeout, the lane MUST record `tap:dependabot:status = not-observed` with the reason in the
+document and in the job summary. It MUST NOT write an empty alert list: an empty list means "looked and found none".
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-cicd-sbom-23-1 | Alerts fetched in CI | Proposed | When permitted, the lane fetches the repository's Dependabot alerts and records each with its alert number and state. | |
+| req-cicd-sbom-23-2 | Not-observed marker | Proposed | In a fork run, a Dependabot-triggered run, or on an API failure, the document records `not-observed` with a reason, never an empty list. | |
+| req-cicd-sbom-23-3 | Matched by installed version | Proposed | An alert is attached to a component only when the component's exact version lies in the alert's vulnerable range; otherwise it is reported as unmatched. | |
+| req-cicd-sbom-23-4 | Permission claim tested | Proposed | The workflow permission needed is established by a run on a real repository before the lane depends on it. | NOT OBSERVED. |
+
+### Ingestion - SBOM Node, Parser and Ownership
+----
+RID: `req-cicd-sbom-24`
+
+Status: `Proposed`
+
+**Decided (SV-3, George 2026-10-15): `computing_core` owns the SBOM node and the parser.** This overrides the lean toward a new `*_core` plugin in `req-cicd-sbom-16` (reconciled below). The vocabulary
+change itself (a new node type and edges) is made in the computing_core plugin repository by its own reviewed change; this spec fixes the contract that change must satisfy and does not edit that repository.
+
+**Ingestion order (verify first).** (1) Obtain the attestation bundle for the digest. (2) Verify it with `gh attestation verify` (or the equivalent library call) for the digest and predicate type. (3) Check
+the signer against the trust list (`req-cicd-sbom-22`). (4) Parse ONLY the `statement.predicate` that verification returned, never a separately fetched file. Ran (by another session, recorded in
+`req-cicd-sbom-16`): exit 0, one verified attestation, the returned predicate byte-identical to the downloaded document. A failed or unobservable verification ingests nothing.
+
+**The SBOM node keeps metadata, not the document.** (George's ruling: the full document is not stored in the database.) It records: subject digest; format and spec version; `serialNumber`; generator
+and version; the document's self-reported timestamp; the signature's integrated time (`req-cicd-sbom-22`); the signer identity and calling repository; the attestation reference (transparency-log index and
+attestation locator); the verification outcome; the document's **content digest**; the CycloneDX `version` (revision number, `req-cicd-sbom-20`); and a **reference to the stored file**. The file store is tap#1035 (open); until it exists the reference field is `null`
+(unobserved), not a path to a non-existent file. The parsed content is reproducible from the stored file, so the file must be the verified predicate bytes.
+
+**The parser maps the document onto grid types that are merged and released**, per the computing_core and compliance_core plugin specs (read, clones at the v0.7.0 and v0.5.0 releases):
+
+| CycloneDX element | Grid result | Method |
+| --- | --- | --- |
+| component, purl type `apk`, `pypi`, `npm` | `package` keyed `(ecosystem, name, version)`; `purl`, `cpe`, `license`, `architecture` copied; `source_document: sbom` | read (spec) |
+| component built or vendored outside a package manager (`tap:supplemental`, `pkg:generic`) | `library`; `SHIPS_LIBRARY` where a package ships it | read |
+| `syft:metadata:originPackage` (complete) with the purl `upstream=` qualifier (a subset) | `source_package`, `DERIVES_FROM_SOURCE_PACKAGE` from every package | read; `req-cicd-sbom-16` records the 101/101 and 54/101 counts |
+| `metadata.component` operating-system component | `operating_system`, `RUNS_OPERATING_SYSTEM` from the image host | read; the host for an image digest is `req-cicd-sbom-16` decision D, still open |
+| vulnerability entry | `compliance_vulnerability` keyed `vuln_id` (CVE, else GHSA; others in `aliases`); CVSS, CWE, SSVC and KEV fields with their sources | read |
+| (component x vulnerability x scanner) | `compliance_finding` keyed `(source, source_key)`; `CARRIES_COMPLIANCE_FINDING` from the package or library; `CONCERNS_COMPLIANCE_VULNERABILITY` with `fixed_versions` | read |
+| scanner and execution | `compliance_scanner` keyed `(source, scanner_key)`; `compliance_scan_run` keyed `(source, run_key)`; `PERFORMS_COMPLIANCE_SCAN_RUN`, `REPORTS_COMPLIANCE_FINDING`; `RUNS_AT_LOCATION` to the workflow location when it is on the grid | read |
+| `tap:crypto:*` properties | `crypto_provider` keyed `(scope, artifact, provider)`; `CARRIES_CRYPTO_PROVIDER` | read; `req-cicd-sbom-16` |
+| dependency links | `req-cicd-sbom-28` | |
+
+Findings have no `first_seen`/`last_seen` columns: the finding model carries `name`, `summary`, `description`, `status` (`open` or `resolved`), `source`, `source_key` (read). "Last seen" is therefore the
+scan run that reports the finding (`REPORTS_COMPLIANCE_FINDING` points from the latest run that saw it, earlier runs being history, read), and resolution is `status: resolved`.
+
+The `source` written on every node and edge of this parser is `computing_core` (the owning plugin's slug, as the assigned-identity section of the compliance_core spec defines `source`). The compliance_core and
+computing_core vocabularies are used unchanged; the one gap found is stated in `req-cicd-sbom-26` (triage coverage).
+
+**Reconciliation with `req-cicd-sbom-16`.** That requirement's Decision 5 table row for "the whole document" says the SBOM node holds the full JSON, and its Open decision B recommends a new `*_core` plugin. Both are superseded by
+the ruling here (metadata and a file reference; `computing_core` owns), and the text in `req-cicd-sbom-16` is edited accordingly in this same change.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-cicd-sbom-24-1 | Verify before parse | Proposed | Only the predicate returned by a successful verification, for the expected digest, predicate type and trusted signer, is parsed. | Extends `req-cicd-sbom-16-9`. |
+| req-cicd-sbom-24-2 | Metadata, not the document | Proposed | The SBOM node stores no copy of the document; it stores metadata and a file reference that is `null` until the file store exists. | |
+| req-cicd-sbom-24-3 | Released types only | Proposed | The parser writes only node and edge types present in the released compliance_core and computing_core; a type that is not released is not invented in a project. | No bespoke code in a project. |
+| req-cicd-sbom-24-4 | One generic parser | Proposed | The parser is the same parser `req-cicd-sbom-16-10` names; the vulnerability mapping is a step of it. | |
+| req-cicd-sbom-24-5 | Owner is computing_core | Proposed | The SBOM node, its edges and the parser are specified and released in the computing_core plugin. | Cross-repository change. |
+
+### Idempotency and Duplicates
+----
+RID: `req-cicd-sbom-25`
+
+Status: `Proposed`
+
+These are the rules that decide what a second ingest does. They follow from the identities above; the method for each is stated.
+
+1. **Document identity is the content digest, never the `serialNumber` or `version`.** Revisions of one document share a serial and differ in `version` (`req-cicd-sbom-20`). The SBOM node is keyed by the SHA-256 of the exact verified predicate bytes. Evidence (read, the two arm64 and amd64 documents): `serialNumber`
+   and `metadata.timestamp` are different on every Syft run even for the same image; so identity by `serialNumber` would make every run a new document and identity by digest makes identical bytes one document.
+   Re-ingesting identical bytes is a no-op: no node, edge or field changes.
+2. **A new revision, or a regenerated document, for the same digest is a new SBOM node and creates no new component nodes.** `package`, `library`, `source_package`, `operating_system` and `compliance_vulnerability` are
+   keyed by natural keys (`(ecosystem, name, version)`, `vuln_id`), so a second document for the same digest resolves to the existing nodes (inferred from the keys; the released plugin tests for
+   re-observation are read in the plugin specs, not run).
+3. **No duplicate findings.** A finding's `source_key` is derived from stable facts only: `sbom:<subject digest>:<component purl>:<canonical vulnerability id>:<scanner_key>`. A re-observation resolves to the
+   same finding; its reporting edge is moved to the latest run, and a previously `resolved` finding that is reported again returns to `open` (the history records both changes).
+4. **A finding not reported by the newest run for that digest and scanner becomes `resolved`, never deleted.** This is how a retracted vulnerability (database correction, rejected CVE) leaves the open set
+   while the history keeps the earlier observation.
+5. **Run identity.** `run_key` is `<document content digest>:<scanner_key>`, so the same vulnerability document re-ingested is the same run.
+6. **Counts are over distinct (vulnerability, component version), not over findings.** Two per-platform digests of one image have identical component identities (ran: each document's 191 components reduce to 182 distinct
+   `(ecosystem, name, version)` keys and the two sets are identical, 182 in common; the 9 in-document repeats were not investigated), so counting findings would double count; every count shown to a human groups by `(vulnerability, package or library version)` over the set of images in scope. Optionally a second grouping by `source_package` (the 14 package names of the Trivy alerts reduce to 6 sources, read in the computing_core spec).
+7. **Identical triage across architectures.** Rules 3 and 6 mean amd64 and arm64 each have their own findings (their `source_key` differs by digest) and one human-facing count.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-cicd-sbom-25-1 | Identical bytes are a no-op | Proposed | Ingesting the same verified predicate bytes twice changes nothing. | |
+| req-cicd-sbom-25-2 | New document, no new components | Proposed | A new revision for one digest adds one SBOM node and no package, library, source_package or vulnerability node. | |
+| req-cicd-sbom-25-3 | Stable finding key | Proposed | A finding's `source_key` is the digest, purl, canonical vulnerability id and scanner; a re-observation never mints a second finding. | |
+| req-cicd-sbom-25-4 | Unreported means resolved | Proposed | A finding absent from the newest result for its digest and scanner is `resolved`, not deleted; a reappearance reopens it. | |
+| req-cicd-sbom-25-5 | Human counts group by vulnerability and version | Proposed | A displayed count groups by (vulnerability, component version), so two architectures of one release count once. | |
+
+### Current Semantics, Counting and Triage
+----
+RID: `req-cicd-sbom-26`
+
+Status: `Proposed`
+
+**"Current" is defined, not assumed.** An image digest is immutable; its component list is fixed. Its vulnerabilities change daily. There are therefore many vulnerability results per digest over time, each
+true as of its timestamp. **Current = the highest `version` of the document per digest (`req-cicd-sbom-20`), which carries the latest run of each scanner that ran in it; a scanner absent from that revision is recorded as not run, and its previous results stay as history. Older revisions, runs and resolved findings are never deleted.**
+
+**Fleet counts are over deployed images.** A count joins from the SBOM's subject digest to what is deployed on the grid (the host, task or image record that runs that digest). A count that cannot make
+that join states "deployment not observed" and does not fall back to every image ever imported. Whether the grid has a deployed-digest record today is NOT OBSERVED; the join is a requirement on whichever
+collector supplies it.
+
+**Triage is an authored judgement on top and survives new images.** `false_positive`, `not_affected` (with a CycloneDX VEX justification) and other `analysis` states are decisions about a vulnerability
+in a component version, not about one image: when the same (vulnerability, component version) recurs in a new image, the earlier judgement still applies, subject to its own expiry. Because findings are per
+digest (`req-cicd-sbom-25`), the judgement cannot hang on a finding alone. Proposed rule: a judgement is recorded as a compliance exception covering one anchor finding, and ingestion draws the same
+`COVERS_COMPLIANCE_FINDING` edge to every new finding with the same vulnerability and the same package or library node while the exception is in force. **Gap:** the released `compliance_exception` model
+has `name`, `description` and `status` only (read, spec); the scope (which vulnerability, which component) would be derived from the anchor finding's edges rather than stored. Whether that is enough, or a
+compliance_core change is needed, is NOT OBSERVED and is left to that plugin's review.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-cicd-sbom-26-1 | Current is the latest revision | Proposed | A "current" view per digest uses the highest document `version` and the latest run of each scanner; no older revision, run or finding is deleted. | |
+| req-cicd-sbom-26-2 | Counts join to deployment | Proposed | A fleet count includes only digests that are currently deployed on the grid; absent deployment data it reports "not observed". | |
+| req-cicd-sbom-26-3 | Triage survives a new image | Proposed | An in-force judgement for (vulnerability, component version) covers the matching finding of a later image without re-authoring. | |
+
+### Alert-Derived and SBOM-Derived Duplicates
+----
+RID: `req-cicd-sbom-27`
+
+Status: `Proposed`
+
+**Decided (SV-6, George 2026-10-15): keep both and correlate.** An alert-derived finding and an SBOM-derived finding for the same CVE, component version and image are the same vulnerability. Alerts keep the
+first-seen date and the dismissal reason; the SBOM supplies what is present now. Alert-derived component findings are retired LATER, once triage and first-seen dates live in the new flow. Counts shown to humans group
+by (vulnerability, component version), so they do not double.
+
+**The problem, from the data.** GitHub code-scanning alerts enter the grid as `compliance_finding` nodes keyed `("github_core", "<repo>#code_scanning#<number>")` (read, compliance_core spec); SBOM findings are
+keyed by `req-cicd-sbom-25`. The key spaces never collide, so without a rule one vulnerability on one component in one image is two findings. Real example (read: the grid export of 2026-10-14; ran: matched against
+Grype on the Sep-24 arm64 SBOM; the two dates differ, so this is a sample, not a reconciliation): alert 454 - tap, Trivy, `CVE-2026-49265`, message "Package: oauthlib Installed Version: 3.3.1 ... Fixed Version: 4.0.0",
+category `trivy-tap-web`, located at `opt/uv-cache-seed/.../oauthlib-3.3.1.dist-info/METADATA` (the wheel cache, which `req-cicd-sbom-2` excludes). The SBOM lists `oauthlib 3.3.1` in the locked closure and Grype on
+it reports that CVE on it. Same vulnerability, same package version, different location: a location match would call them different, the pair below calls them the same. Of the 143 alerts in the `trivy-tap-web`
+category, 79 (57 fixed, 22 open) have an exact (CVE, package, version) match among Grype's findings on the SBOM; 64 do not (the alert side is older or newer than the SBOM, or the alert is on a path the SBOM
+excludes; the split was not investigated). Of all 400 alerts, 108 are located in the wheel-cache seed (106 fixed, 2 open).
+
+**What makes two findings "the same" (the correlation key).** Two findings are the same item when ALL of:
+
+1. **Same canonical vulnerability id.** CVE if either side knows a CVE alias, otherwise GHSA; the alert's `rule_id` is checked against the alias set of the SBOM-side vulnerability.
+2. **Same component identity.** Package or library name normalised as the ecosystem does (lowercase; for pypi, PEP 503 normalisation, `_` equals `-`) AND the exact installed version. The alert carries name and
+   version only inside its `message` text ("Package: ... Installed Version: ..."), so the correlator parses that text and, if it cannot parse it, does NOT correlate (a false merge is silent and
+   unrecoverable, a false split is visible: the compliance_core scanner rule of thumb, read). If one name and version exists in two ecosystems the pair is ambiguous and is not correlated.
+3. **Same image scope.** The alert's `category` names the image (`trivy-tap-web`, `grype-declared-tap-db`) and its `commit_sha` and `ref` name the build; the SBOM finding names the digest. Correlate when the digest is
+   one the grid records as built from that commit, or, for the nightly sweeps of `:latest`, one of the image's currently deployed digests. Which digest an alert's analysis actually scanned is NOT OBSERVED
+   (the alert carries a commit, not a digest); until the grid records it, scope is the image name plus the deployed-digest rule, and the correlator says so on the item.
+
+Correlation is computed from shared graph facts, not stored as a new edge: both findings must reach the same `compliance_vulnerability` node and the same `package` or `library` node. The SBOM parser draws
+`CARRIES_COMPLIANCE_FINDING` from the package to its findings (`req-cicd-sbom-24`). Whether the alert collector draws that edge from the package to its alert findings is NOT OBSERVED (the alert finding is
+attached to the repository in the export, and a package node is not among its nodes); if it does not, the alert side needs it (a github_core change) before the key is mechanical, or the correlator derives the
+package from the alert text at read time.
+
+**What each side contributes.**
+
+| Fact | Comes from | Why |
+| --- | --- | --- |
+| First seen | the alert's `created_at` (the earlier of it and the SBOM side's earliest observation) | alerts hold the history; a finding has no first-seen column (read) |
+| Dismissal (state, reason, comment, who, when) | the alert (`dismissed_at`, `dismissed_reason`, `dismissed_comment`, `dismissed_by_login`) | an authored judgement |
+| Present now, and in which digest | the SBOM finding (the newest revision, `req-cicd-sbom-20`) | the SBOM is the component record and is rescanned |
+| Fix versions, KEV, SSVC, EPSS, CVSS | the SBOM-side vulnerability facts with provenance (`req-cicd-sbom-18`) | enriched with sources |
+| Location | the alert (a file path); the SBOM side has the component, not a path | different questions |
+
+**When they disagree.**
+
+| Alert says | SBOM says | Result |
+| --- | --- | --- |
+| open | lists the pair | one open item |
+| dismissed (any reason) | lists the pair | one item shown as dismissed-with-reason, not counted open; the dismissal applies to that exact (vulnerability, component version) only (`req-cicd-sbom-26`) and lapses if the component version changes; the SBOM finding stays `open` in the graph and the item displays the alert's dismissal |
+| fixed or closed | lists the pair | present now wins: one OPEN item flagged `alert-closed-sbom-present`, because the SBOM says the component is there; the flag is a difference to explain, not a silent override |
+| open | does not list the pair | one item, flagged `alert-only` (the 64 above): counted, because the alert may see something the SBOM excludes by design (`req-cicd-sbom-2`), and flagged so a human knows the SBOM record disagrees |
+| no alert | lists the pair | one item, `sbom-only` |
+
+**Counting.** The number shown to a human is the number of distinct items, grouped by (vulnerability, component version) over the images in scope (`req-cicd-sbom-25-5`); an item's status follows the table.
+
+**Later retirement of alert-derived component findings (not now).** Retirement is triggered, and only then proposed to George, when all three hold: (a) triage lives in the new flow (the
+`req-cicd-sbom-26` judgement path is built and has absorbed the alerts' dismissals); (b) first-seen dates are held on the SBOM side (a field or history the finding model does not have today, read); (c) a parity
+measurement over a stated window shows every open alert-derived component finding is either correlated with an SBOM finding or explained as `alert-only` for a stated reason. Retirement itself marks the
+alert-derived finding `resolved` with the reason `superseded`, and stops collecting component alerts; it is not a deletion. Code-scanning alerts that are not component vulnerabilities (CodeQL, SonarCloud)
+are out of this requirement.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-cicd-sbom-27-1 | Correlation key | Proposed | Two findings correlate only on equal canonical vulnerability id, normalised component name plus exact version, and image scope; an unparseable or ambiguous alert is not correlated. | |
+| req-cicd-sbom-27-2 | Contributions are fixed | Proposed | First seen and dismissal come from the alert; presence now and enrichment come from the SBOM side. | |
+| req-cicd-sbom-27-3 | Disagreements are shown | Proposed | `alert-closed-sbom-present`, `alert-only` and `sbom-only` are surfaced on the item; none is silently resolved. | |
+| req-cicd-sbom-27-4 | No double count | Proposed | A correlated pair is one item in every count. | |
+| req-cicd-sbom-27-5 | Retirement waits for parity | Proposed | Alert-derived component findings are retired only after triage, first-seen and a measured parity exist in the new flow. | |
+
+### Dependency Links as Edges (Provisional)
+----
+RID: `req-cicd-sbom-28`
+
+Status: `Proposed`
+
+**Decided (SV-4, George 2026-10-15): the `dependsOn` links BECOME EDGES, "yes for now".** This is **provisional** (below).
+
+**Edge.** `REQUIRES_PACKAGE`, sentence `<package> REQUIRES_PACKAGE <package>`, owned by computing_core (`req-cicd-sbom-24`). Name check against the repository's edge-naming rule (`req-tap-plugin-edge-naming`,
+read: `bare-verb`, `modal-prefix`, `trailing-preposition`): two tokens, no modal prefix, ends in a noun. `DEPENDS_ON` alone is a bare verb plus a trailing preposition and `DEPENDS_ON_PACKAGE` would pass but repeats the
+modal feel; `REQUIRES_PACKAGE` was chosen for the plain verb. The name was reasoned against the rules read in `tap_plugins/validate/service.py` (`_EDGE_MODAL_PREFIXES`, `_EDGE_PREPOSITIONS`); the validator was not run on it
+(NOT OBSERVED).
+
+**Facts about the links (ran, `dependencies[].dependsOn` of the two real documents).** arm64: 458 links (356 apk, 88 pypi, 14 npm), amd64: 420 (318 apk, 88 pypi, 14 npm); all resolve; every link joins two
+`package`-type components (no link touches a library or the operating-system component). After reducing components to `(ecosystem, name, version)` the distinct pairs are 451 (arm64) and 413 (amd64); 411
+pairs are common to both, 40 are arm64-only, 2 amd64-only, so 453 distinct edges for the two documents together.
+
+**Identity.** The edge declares the plain identity (type, source, target) with **no architecture or digest discriminator.** Justification: the link is a fact about two package releases ("this
+apk release requires that one"), which holds wherever those releases are installed; and a discriminator by subject digest would write about 878 edges for this one release pair (458 + 420), nearly all duplicates of each
+other, and repeat that for every release and every image, while the undiscriminated edge adds only the pairs not already present (453 here). Cost accepted: the edge cannot say which architecture or image had the
+link, and a link that disappears from a later document is not retracted by the edge (the document the SBOM node refers to still holds the exact per-digest graph, in the stored file).
+
+**Provisional.** Revisit when any of these holds: the edge count per document or in total makes ingestion slower than the benefit (cost per document); a Gryphon query or panel actually traverses `REQUIRES_PACKAGE`
+(if nothing queries it after a quarter of use, drop it: the stored file keeps the graph); a question needs the per-image or per-architecture graph, which would need the discriminator or the file.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-cicd-sbom-28-1 | Links become edges | Proposed | Every `dependsOn` link between two `package` components becomes a `REQUIRES_PACKAGE` edge; a link touching another component type is reported, not dropped. | |
+| req-cicd-sbom-28-2 | Plain identity | Proposed | The edge declares no discriminator, so a re-ingest or a second architecture adds no duplicate edge. | |
+| req-cicd-sbom-28-3 | Provisional is recorded | Proposed | The revisit conditions above are recorded with the edge definition. | |
+| req-cicd-sbom-28-4 | Name passes the naming check | Proposed | `validate_plugin` accepts the slug. | NOT OBSERVED. |
+
+### Scanner Pin Maintenance
+----
+RID: `req-cicd-sbom-29`
+
+Status: `Proposed`
+
+**Decided (SV-9, George 2026-10-15): add Renovate managers for the Syft and Grype pins; BUILD LATER, not now.** No Renovate manager watches them today (the task brief; the repository's `renovate.json5` was
+read only for its trivy-action rule). The pins are: `grype-version` in `.github/workflows/grype-nightly.yml` (currently `v0.118.0`, read, while v0.120.1 exists and was run) and the `SYFT_IMAGE` tag plus digest in
+`scripts/sbom/generate.py` (currently `v1.51.0@sha256:678bfa56...`, read; v1.54.1 exists and was run). Pins are by immutable release and commit digest (the `SYFT_IMAGE` already is; the Grype pin is a tag today). One grouped Renovate PR moves them together because the tests keep copies of the version equal (the tests
+were not read), and a minimum release age SHOULD apply so a just-published scanner release is not adopted the same day.
+
+Trivy is NOT specified here beyond a reference: the Trivy pin gap is tap#1038 (Renovate does not watch it, and the `aquasecurity/trivy-action` disable rule may no longer hold); it waits on the test that issue describes.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-cicd-sbom-29-1 | Pins are watched | Proposed | A Renovate manager proposes updates for the Syft and Grype pins, grouped into one PR. | Built later. |
+| req-cicd-sbom-29-2 | Release age | Proposed | The group sets a minimum release age. | |
+| req-cicd-sbom-29-3 | Trivy deferred to tap#1038 | Proposed | Trivy is covered by the issue, not by this requirement. | |
+
+### What This Feeds - CBOM and VDR
+----
+RID: `req-cicd-sbom-30`
+
+Status: `Proposed`
+
+**Feeds `req-cicd-sbom-16` (the CBOM).** The parser that maps packages, libraries and source packages is the parser that maps `tap:crypto:*` properties (`req-cicd-sbom-16-10`); the trust list, verification,
+document identity and file reference built here are the same ones the CBOM uses. The CBOM needs no second attestation, no second ingestion path and no second node: it inherits all of `req-cicd-sbom-22` to `-25`.
+
+**Will drive VDR processing (not specified here).** VDR is not specified by this group. What a VDR consumer needs from the grid, and which requirement supplies it:
+
+| Need | Supplied by |
+| --- | --- |
+| A current open vulnerability set per deployed image | `req-cicd-sbom-25` (stable findings, resolved on absence), `-26` (current, deployed) |
+| Fixed versions per vulnerability and component | the `fixed_versions` property of `CONCERNS_COMPLIANCE_VULNERABILITY` |
+| KEV, SSVC and EPSS facts with provenance | `req-cicd-sbom-18` (source, retrieval time, catalog version) |
+| Triage state | `req-cicd-sbom-26` (judgements that survive) |
+| Who produced the evidence and when | `req-cicd-sbom-22` (signer, signature time) |
+
+The existing VDR vocabulary in the FedRAMP plugin is outside this scope and untouched.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-cicd-sbom-30-1 | CBOM shares the pipeline | Proposed | The CBOM ingestion path is the one defined in `req-cicd-sbom-24`; no CBOM-specific trust, node or parser exists. | |
+| req-cicd-sbom-30-2 | VDR needs are queryable | Proposed | The five needs above are each answerable from the grid by Gryphon without reading the stored file. | |
+
+#### Method summary and NOT OBSERVED
+
+Ran (2026-10-15): grype v0.120.1, trivy 0.75.0 and 0.76.0, syft v1.54.1 in throwaway containers; the CISA KEV catalog and one CVE record fetched; openssl parsing of the two real attestation certificates;
+read-only JSON parsing of the real SBOMs and a grid export. Read: the specs, workflows and plugin clones named in the text. NOT OBSERVED: any reusable-workflow attestation bundle; the `security-events`
+permission claim; the VEX predicate URI; Grype reading SPDX 3.0.1 (support's claim); Trivy's inability to read SPDX 3; the cause of Trivy's maven non-result; which of Grype's extra apk matches are true
+positives; whether `validate_plugin` accepts `REQUIRES_PACKAGE`; whether the grid records which digest is deployed; whether `compliance_exception` can carry an anchor-derived scope.
 
 ## Non-Goals and Named Residuals
 
