@@ -63,9 +63,27 @@ duplicating what `new-plugin` already does, that's a bug in this skill, not a re
    Keystone can be re-seeded later as the idea sharpens.
 3. **Repo owner** (org or personal account) and **visibility** — same question `new-plugin`'s own Step 1
    asks, asked once here so it doesn't have to be re-asked when this skill hands off to it.
+4. **What should someone see first?** When anyone opens this instance's root URL, which page should that
+   be, and what should it tell them in the first few seconds? Offer examples, not a menu: *what is wrong
+   right now* (a status wall), *what do we have* (a list of the key things), *how does it fit together*
+   (a graph), *what is this* (the Keystone's description). "I don't know yet" is a valid answer; it gets the
+   smallest honest page in Step 5b, not nothing. Record the answer in the plugin spec next to the purpose.
+
+Say why you are asking, in plain words, before you ask item 4 — an author who has never seen the
+mechanism will not know it is a decision they have to make:
+
+> One more question, and it is about the end of the road, not the start. When you open this instance, TAP
+> sends you to one page, and which page is **your choice**: the instance's boot record names exactly one
+> page for the root URL. If the record names none, TAP does not guess and does not pick some other page; it
+> shows a setup placeholder. So if I skip this, we would do all the work of getting a login and a Keystone
+> and then land on a page nobody designed for this project. In a sentence: what should the first screen
+> tell you? I will build the smallest page that does that, and wire it in at the end. The page is data,
+> so you can change your mind later.
 
 Do not ask about plugin architecture, domain models, or anything downstream of "can I log in yet" — that's
-explicitly out of scope for this pass (see Philosophy).
+explicitly out of scope for this pass (see Philosophy). Item 4 is the exception that proves the rule: it is
+not about the plugin's insides, it is about what logging in *shows*, and it is a decision most authors do not
+know exists until they hit the placeholder.
 
 ## Step 2 — Search the existing plugin catalog
 
@@ -181,6 +199,38 @@ A landing graph uses TAP's standard graph chrome, `node_style` `icon-badge` (the
 [`add-panel`](../../../tap_web/skills/add-panel/SKILL.md) graph-panel rules), unless the author
 formally asks for something else.
 
+## Step 5b — Decide where `/` goes
+
+An instance has no landing page unless its boot record declares one. This is deliberate, not an
+omission to fix with a default: the root URL redirects to the Page named by the boot record's `web`
+section, and an instance that declares none renders the setup placeholder, never some other page
+(`tap_web/specs/spec-web-page.md`, `req-web-page-landing`; the schema text is in
+`tap_boot/schemas/boot.schema.json`, `web`). A project that stops after Step 5 therefore boots, logs in,
+holds a Keystone, and opens onto a page nobody chose for it. This step closes that.
+
+1. **Build the smallest page that answers the Step 1 item 4 answer, as data.** Use
+   [`add-page`](../../../tap_web/skills/add-page/SKILL.md) and, if it needs one,
+   [`add-panel`](../../../tap_web/skills/add-panel/SKILL.md): a Page, one or two panels, Searches over
+   vocabulary that already exists, seeded from the anchor's GRIFT bundle. If the answer needs something that
+   cannot be drawn or queried from data today, that is a capability gap in the plugin that owns it (Step 3's
+   rule, AGENTS.md *No bespoke code in a project*): say so, and ship the smallest page that *can* be drawn so
+   `/` is never the placeholder. "I don't know yet" gets a page that shows the Keystone's name and
+   description; if even that cannot be drawn from existing panels, name the gap rather than invent a panel.
+2. **Pin it in the boot record.** Add a `web` section to the Step 4 record, both keys together (the
+   schema requires the pair):
+
+   ```json
+   "web": { "landing_entity_id": "<the Page's entity UUID>", "landing_slug": "/<its slug, leading slash>" }
+   ```
+
+   The UUID is the identity (mint it with `scripts/uuid7` and use the same value as the Page's `entity_id` in
+   the bundle). The slug is not a second key: it is a check the boot verifies against the live page. A pair
+   that is malformed, names no live page, or asserts the wrong slug aborts the boot after population, so
+   the Page has to be seeded by a population step in the same record.
+3. **Tell the author what happened.** "Opening the instance now takes you to `<slug>`. That page is the
+   first version, built to answer: *<their one sentence>*. It is data, so changing it is a bundle edit,
+   not a rebuild, and which page the root points at is one line in the boot record."
+
 ## Step 6 — Spawn and walk them in the door
 
 ```bash
@@ -191,7 +241,11 @@ scripts/spawn-session.sh <name> cli --boot-file <path-to-the-new-record>
 tier" language. Switch to `--from git+<repo>@<tag>#<id>` once the anchor plugin has its first release.)
 
 Confirm login works, then confirm the Keystone is actually there and queryable — a quick Gryphon read
-(`MATCH (k:keystone) RETURN k`) is enough. Then point forward, the same way `get-started` does:
+(`MATCH (k:keystone) RETURN k`) is enough. Then confirm the root: `GET /` on the instance should answer
+with a 302 to the landing slug from Step 5b (`req-web-page-landing-9`), not the setup placeholder; the
+`web.landing` readiness probe reports the same thing and names the failing state when it is wrong
+(`req-web-page-landing-13`). Open it in front of the author and ask whether it answers their sentence.
+Then point forward, the same way `get-started` does:
 
 - Something the running stack is missing that no existing plugin covers →
   [`build-domain-vocabulary`](../../../tap_grid/skills/build-domain-vocabulary/SKILL.md) decides what new

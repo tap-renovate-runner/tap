@@ -13,7 +13,7 @@
 
 | Requirement | Declared | Derived | Implementation | Verified by |
 | --- | --- | --- | --- | --- |
-| `req-grid-gryphon-count` | Implemented | Implemented | `_compute_rows` | — |
+| `req-grid-gryphon-count` | Implemented | Verified | `_compute_rows` | `req-grid-gryphon-count-4` |
 | `req-grid-gryphon-limit` | Implemented | Tested | — | `req-grid-gryphon-limit-1`, `req-grid-gryphon-limit-2`, `req-grid-gryphon-limit-3` |
 | `req-grid-gryphon-minmax` | Implemented | Implemented | `_extremum_aggregate` | — |
 | `req-grid-gryphon-multihop` | Implemented | Implemented | `_build_chain_queryset` | — |
