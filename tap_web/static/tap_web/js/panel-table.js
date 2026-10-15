@@ -208,6 +208,12 @@
     return { n: others.length, min_n: minN, median: med, mad: mad };
   }
 
+  var SEVERITY_RANKS = { critical: 5, high: 4, error: 4, medium: 3, moderate: 3, warning: 3, low: 2, note: 1, info: 1 };
+  function _severityRank(v) {
+    var r = SEVERITY_RANKS[String(v == null ? "" : v).toLowerCase()];
+    return r === undefined ? 0 : r;
+  }
+
   var FORMATTERS = {
     plaintext: function (cell) { return _escapeHtml(cell.getValue()); },
     // The value with its first letter upper-cased and nothing else touched
@@ -540,6 +546,10 @@
           return (x == null ? -1 : x) - (y == null ? -1 : y);
         };
       }
+      if (spec.sorter === "severityRank") {
+        // Severity words compare by rank (critical first when descending), not alphabetically.
+        col.sorter = function (a, b) { return _severityRank(a) - _severityRank(b); };
+      }
       if (spec.tooltip === "full_value") {
         col.tooltip = function (e, cell) { return _safeStr(cell.getValue()); };
       }
@@ -739,6 +749,20 @@
     }
 
     /* global Tabulator */
+    // Optional initial sort (panel.config.initial_sort): [{field, dir}], primary key first.
+    var sortScript = document.getElementById("tap-table-initialsort-" + panelId);
+    if (sortScript) {
+      try {
+        var keys = JSON.parse(sortScript.textContent);
+        if (Array.isArray(keys) && keys.length) {
+          tableOptions.initialSort = keys.map(function (k) {
+            return { column: k.field, dir: k.dir === "asc" ? "asc" : "desc" };
+          });
+        }
+      } catch (e) {
+        console.warn("TAP table panel: failed to parse initial sort for panel", panelId, e);
+      }
+    }
     var table = new Tabulator(mountEl, tableOptions);
     mountEl.setAttribute("data-tap-table-mounted", "true");
 

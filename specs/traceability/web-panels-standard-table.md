@@ -4,8 +4,8 @@
 
 | Bucket | Count |
 | --- | ---: |
-| mapped | 1 |
-| unbuilt | 7 |
+| mapped | 2 |
+| unbuilt | 6 |
 | unaccounted | 1 |
 | 0-ACID (payable) | 0 |
 
@@ -13,4 +13,5 @@
 
 | Requirement | Declared | Derived | Implementation | Verified by |
 | --- | --- | --- | --- | --- |
+| `req-web-stdpanel-table-config` | Proposed | Tested | — | `req-web-stdpanel-table-config-10`, `req-web-stdpanel-table-config-11` |
 | `req-web-stdpanel-table-rows` | Implemented | Tested | — | `req-web-stdpanel-table-rows-1`, `req-web-stdpanel-table-rows-2`, `req-web-stdpanel-table-rows-3`, `req-web-stdpanel-table-rows-4`, `req-web-stdpanel-table-rows-5` |

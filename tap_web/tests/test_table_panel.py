@@ -206,6 +206,47 @@ class TestTableConfigSchema:
         with pytest.raises(ValidationError):
             _validate_table_config({"columns": [{"field": "data.role", "title": "Role", "align": "middle"}]})
 
+    @pytest.mark.spec("req-web-stdpanel-table-config-10")
+    def test_initial_sort_accepts_ordered_keys_with_a_direction(self):
+        _validate_table_config(
+            {"initial_sort": [{"field": "data.severity", "dir": "desc"}, {"field": "data.created_at"}]}
+        )
+
+    @pytest.mark.spec("req-web-stdpanel-table-config-10")
+    @pytest.mark.parametrize(
+        "bad",
+        [[], [{"dir": "asc"}], [{"field": "data.x", "dir": "sideways"}], [{"field": "data.x", "extra": 1}]],
+    )
+    def test_initial_sort_rejects_malformed_keys(self, bad):
+        with pytest.raises(ValidationError):
+            _validate_table_config({"initial_sort": bad})
+
+    @pytest.mark.spec("req-web-stdpanel-table-config-11")
+    def test_severity_rank_is_a_known_sorter_and_nothing_else_is(self):
+        _validate_table_config({"columns": [{"field": "data.severity", "title": "Severity", "sorter": "severityRank"}]})
+        with pytest.raises(ValidationError):
+            _validate_table_config({"columns": [{"field": "data.severity", "title": "Severity", "sorter": "random"}]})
+
+    @pytest.mark.spec("req-web-stdpanel-table-config-10")
+    def test_the_initial_sort_reaches_the_page_as_a_json_script(self):
+        from django.template.loader import render_to_string
+
+        html = render_to_string(
+            "tap_web/panels/table_panel.html",
+            {
+                "panel": type("P", (), {"config": {}, "entity_id": "p1", "name": "t"})(),
+                "table_nodes": [],
+                "table_mode": "node",
+                "table_meta": {},
+                "table_initial_sort": [{"field": "data.severity", "dir": "desc"}],
+                "table_initial_sort_script_id": "tap-table-initialsort-p1",
+                "table_data_script_id": "tap-table-data-p1",
+                "table_columns_script_id": "tap-table-columns-p1",
+                "table_groupby_script_id": "tap-table-groupby-p1",
+            },
+        )
+        assert 'id="tap-table-initialsort-p1"' in html
+
 
 class TestMinimalChrome:
     """`chrome: minimal` draws no nav bars and no quick filter — a one-row table has nothing to page."""
