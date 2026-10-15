@@ -43,6 +43,7 @@ for avoiding silent drops, join drift, unsupported-shape approximation, and orac
 | req-grid-gryphon-order-by-envelope | [ORDER BY / LIMIT On A Type-Scan Graph Envelope](#order-by--limit-on-a-type-scan-graph-envelope) | Implemented | A labelled type-scan with envelope `RETURN` accepts `ORDER BY <var>.<field-path>` and `LIMIT`; compiles to SQL `ORDER BY` / `LIMIT` |
 | req-grid-gryphon-distinct | [RETURN DISTINCT Row Deduplication](#return-distinct-row-deduplication) | Proposed | `RETURN DISTINCT <field projections>` dedups projected rows via SQL `SELECT DISTINCT` (incl. JSON scalar sub-keys); composes with `ORDER BY` / `LIMIT`; single-var envelope honored as no-op; `count(DISTINCT)`, multi-var envelope, JSON-container, and aggregate-return DISTINCT rejected |
 | req-grid-gryphon-minmax | [MIN and MAX Aggregates](#min-and-max-aggregates) | Implemented | `MIN(field)` / `MAX(field)` in `RETURN` over a typed scalar field path, grouped implicitly like `COUNT`; the first numeric aggregate, motivated by a "first seen" column; `SUM`, `AVG`, `COUNT(*)` and `COUNT(DISTINCT)` stay rejected |
+| req-grid-gryphon-nodeonly-agg | [Aggregates Over A Node-Only Scan](#aggregates-over-a-node-only-scan) | Implemented | `COUNT`, `MIN` and `MAX` over a labelled node-only `MATCH (a:T)`, with or without a group key; the same rules as the traversal path |
 | req-grid-gryphon-compat | [Backward Compatibility](#backward-compatibility) | Implemented | Existing queries parse, execute, and return identical results |
 
 ---
@@ -594,7 +595,7 @@ Gryphon gains `MIN(<field path>)` and `MAX(<field path>)` as aggregate `RETURN` 
 - **Applied or rejected on every aggregate path** (`GRY-ARCH-3`): the `_compute_rows` aggregate branch supports `MIN`/`MAX`; `_execute_optional_match`, whose shape is the COUNT-only scoreboard, rejects them with `SearchExecutionError` rather than ignoring them.
 - **Amends `req-grid-gryphon-count-5`**, now edited: that ACID changed from "COUNT is the only aggregate" to "COUNT, MIN and MAX are the only aggregates"; `SUM`, `AVG`, `COUNT(*)` and `COUNT(DISTINCT ...)` stay rejected.
 - Mixing `MIN`/`MAX` with `COUNT` in one `RETURN` is allowed; all aggregate items share the one implicit `GROUP BY`.
-- **Aggregation is scoped to traversals.** A node-only `MATCH (a:T) RETURN MAX(a.data.f) AS m` is refused ("Advanced executor requires at least one edge"), exactly as `COUNT` is today; it is not silently answered.
+- **Node-only scans** (`MATCH (a:T) RETURN MAX(a.data.f) AS m`) aggregate too: see `req-grid-gryphon-nodeonly-agg`.
 - **Malformed stored values.** The write path does not enforce `format: date-time` and accepts `7.0` for an `integer`, so a stored `"n/a"` can fail the cast. That surfaces as a `SearchExecutionError` naming the problem, never a raw database error.
 - **All-aggregate `RETURN`** (no group key) is one group and one row (`req-grid-gryphon-count-4`). This was found broken while building: `.values()` with no columns grouped by every model column, so `RETURN COUNT(a) AS n` answered one row per match, each with a count of 1. `materialize_rows` now lowers a group-less aggregate plan through `.aggregate()`, for every shape that reaches it (edge chains and `OPTIONAL MATCH`; `RETURN COUNT(w)` over an `OPTIONAL MATCH` is now one total row, where it used to be one count per anchor). Over an empty match set that one row is `COUNT` 0 and `MIN`/`MAX` `NULL` (SQL aggregate semantics); with a group key an empty match set still has no groups and no rows.
 
@@ -625,6 +626,47 @@ Built per the `build-gryphon-capability` skill: spec, grammar, AST, parser, exec
 - `MIN`/`MAX` over a spine timestamp (`n.created_at`, `n.updated_at`), which are `DateTimeField` columns with no `FIELD_CRUD_SCHEMA` entry; they are rejected today for want of a declared type. Pull this in when a query needs entity-creation time rather than a data-lane time.
 - Arbitrary-precision `MIN`/`MAX` for `number` fields beyond double precision.
 - `MIN`/`MAX` over a text value (lexicographic order), over booleans, or over an OPTIONAL MATCH variable.
+
+---
+
+### Aggregates Over A Node-Only Scan
+----
+RID: `req-grid-gryphon-nodeonly-agg`
+
+Status: `Implemented`
+
+`COUNT`, `MIN` and `MAX` work over a labelled node-only pattern, `MATCH (a:T) [WHERE ...] RETURN ...`, not only over a pattern with an edge. Before this, `MATCH (a:T) RETURN COUNT(a) AS n` and `MATCH (a:T) RETURN MAX(a.data.f) AS m` were refused with "Advanced executor requires at least one edge", although the question ("how many", "the latest") has nothing to do with edges.
+
+#### Implementation
+
+- Dispatch: an aggregate `RETURN` is routed to the chain (advanced) executor only when some pattern has an edge (or a `NOT EXISTS` block is present). A node-only aggregate falls through to the type-scan executor, which hands the aggregate items to `_typescan_aggregate_rows`.
+- Lowering, rung 1 and the same mechanism as the traversal path: non-aggregate `RETURN` items are the `GROUP BY` keys, `COUNT` / `MIN` / `MAX` are `Count` / `Min` / `Max` over annotated columns, and the shared row backend (`materialize_rows`) runs them; a group-less `RETURN` is one group and one row (`.aggregate()`). `MIN` / `MAX` typing, nulls and result formatting are `_extremum_aggregate`'s, unchanged (`req-grid-gryphon-minmax`); the type scan only supplies its own ORM-path resolver, which applies the same data-lane allowlist.
+- `COUNT(a)` counts the matching rows; `COUNT(a.<spine field>)` counts non-null values; the argument is a bare variable or one dot-step, as on the traversal path.
+- **Grouped node-only aggregation is supported**: `MATCH (a:T) RETURN a.data.kind AS k, COUNT(a) AS n ORDER BY n DESC`. ORDER BY names RETURN outputs by alias and the group keys are the deterministic tiebreak; a per-row tiebreaker such as `entity_id` is never added to a grouped query, because it would split the groups.
+- **Apply or reject** (`GRY-ARCH-3`): the following are refused with `SearchExecutionError` and a message naming the remedy, never skipped: a labelless `MATCH (a)` (it scans every registered type); more than one `MATCH` clause (each clause would be aggregated on its own); a `RETURN` item or `WHERE` term on a variable other than the scanned one (a `WHERE` term is never scoped away on this path: the count would be too high); a bare scanned variable as a group key; a `COUNT` argument deeper than one dot-step; and every `MIN` / `MAX` argument `req-grid-gryphon-minmax-4` refuses. `NOT EXISTS` with a node-only pattern and `OPTIONAL MATCH` are unchanged.
+
+#### Development
+
+The demand is the dashboard tile that counts or bounds one type ("alerts", "latest report"), which should not need a fabricated edge. Ruled by the maintainer after `req-grid-gryphon-minmax` shipped. `COUNT(DISTINCT)`, `SUM` and `AVG` stay out of scope everywhere.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-grid-gryphon-nodeonly-agg-1 | COUNT Over A Node-Only Scan | Implemented | `MATCH (a:T) RETURN COUNT(a) AS n` returns one row holding the number of live matching nodes; `WHERE` and inline property maps narrow it first. | |
+| req-grid-gryphon-nodeonly-agg-2 | MIN And MAX Over A Node-Only Scan | Implemented | `MIN` / `MAX` over a typed data-lane field of the scanned node follow `req-grid-gryphon-minmax-4`/`-5`/`-6`/`-7` exactly: typed comparison, nulls ignored, an all-null or empty set is `NULL`, date-times return ISO UTC strings. | |
+| req-grid-gryphon-nodeonly-agg-3 | All-Aggregate Is One Row | Implemented | A `RETURN` of only aggregates is one group and yields exactly one row, including over an empty match set (`COUNT` 0, `MIN`/`MAX` `NULL`). | |
+| req-grid-gryphon-nodeonly-agg-4 | Grouped Aggregation | Implemented | Non-aggregate `RETURN` items on the scanned variable are the `GROUP BY` keys; `ORDER BY` an alias and `LIMIT` apply, with the group keys as the tiebreak. | |
+| req-grid-gryphon-nodeonly-agg-5 | Labelless Scan Rejected | Implemented | An aggregate over `MATCH (a)` raises `SearchExecutionError` naming the need for a label. | |
+| req-grid-gryphon-nodeonly-agg-6 | One MATCH Clause | Implemented | An aggregate over several `MATCH` clauses raises `SearchExecutionError`. | |
+| req-grid-gryphon-nodeonly-agg-7 | Foreign Variables And Bare Group Keys Rejected | Implemented | An aggregate, group item or `WHERE` term on a variable other than the scanned one, a bare scanned variable as a group key, and a `COUNT` argument deeper than one dot-step each raise `SearchExecutionError`. | |
+| req-grid-gryphon-nodeonly-agg-8 | Traversal Aggregation Unchanged | Implemented | Aggregates over a pattern with an edge, `NOT EXISTS`, and `OPTIONAL MATCH` behave as before. | |
+
+#### Future
+
+- `COUNT` of a deeper path (`COUNT(a.data.f)`) on either path; the argument stays a bare variable or one dot-step.
+- `COUNT(DISTINCT)`, `SUM`, `AVG`.
+- A JSON sub-key as a group key (`RETURN a.data.tags.k AS k, COUNT(a)`) groups on the JSON value, so a stored JSON `null` and an absent key can form two groups that both render as `null`; the traversal path behaves the same. Group on a column, or pull this in with a text-cast group key when a query needs it.
 
 ---
 

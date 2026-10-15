@@ -4074,8 +4074,7 @@ class TestGryphonMinMaxParser:
         assert ast.return_clause.items is not None and len(ast.return_clause.items) == 2
 
 
-@pytest.mark.django_db(transaction=True, databases=["default", "search_readonly"])
-class TestGryphonMinMaxExecutor:
+class _MinMaxFixture:
     """Executor coverage for MIN / MAX over a vulnerability -> finding -> alert graph.
 
     Built from generic grid_fixtures nodes shaped like the motivating query: hubs stand
@@ -4143,6 +4142,10 @@ class TestGryphonMinMaxExecutor:
         search = Search(search_type="gryphon", root="node", name="minmax", definition={"query": query})
         rows: list[dict[str, Any]] = execute_search(search, inputs=inputs or {})["rows"]
         return rows
+
+@pytest.mark.django_db(transaction=True, databases=["default", "search_readonly"])
+class TestGryphonMinMaxExecutor(_MinMaxFixture):
+    """Executor coverage for MIN / MAX over the vulnerability -> finding -> alert graph."""
 
     # -- the motivating shape ------------------------------------------------
 
@@ -4458,13 +4461,6 @@ class TestGryphonMinMaxExecutor:
             self._rows(self.ONE_HOP + "RETURN a.data.kind AS k, MAX(a.data.description) AS hi")
         assert "n/a" not in str(exc.value)  # the driver's text (it quotes the value) stays server-side
 
-    def test_node_only_type_scan_aggregate_is_rejected(self):
-        """Aggregation is scoped to traversals today (COUNT has the same limit): a node-only
-        `MATCH (a:T) RETURN MAX(...)` is refused with the edge requirement named, never ignored."""
-        self._build()
-        with pytest.raises(SearchExecutionError, match="at least one edge"):
-            self._rows("MATCH (a:grid_fixtures__node) RETURN MAX(a.data.severity_score) AS hi")
-
     def test_count_alone_over_optional_match_is_one_total_row(self):
         """`RETURN COUNT(w)` with no group key over an OPTIONAL MATCH is one group: one total row."""
         self._build()
@@ -4486,3 +4482,168 @@ class TestGryphonMinMaxExecutor:
             with pytest.raises(SearchExecutionError, match=re.escape(named)) as exc:
                 self._rows(self.ONE_HOP + f"RETURN {ret}")
             assert "COUNT, MIN and MAX" in str(exc.value)
+
+
+@pytest.mark.django_db(transaction=True, databases=["default", "search_readonly"])
+class TestGryphonNodeOnlyAggregates(_MinMaxFixture):
+    """req-grid-gryphon-nodeonly-agg: COUNT / MIN / MAX over a labelled node-only scan.
+
+    Reuses the MinMax fixture builder (6 alerts: severity 5/9/7/3/4/8, three unobserved) but
+    asks every question of `MATCH (a:grid_fixtures__node)` with no edge.
+    """
+
+    SCAN = "MATCH (a:grid_fixtures__node) "
+
+    def test_count_over_a_node_only_scan(self):
+        """nodeonly-agg-1: COUNT(a) is the number of live matching nodes, WHERE narrows first."""
+        self._build()
+        assert self._rows(self.SCAN + "RETURN COUNT(a) AS n") == [{"n": 6}]
+        assert self._rows(self.SCAN + 'WHERE a.data.kind = "scanner-x" RETURN COUNT(a) AS n') == [{"n": 3}]
+        assert self._rows("MATCH (a:grid_fixtures__node {kind: \"scanner-y\"}) RETURN COUNT(a) AS n") == [{"n": 3}]
+
+    def test_count_excludes_soft_deleted_nodes(self):
+        from tap_grid.models import Entity
+
+        self._build()
+        Entity.objects.filter(name="a1").update(deleted_at="2026-03-20T00:00:00Z")
+        assert self._rows(self.SCAN + "RETURN COUNT(a) AS n") == [{"n": 5}]
+
+    def test_min_and_max_over_a_node_only_scan(self):
+        """nodeonly-agg-2/-3: typed MIN / MAX, nulls ignored, one row."""
+        self._build()
+        assert self._rows(
+            self.SCAN + "RETURN MIN(a.data.severity_score) AS lo, MAX(a.data.severity_score) AS hi, "
+            "MIN(a.data.observed_at) AS first, MAX(a.data.observed_at) AS last, COUNT(a) AS n"
+        ) == [{"lo": 3, "hi": 9, "first": "2026-03-01T09:00:00Z", "last": "2026-03-10T12:00:00Z", "n": 6}]
+
+    def test_empty_match_is_one_row_of_zero_and_null(self):
+        self._build()
+        assert self._rows(
+            self.SCAN + "WHERE a.data.severity_score > 100 RETURN COUNT(a) AS n, MAX(a.data.severity_score) AS m"
+        ) == [{"n": 0, "m": None}]
+
+    def test_all_null_field_is_null(self):
+        self._build()
+        assert self._rows(self.SCAN + 'WHERE a.data.severity_score < 5 RETURN MIN(a.data.observed_at) AS t') == [
+            {"t": None}
+        ]
+
+    def test_grouped_node_only_aggregate_with_order_and_limit(self):
+        """nodeonly-agg-4: group keys, ORDER BY an alias, LIMIT; groups are not split by a tiebreaker."""
+        self._build()
+        rows = self._rows(
+            self.SCAN + "RETURN a.data.kind AS scanner, COUNT(a) AS n, MAX(a.data.severity_score) AS hi "
+            "ORDER BY scanner"
+        )
+        assert rows == [
+            {"scanner": "scanner-x", "n": 3, "hi": 8},
+            {"scanner": "scanner-y", "n": 3, "hi": 9},
+        ]
+        top = self._rows(self.SCAN + "RETURN a.data.kind AS scanner, MAX(a.data.severity_score) AS hi ORDER BY hi DESC LIMIT 1")
+        assert top == [{"scanner": "scanner-y", "hi": 9}]
+        assert self._rows(self.SCAN + "RETURN COUNT(a) AS n LIMIT 0") == []
+
+    def test_agrees_with_the_traversal_path(self):
+        """The two lowerings answer the same question the same way (equivalence pin)."""
+        self._build()
+        node_only = self._rows(self.SCAN + "RETURN MAX(a.data.severity_score) AS hi, MIN(a.data.observed_at) AS t")
+        via_edges = self._rows(self.ONE_HOP + "RETURN MAX(a.data.severity_score) AS hi, MIN(a.data.observed_at) AS t")
+        assert node_only == via_edges
+
+    def test_json_sub_key_and_cast_paths_work_without_an_edge(self, monkeypatch):
+        """nodeonly-agg-2 / minmax-7: the type scan's resolver feeds the same cast machinery."""
+        from tap_plugin.grid_fixtures.models import PgNode as _PgNode
+
+        PgNode: Any = _PgNode
+        self._build()
+        for node in PgNode.objects.all():
+            node.tags = {"score": node.severity_score}
+            node.description = node.observed_at.isoformat() if node.observed_at else "2026-04-01T00:00:00+00:00"
+            node.save()
+        monkeypatch.setattr(
+            PgNode,
+            "FIELD_CRUD_SCHEMA",
+            {
+                **PgNode.FIELD_CRUD_SCHEMA,
+                "tags": {"type": "object", "properties": {"score": {"type": "integer"}}},
+                "description": {"type": "string", "format": "date-time"},
+            },
+        )
+        assert self._rows(self.SCAN + "RETURN MIN(a.data.tags.score) AS lo, MAX(a.data.tags.score) AS hi") == [
+            {"lo": 3, "hi": 9}
+        ]
+        assert self._rows(self.SCAN + "RETURN MAX(a.data.description) AS d") == [{"d": "2026-04-01T00:00:00Z"}]
+
+    @pytest.mark.parametrize(
+        "query, message",
+        [
+            ("MATCH (a) RETURN COUNT(a) AS n", "needs a labelled node"),
+            ("MATCH (a:grid_fixtures__node) MATCH (b:grid_fixtures__leaf) RETURN COUNT(a) AS n", "exactly one top-level MATCH"),
+            ("MATCH (a:grid_fixtures__node) RETURN COUNT(b) AS n", "Unknown variable 'b'"),
+            ("MATCH (a:grid_fixtures__node) RETURN MAX(b.data.severity_score) AS n", "Unknown variable 'b'"),
+            ("MATCH (a:grid_fixtures__node) RETURN a, COUNT(a) AS n", "bare 'a' cannot be a group key"),
+            ("MATCH (a:grid_fixtures__node) RETURN a.data.tags AS t, COUNT(a.data.tags.x) AS n", "COUNT argument must be"),
+            ("MATCH (a:grid_fixtures__node) RETURN COUNT(a.data.kind) AS n", "COUNT argument must be"),
+            ("MATCH (a:grid_fixtures__node) RETURN MIN(a.name) AS n", "typed data-lane field"),
+            ("MATCH (a:grid_fixtures__node) RETURN MAX(a.data.kind) AS n", "declared {string}"),
+            ("MATCH (a:grid_fixtures__node) RETURN MAX(a.data.is_open) AS n", "declared {boolean}"),
+            ("MATCH (a:grid_fixtures__node) RETURN a.display.x AS d, COUNT(a) AS n", "display"),
+            ("MATCH (a:grid_fixtures__node) RETURN SUM(a.data.severity_score) AS n", "not a supported aggregate"),
+            ("MATCH (a:grid_fixtures__node) RETURN COUNT(*) AS n", "COUNT\\(\\*\\) is not supported"),
+            ("MATCH (a:grid_fixtures__node) RETURN COUNT(a) AS n ORDER BY nothing", "not a RETURN output"),
+        ],
+    )
+    def test_out_of_scope_shapes_are_refused_not_skipped(self, query, message):
+        """nodeonly-agg-5/-6/-7 and minmax-4: every refusal names its remedy."""
+        self._build()
+        with pytest.raises(SearchExecutionError, match=message):
+            self._rows(query)
+
+    def test_where_on_an_unbound_variable_is_refused_not_scoped_away(self):
+        """A WHERE term the scan cannot apply must not be dropped: the count would be too high."""
+        self._build()
+        for where in (
+            'x.data.kind = "scanner-x"',
+            'a.data.kind = "scanner-x" OR z.data.severity_score = 1',
+            'NOT (z.data.kind = "q")',
+        ):
+            with pytest.raises(SearchExecutionError, match="does not bind"):
+                self._rows(self.SCAN + f"WHERE {where} RETURN COUNT(a) AS n")
+
+    def test_grouped_aggregate_over_no_matches_has_empty_rows_not_an_envelope(self):
+        """Zero groups answers `rows: []` (strict key), so it is distinguishable from a graph envelope."""
+        self._build()
+        assert self._rows(self.SCAN + 'WHERE a.data.kind = "none" RETURN a.data.kind AS k, COUNT(a) AS n') == []
+
+    def test_not_exists_with_a_node_only_pattern_is_still_refused(self):
+        """nodeonly-agg-8: NOT EXISTS keeps the chain path, which needs an edge, so it refuses."""
+        self._build()
+        with pytest.raises(SearchExecutionError, match="at least one edge"):
+            self._rows(
+                self.SCAN + "NOT EXISTS { MATCH (b:grid_fixtures__leaf)-[:PG_LINKS__grid_fixtures]->(a) } "
+                "RETURN COUNT(a) AS n"
+            )
+
+    def test_traversal_aggregation_is_unchanged(self):
+        """nodeonly-agg-8: edge patterns still take the chain path and keep their answers."""
+        self._build()
+        assert self._rows(self.ONE_HOP + "RETURN COUNT(a) AS n") == [{"n": 6}]
+        with pytest.raises(SearchExecutionError, match="supports only COUNT"):
+            self._rows(
+                "MATCH (f:grid_fixtures__leaf) OPTIONAL MATCH (f)-[:PG_LINKS__grid_fixtures]->(a:grid_fixtures__node) "
+                "RETURN f.entity_id AS id, MAX(a.data.severity_score) AS x"
+            )
+
+    def test_aggregate_reaches_the_sql(self):
+        """Construct effect (GRY-ARCH-3): the aggregates and the GROUP BY are in the emitted SQL."""
+        from tap_grid.gryphon.executor import explain_gryphon_raw
+
+        self._build()
+        sql = " ".join(
+            s.sql
+            for s in explain_gryphon_raw(
+                self.SCAN + "RETURN a.data.kind AS k, MAX(a.data.severity_score) AS hi, COUNT(a) AS n", {}
+            )["sql"].statements
+        )
+        assert "MAX(" in sql and "COUNT(" in sql and "GROUP BY" in sql
+
