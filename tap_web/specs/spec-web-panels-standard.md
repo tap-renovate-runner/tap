@@ -331,8 +331,6 @@ RID: `req-web-stdpanel-statcards-age`
 
 Status: `Implemented`
 
-Trace: `non-python` — tap_web/static/tap_web/js/stat-cards.js
-
 The `age` formatter shows how long ago an instant was ("19 days", "3 hours"), computed in the browser against the viewer's now, with the exact timestamp in the tooltip.
 
 #### Implementation
