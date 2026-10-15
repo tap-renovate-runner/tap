@@ -191,7 +191,10 @@ fi
 
 # Dirty worktree: only if the directory is actually a live git worktree.
 if [[ -d "$WORKTREE" ]] && git -C "$WORKTREE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  DIRTY_PORCELAIN="$(git -C "$WORKTREE" status --porcelain 2>/dev/null)"
+  # `.lite-session` is the marker spawn-session.sh --lite writes (and --promote deletes);
+  # it is infrastructure, not work, so it alone never makes a worktree dirty
+  # (req-dev-multisession-teardown-safety-4). Exact path only — no glob.
+  DIRTY_PORCELAIN="$(git -C "$WORKTREE" status --porcelain 2>/dev/null | grep -Fxv '?? .lite-session')"
   if [[ -n "$DIRTY_PORCELAIN" ]]; then
     DIRTY=1
     DIRTY_COUNT="$(printf '%s\n' "$DIRTY_PORCELAIN" | wc -l | tr -d ' ')"

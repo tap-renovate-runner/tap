@@ -361,7 +361,11 @@ def _has_advanced_features(ast: GryphonAST) -> bool:
     if ast.return_clause.items is not None:
         for item in ast.return_clause.items:
             if isinstance(item, AggregateReturnItem):
-                return True
+                # An aggregate needs the chain machinery only when a pattern has an edge. A
+                # node-only scan aggregates in the type-scan path (req-grid-gryphon-nodeonly-agg);
+                # a single node-only MATCH is enforced there, the rest are refused in `_execute_ast`.
+                if any(len(pattern.edges) > 0 for mc in ast.match_clauses for pattern in mc.patterns):
+                    return True
     for mc in ast.match_clauses:
         for pattern in mc.patterns:
             if len(pattern.edges) > 1:
@@ -580,6 +584,13 @@ def _execute_ast(
     (``_reject_variables_bound_in_multiple_match_clauses``,
     req-grid-traversal-lang-shape-8). Composition stays a known gap (shape-7).
     """
+    if len(ast.match_clauses) > 1 and any(
+        isinstance(item, AggregateReturnItem) for item in (ast.return_clause.items or ())
+    ):
+        raise SearchExecutionError(
+            "Row projection with field paths or aggregates requires exactly one top-level MATCH clause: "
+            "an aggregate over several MATCH clauses would aggregate each clause separately."
+        )
     all_nodes: dict[str, dict[str, Any]] = {}
     all_edges: dict[str, dict[str, Any]] = {}
     all_rows: list[dict[str, Any]] = []
@@ -616,7 +627,9 @@ def _execute_ast(
         all_warnings.update(result.get("warnings", {}))
 
     envelope: dict[str, Any] = {"nodes": list(all_nodes.values()), "edges": list(all_edges.values())}
-    if all_rows:
+    # An aggregate RETURN always answers in `rows`, even when it has no groups, so a caller can tell
+    # "zero groups" from "this was a graph envelope".
+    if all_rows or any(isinstance(item, AggregateReturnItem) for item in (ast.return_clause.items or ())):
         envelope["rows"] = all_rows
     if all_warnings:
         envelope["warnings"] = all_warnings
@@ -641,6 +654,11 @@ def _dispatch_pattern(
     if len(pattern.edges) == 0:
         node = pattern.nodes[0]
         if node.label is None:
+            if any(isinstance(item, AggregateReturnItem) for item in (return_clause.items or ())):
+                raise SearchExecutionError(
+                    "An aggregate over a node-only scan needs a labelled node, e.g. MATCH (a:grid_fixtures__node) "
+                    "RETURN COUNT(a) AS n: a labelless MATCH (a) scans every registered type."
+                )
             with gryphon_stage("bare-type-scan"):
                 return _execute_bare_type_scan(
                     node,
@@ -902,7 +920,7 @@ def _execute_type_scan(
 ) -> dict[str, Any]:
     """Execute a node-only MATCH pattern — scan all entities of the given type.
 
-    TAP-IMPLEMENTS: req-grid-traversal-lang-patterns@34302e62ead9/2546f268cace (derivation) — the
+    TAP-IMPLEMENTS: req-grid-traversal-lang-patterns@34302e62ead9/99f5eb183fec (derivation) — the
         labelled node/edge pattern shape executes here.
 
     Applies a global WHERE clause filtered to predicates that reference the
@@ -967,6 +985,12 @@ def _execute_type_scan(
             )
         )
 
+    # An aggregate counts or bounds what the WHERE leaves, so a WHERE term the scan cannot apply
+    # must refuse, not be scoped away (the union-clause scoping below would otherwise drop it and
+    # return a count that is too high). One MATCH clause is guaranteed for an aggregate here.
+    if where_clause is not None and any(isinstance(item, AggregateReturnItem) for item in (return_clause.items or ())):
+        _reject_where_on_other_variables(where_clause.predicate, var)
+
     # Apply WHERE comparisons scoped to this variable.
     if where_clause is not None:
         scoped_pred = _filter_predicate_for_bindings(
@@ -1002,6 +1026,13 @@ def _execute_type_scan(
     # (req-grid-traversal-exec-row-materialization-4/6). Bare-variable items (no
     # dot-steps) and items bound to another variable are skipped, matching the
     # former projection.
+    if any(isinstance(item, AggregateReturnItem) for item in items):
+        return {
+            "nodes": [],
+            "edges": [],
+            "rows": _typescan_aggregate_rows(qs, items, node, var, order_by=order_by, limit=limit),
+        }
+
     group_pairs: list[tuple[str, str]] = []
     annotations: dict[str, Any] = {}
     for idx, item in enumerate(items):
@@ -1039,6 +1070,134 @@ def _execute_type_scan(
         limit=limit,
     )
     return {"nodes": [], "edges": [], "rows": materialize_rows(plan)}
+
+
+def _reject_where_on_other_variables(predicate: Predicate | None, var: str) -> None:
+    """Refuse a WHERE leaf that names a variable other than ``var`` (aggregate over a node-only scan)."""
+    if predicate is None:
+        return
+    if isinstance(predicate, (AndPred, OrPred)):
+        _reject_where_on_other_variables(predicate.left, var)
+        _reject_where_on_other_variables(predicate.right, var)
+    elif isinstance(predicate, NotPred):
+        _reject_where_on_other_variables(predicate.operand, var)
+    elif isinstance(predicate, (Comparison, InComparison, IsNullComparison, ObservationComparison)):
+        if predicate.field_path.variable != var:
+            raise SearchExecutionError(
+                f"WHERE names variable '{predicate.field_path.variable}', which this MATCH does not bind; "
+                f"an aggregate over the scan of '{var}' cannot ignore it. Constrain '{var}' only."
+            )
+
+
+def _typescan_aggregate_rows(
+    qs: Any,
+    items: tuple[Any, ...],
+    node: NodePattern,
+    var: str,
+    *,
+    order_by: Any,
+    limit: Any,
+) -> list[dict[str, Any]]:
+    """Aggregate a node-only type scan: ``MATCH (a:T) RETURN MAX(a.data.x) AS m, COUNT(a) AS n``.
+
+    TAP-IMPLEMENTS: req-grid-gryphon-nodeonly-agg@320545ff12d2/4155db03c7f9 (derivation) — COUNT / MIN / MAX over a node-only scan lower here
+
+    Rung 1, the same mechanism the edge-chain path uses: non-aggregate RETURN items are the
+    GROUP BY keys, the aggregates are ``Count`` / ``Min`` / ``Max`` over annotated columns, and
+    a group-less RETURN is one group and one row (``.aggregate()`` in ``materialize_rows``).
+    MIN / MAX typing and null rules are ``_extremum_aggregate``'s, unchanged. Every item must
+    be on the scanned variable; anything else is refused, not skipped.
+
+    .. tap:capability:: Gryphon aggregates over a node-only scan
+       :id: cap-grid-gryphon-nodeonly-agg
+       :status: implemented
+       :audience: external-user; agent; developer
+       :affordance: querying
+       :covered-by: gridkin:nodeonly_agg-grouped-node-only-aggregation-one-row-per-scanner
+       :limitations: Labelled single-MATCH scans only; COUNT takes a variable or one dot-step; no SUM / AVG / COUNT(DISTINCT).
+
+       ``COUNT``, ``MIN`` and ``MAX`` over ``MATCH (a:T)`` without any edge, ungrouped
+       (one row) or grouped by the non-aggregate RETURN items.
+
+       Example::
+
+          MATCH (a:grid_fixtures__node)
+          RETURN a.data.kind AS scanner, COUNT(a) AS alerts, MAX(a.data.severity_score) AS highest
+    """
+    from django.db.models import Count, F
+
+    model_cls = qs.model
+    binding = {"role": "node", "label": node.label}
+
+    def resolve(_binding: dict[str, Any], path: FieldPath) -> str:
+        return _typescan_orm_path(path, model_cls)
+
+    annotations: dict[str, Any] = {}
+    group_pairs: list[tuple[str, str]] = []
+    aggregate_annotations: dict[str, Any] = {}
+    aggregate_pairs: list[tuple[str, str]] = []
+    aggregate_postprocess: dict[str, Callable[[Any], Any]] = {}
+    for idx, item in enumerate(items):
+        if isinstance(item, AggregateReturnItem):
+            agg = item.aggregate
+            arg = agg.argument
+            if arg.variable != var:
+                raise SearchExecutionError(f"Unknown variable '{arg.variable}' in {agg.function.upper()}().")
+            src_alias, agg_alias = f"_ts_src_{idx}", f"_ts_agg_{idx}"
+            if agg.function == "count":
+                if not arg.steps:
+                    annotations[src_alias] = F("pk")
+                elif len(arg.steps) == 1 and isinstance(arg.steps[0], DotStep):
+                    annotations[src_alias] = F(_typescan_orm_path(arg, model_cls))
+                else:
+                    raise SearchExecutionError("COUNT argument must be a bare variable or single dot-step.")
+                aggregate_annotations[agg_alias] = Count(src_alias)
+            elif agg.function in ("min", "max"):
+                source, factory, post = _extremum_aggregate(agg.function, binding, arg, resolve)
+                annotations[src_alias] = source
+                aggregate_annotations[agg_alias] = factory(src_alias)
+                if post is not None:
+                    aggregate_postprocess[agg_alias] = post
+            else:
+                raise SearchExecutionError(f"Unsupported aggregate function: {agg.function}")
+            aggregate_pairs.append((agg_alias, item.alias))
+            continue
+        if not isinstance(item, ReturnItem) or item.path.variable != var:
+            raise SearchExecutionError(
+                "Aggregate RETURN over a node-only scan can only name the scanned variable "
+                f"'{var}': group by '{var}.data.<field>' and aggregate '{var}'."
+            )
+        if not item.path.steps or not isinstance(item.path.steps[0], DotStep):
+            raise SearchExecutionError(
+                f"Aggregate RETURN groups by a field path, e.g. {var}.data.<field>; a bare '{var}' cannot be a group key."
+            )
+        if item.path.steps[0].name == _DISPLAY_LANE_PREFIX:
+            raise SearchExecutionError(
+                "Cannot use the `display` lane in RETURN paths today — display "
+                "values are computed for rendering, not stored. For display data "
+                "use the `extended` return layer."
+            )
+        _reject_non_projectable_return_path(item.path)
+        internal = f"_ts_col_{idx}"
+        annotations[internal] = F(_typescan_orm_path(item.path, model_cls))
+        group_pairs.append((internal, _return_item_key(item)))
+
+    # ORDER BY names RETURN outputs by key. The group columns are the deterministic default
+    # order and tiebreak; no per-row tiebreaker (entity_id) may join a GROUP BY.
+    key_to_internal = {user: internal for internal, user in group_pairs}
+    key_to_internal.update({user: internal for internal, user in aggregate_pairs})
+    order_cols = tuple(_resolve_order_cols(order_by, key_to_internal, [i for i, _ in group_pairs]))
+    plan = MaterializationPlan(
+        queryset=qs,
+        pre_annotations=annotations,
+        group_pairs=tuple(group_pairs),
+        aggregate_annotations=aggregate_annotations,
+        aggregate_pairs=tuple(aggregate_pairs),
+        order_cols=order_cols,
+        limit=limit,
+        aggregate_postprocess=aggregate_postprocess,
+    )
+    return materialize_rows(plan)
 
 
 def _return_item_key(item: Any) -> str:
@@ -3271,10 +3430,11 @@ def _extremum_aggregate(
     function: str,
     binding: dict[str, Any],
     arg: FieldPath,
+    resolve: Callable[[dict[str, Any], FieldPath], str] | None = None,
 ) -> tuple[Any, Callable[[str], Any], Callable[[Any], Any] | None]:
     """Lower ``MIN(<field path>)`` / ``MAX(<field path>)`` to an ORM aggregate.
 
-    TAP-IMPLEMENTS: req-grid-gryphon-minmax@ad3a06784160/1d97317124f7 (derivation) — MIN / MAX lower here: typed
+    TAP-IMPLEMENTS: req-grid-gryphon-minmax@191d335b158b/47c4c3503018 (derivation) — MIN / MAX lower here: typed
         comparison, nulls ignored, the shared field-path resolver, ISO-string results.
 
     Returns ``(source_expression, aggregate_factory, postprocess)``: the expression
@@ -3360,7 +3520,9 @@ def _extremum_aggregate(
 
     # The shared resolver (and its data-lane allowlist) produces the ORM path; a JSON
     # sub-key is treated exactly as a column is, then cast to the declared type.
-    orm_path = _resolve_orm_path(binding, arg)
+    # `resolve` lets the node-only type scan supply its own resolver (the queryset there is on
+    # the per-model class, not the Edge chain); both run the same data-lane allowlist.
+    orm_path = (resolve or _resolve_orm_path)(binding, arg)
     postprocess = _format_temporal if kind in ("date-time", "date") else None
     key_steps = len(steps) - 2  # steps after `data.<column>`
     if key_steps > 0:
