@@ -371,7 +371,7 @@ a `ParamNullTest` branch.
 
 ### Bucket C — Aggregation Beyond `COUNT`
 
-Today Gryphon supports `COUNT(...)` with implicit GROUP BY. That's the entry-level aggregate. The pull for additional aggregates comes from compliance and KSI scoreboards: "average remediation time per resource type," "max severity per resource," "total cost-impact per finding category," "the list of finding IDs per resource so the panel can drill in without a second query."
+Today Gryphon supports `COUNT(...)`, `MIN(...)` and `MAX(...)` with implicit GROUP BY. `COUNT` is the entry-level aggregate. The pull for additional aggregates comes from compliance and KSI scoreboards: "average remediation time per resource type," "max severity per resource," "total cost-impact per finding category," "the list of finding IDs per resource so the panel can drill in without a second query."
 
 #### C1. `SUM` / `MIN` / `MAX` / `AVG`
 
@@ -383,9 +383,9 @@ Today Gryphon supports `COUNT(...)` with implicit GROUP BY. That's the entry-lev
 
 **How it touches the executor today.** Maps to Django ORM `Sum/Min/Max/Avg` annotation. The existing aggregation path in `_compute_rows` already handles `Count`; extending to the other aggregates is parallel work, not a new dispatch path.
 
-**Status flag.** `extract-ahead` once the BaseModel reach lands (because these aggregates apply to typed numeric fields, which today aren't reachable from Gryphon predicates). Until then, `wait-for-signal`.
+**Status flag.** `MIN` and `MAX` landed (2026-10-15) as `req-grid-gryphon-minmax` in `spec-grid-gryphon-multihop-aggregation.md`: typed data-lane fields (integer, number, date-time, date), implicit GROUP BY shared with `COUNT`, NULLs ignored. `SUM` and `AVG` remain `wait-for-signal` (no concrete query yet).
 
-**Validation contract size.** ~5-6 Gridkin scenarios (one per aggregate, plus interaction with GROUP BY, plus NULL handling).
+**Validation contract size.** ~5-6 Gridkin scenarios (one per aggregate, plus interaction with GROUP BY, plus NULL handling). `MIN`/`MAX` shipped with `scenarios/minmax.gridkin.json` (8 result scenarios, 13 rejections).
 
 #### C2. `COLLECT`
 
