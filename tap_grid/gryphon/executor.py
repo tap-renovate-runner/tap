@@ -3145,7 +3145,7 @@ def _rows_from_values(
 def materialize_rows(plan: MaterializationPlan) -> list[dict[str, Any]]:
     """The shared Layer-B row backend: a resolved plan -> the ``rows`` list.
 
-    TAP-IMPLEMENTS: req-grid-traversal-exec-row-materialization@edbd98db287d/76105b23891f (derivation) —
+    TAP-IMPLEMENTS: req-grid-traversal-exec-row-materialization@edbd98db287d/c49a80f20523 (derivation) —
         the requirement exists to forbid per-dispatch row tails; this function is the one
         backend every shape reaches, so a fifth row tail is a defect by construction.
 
@@ -3180,6 +3180,12 @@ def materialize_rows(plan: MaterializationPlan) -> list[dict[str, Any]]:
         qs = qs.annotate(**plan.pre_annotations)
 
     group_internals = [internal for internal, _ in plan.group_pairs]
+    if plan.aggregate_annotations and not group_internals:
+        # req-grid-gryphon-count-4: an all-aggregate RETURN is ONE row over the whole match set.
+        # `.values()` with no names means "every field" to Django, so annotating after it would
+        # group by primary key and return one row per matched row. `.aggregate()` is the
+        # ungrouped form (and yields a count of 0, not no row, over an empty match).
+        return _rows_from_values([qs.aggregate(**plan.aggregate_annotations)], plan.group_pairs, plan.aggregate_pairs)
     qs = qs.values(*group_internals)
     if plan.aggregate_annotations:
         qs = qs.annotate(**plan.aggregate_annotations)

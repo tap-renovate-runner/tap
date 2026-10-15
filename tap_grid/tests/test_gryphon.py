@@ -1472,6 +1472,29 @@ class TestGryphonV2Executor:
         assert rows[str(sam.pk)] == 1  # sting
         assert rows[str(aragorn.pk)] == 1  # anduril
 
+    @pytest.mark.spec("req-grid-gryphon-count-4")
+    def test_all_aggregate_return_is_one_row(self):
+        """RETURN COUNT(a) AS n, with no group key, is ONE row holding the whole count.
+
+        Found building the Stat Cards panel: the executor projected ``.values()`` with no
+        group keys, which Django reads as "all fields", so the aggregate grouped by primary
+        key and came back as one row per matched node (3 rows of n=1, not 1 row of n=4).
+        """
+        self._setup_wielders()
+        search = Search(
+            search_type="gryphon",
+            root="node",
+            name="all-aggregate",
+            definition={
+                "query": (
+                    "MATCH (c:grid_fixtures__constrained_source)-[:SCHEMA_LINK__grid_fixtures]->"
+                    "(a:grid_fixtures__dual_endpoint) RETURN COUNT(a) AS n"
+                )
+            },
+        )
+        result = execute_search(search, inputs={})
+        assert result["rows"] == [{"n": 4}]
+
     def test_not_exists_excludes_correlated_rows(self):
         """NOT EXISTS filters out outer rows whose shared var matches an inner pattern."""
         frodo, sam, aragorn, ring, sting, anduril = self._setup_wielders()

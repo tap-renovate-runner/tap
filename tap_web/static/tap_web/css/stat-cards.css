@@ -1,0 +1,105 @@
+/* Stat Cards panel (req-web-stdpanel-statcards-style): a wrapping grid of metric cards.
+   Tokens are defined on the panel root; dark values follow the viewer's scheme.
+   Tone is a left rule AND a word (see .tap-statcard__tone) -- never colour alone. */
+
+.tap-panel--stat-cards {
+  --statcard-bg: #ffffff;
+  --statcard-border: #e2e8f0;
+  --statcard-text: #0f172a;
+  --statcard-muted: #64748b;
+  --statcard-good: #15803d;
+  --statcard-warn: #b45309;
+  --statcard-bad: #b91c1c;
+  --statcard-neutral: #94a3b8;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .tap-panel--stat-cards {
+    --statcard-bg: #1e293b;
+    --statcard-border: #334155;
+    --statcard-text: #f1f5f9;
+    --statcard-muted: #94a3b8;
+    --statcard-good: #4ade80;
+    --statcard-warn: #fbbf24;
+    --statcard-bad: #f87171;
+    --statcard-neutral: #64748b;
+  }
+}
+
+:root[data-theme="dark"] .tap-panel--stat-cards {
+  --statcard-bg: #1e293b;
+  --statcard-border: #334155;
+  --statcard-text: #f1f5f9;
+  --statcard-muted: #94a3b8;
+  --statcard-good: #4ade80;
+  --statcard-warn: #fbbf24;
+  --statcard-bad: #f87171;
+  --statcard-neutral: #64748b;
+}
+
+.tap-statcards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(11rem, 100%), 1fr));
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tap-statcard {
+  --statcard-accent: var(--statcard-neutral);
+  min-width: 0;
+  padding: 0.75rem 0.9rem;
+  background: var(--statcard-bg);
+  color: var(--statcard-text);
+  border: 1px solid var(--statcard-border);
+  border-left: 4px solid var(--statcard-accent);
+  border-radius: 8px;
+  overflow-wrap: break-word;
+}
+
+.tap-statcard--good { --statcard-accent: var(--statcard-good); }
+.tap-statcard--warn { --statcard-accent: var(--statcard-warn); }
+.tap-statcard--bad { --statcard-accent: var(--statcard-bad); }
+.tap-statcard--muted { --statcard-accent: var(--statcard-border); color: var(--statcard-muted); }
+
+.tap-statcard__title {
+  margin: 0 0 0.25rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--statcard-muted);
+}
+
+.tap-statcard__value {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.tap-statcard__unit {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--statcard-muted);
+}
+
+.tap-statcard__tone {
+  margin: 0.25rem 0 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--statcard-accent);
+}
+
+.tap-statcard__tone-mark::before { content: "\25CF\00a0"; }
+
+.tap-statcard__lines { margin: 0.6rem 0 0; font-size: 0.8rem; }
+.tap-statcard__line { display: flex; flex-wrap: wrap; gap: 0 0.5rem; justify-content: space-between; padding: 0.15rem 0; }
+.tap-statcard__line dt { color: var(--statcard-muted); }
+.tap-statcard__line dd { margin: 0; flex: 1 1 auto; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* null / missing / blank: shown as words, in a distinct style, never as a value. */
+.tap-statcard__state { font-size: 0.85em; font-weight: 400; font-style: italic; color: var(--statcard-muted); }
+.tap-statcard__value .tap-statcard__state { font-size: 1rem; }
+
+.tap-statcards__empty, .tap-statcards__omitted { margin: 0.25rem 0; font-size: 0.85rem; color: var(--statcard-muted); }
