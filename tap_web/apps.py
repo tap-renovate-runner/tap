@@ -109,6 +109,7 @@ class TapWebConfig(AppConfig):
         from tap_web.editor import EditorDescriptor
         from tap_web.panels.chart import ChartPanelType
         from tap_web.panels.flip_panel import FlipPanelType
+        from tap_web.panels.stat_card_panel import StatCardPanelType
         from tap_web.panels.table_panel import TablePanelType
         from tap_web.panels.text_panel import TextPanelType
         from tap_web.registry import panel_type_registry, register_editor
@@ -145,6 +146,7 @@ class TapWebConfig(AppConfig):
 
         panel_type_registry.register("text", TextPanelType)
         panel_type_registry.register("table", TablePanelType)
+        panel_type_registry.register("stat-cards", StatCardPanelType)
         panel_type_registry.register("flip", FlipPanelType)
         panel_type_registry.register("viewer", ViewerPanelType)
         panel_type_registry.register("editor", EditorPanelType)

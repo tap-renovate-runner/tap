@@ -1423,7 +1423,7 @@ class TestGryphonV2ParserExtensions:
 class TestGryphonV2Executor:
     """Executor coverage for COUNT + GROUP BY, NOT EXISTS, and the rows envelope."""
 
-    def _setup_wielders(self):
+    def _setup_wielders(self) -> tuple[Any, ...]:
         """Three characters wielding artifacts (some multi-wielders), for GROUP BY tests."""
         import uuid
 
@@ -4371,6 +4371,7 @@ class TestGryphonMinMaxExecutor:
 
     # -- the all-aggregate defect found while building this (GRY-TEST-7) -------
 
+    @pytest.mark.spec("req-grid-gryphon-count-4")
     def test_all_aggregate_count_alone_is_one_row(self):
         """Regression: `RETURN COUNT(a)` with no group key answered one row PER MATCH (count 1 each).
 
