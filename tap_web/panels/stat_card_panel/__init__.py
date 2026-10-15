@@ -24,7 +24,7 @@ from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any
 
-import jsonschema  # type: ignore[import-untyped]
+import jsonschema
 from django.core.exceptions import ValidationError
 
 if TYPE_CHECKING:
@@ -245,7 +245,7 @@ def _tone_for(row: dict[str, Any], tone: Any) -> str:
     if isinstance(tone, dict):
         raw = row.get(tone["field"])
         key = "" if raw is None else str(raw)
-        return tone["map"].get(key, tone.get("default", "neutral"))
+        return str(tone["map"].get(key, tone.get("default", "neutral")))
     return "neutral"
 
 

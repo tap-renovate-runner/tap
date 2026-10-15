@@ -1423,7 +1423,7 @@ class TestGryphonV2ParserExtensions:
 class TestGryphonV2Executor:
     """Executor coverage for COUNT + GROUP BY, NOT EXISTS, and the rows envelope."""
 
-    def _setup_wielders(self):
+    def _setup_wielders(self) -> tuple[Any, ...]:
         """Three characters wielding artifacts (some multi-wielders), for GROUP BY tests."""
         import uuid
 

@@ -37,9 +37,10 @@ _COUNT_ALL = [
 
 
 def _panel(config: dict[str, Any]) -> Panel:
-    return Panel.objects.create(
+    panel: Panel = Panel.objects.create(
         slug="stat-cards", name="Test Cards", view=StatCardPanelType.view, editor_view="", config=config
     )
+    return panel
 
 
 def _bind(panel: Panel, query: list[str]) -> None:
@@ -74,7 +75,7 @@ def _get(panel: Panel) -> str:
         f"/panel/{panel.slug}--{panel.entity_id}/"
     )
     assert response.status_code == 200
-    return response.content.decode()
+    return str(response.content.decode())
 
 
 # ---------------------------------------------------------------------------
