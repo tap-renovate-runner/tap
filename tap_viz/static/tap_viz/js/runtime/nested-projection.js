@@ -640,8 +640,8 @@ function _tieredRowsNatural(children, opts) {
     }
 
     const rows = [];
-    buckets.forEach((b) => {
-        if (b.contained.length + b.primaries.length > 0) rows.push(_rowFor(b));
+    buckets.forEach((b, i) => {
+        if (b.contained.length + b.primaries.length > 0) rows.push({..._rowFor(b), align: tiers[i].align});
     });
     if (unassigned.length > 0) {
         rows.push(_rowFor({contained: unassigned, primaries: []}));
@@ -653,7 +653,7 @@ function _tieredRowsNatural(children, opts) {
     const totalH = rows.reduce((s, r) => s + r.height, 0) + rowGap * (rows.length - 1);
 
     // Place. Each row is tightly packed (contained then primaries) and
-    // centered within the overall width. Rows narrower than the widest
+    // centered within the overall width, unless its tier says `align: "start"`. Rows narrower than the widest
     // row do not stretch — they sit centered so a small row doesn't
     // artificially push its primary to the far right.
     const placements = [];
@@ -663,7 +663,8 @@ function _tieredRowsNatural(children, opts) {
         const rowCenterY = yOffset + row.height / 2;
 
         const items = [...row.contained, ...row.primaries];
-        let x = -row.contentW / 2;
+        // A tier declared `align: "start"` sits against the left edge of the layout's width; the default centers it.
+        let x = row.align === "start" ? -totalW / 2 : -row.contentW / 2;
         items.forEach((c, i) => {
             if (i > 0) x += itemGap;
             placements.push({node: c.node, dx: x + c.width / 2, dy: rowCenterY});

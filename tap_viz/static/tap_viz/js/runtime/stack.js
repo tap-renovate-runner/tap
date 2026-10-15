@@ -45,11 +45,9 @@ const DEFAULT_MIN_TO_COLLAPSE = 2;
 // Pixel shift between successive cards (and between the representative and the
 // first card), applied per active axis of the stack direction.
 const DEFAULT_OFFSET = 7;
-// Depth-card z-index ceiling. The front card (depth 1) draws at CARD_Z_TOP - 1,
-// each deeper card one lower, so the pile reads front-to-back. The
-// representative sits above all cards (see node[_stack_front_id] in
-// panel-graph.js, z-index 20 > CARD_Z_TOP).
-const CARD_Z_TOP = 10;
+// Depth cards draw directly behind the representative: card z-index = the representative's z-index minus the
+// card's depth, so the pile reads front-to-back and stays inside the representative's own nesting layer
+// (req-viz-stack-layering).
 
 // Stack growth directions → unit (dx, dy) in Cytoscape model space (+y is down).
 // "auto" is resolved per-stack against the scene center (see _resolveDirection).
@@ -203,13 +201,20 @@ export function applyStack(cy, opts = {}) {
     const repW = representative.width();
     const repH = representative.height();
     const cardEls = [];
+    // Layering (req-viz-stack-layering): the cards sit directly behind the representative in ITS layer. The
+    // representative's z-index is whatever nesting gave it (or the stylesheet's front rule when it is not nested),
+    // so the cards are placed relative to it instead of in a fixed band that nesting layers can cover.
+    representative.data("_stack_front_id", stackId);
+    const frontZ = Number(representative.style("z-index")) || 0;
     for (let depth = 1; depth < depthShown; depth++) {
         const data = {
             id: CARD_ID_PREFIX + stackId + ":" + depth,
             _is_stack_card: true,
             _stack_id: stackId,
             _stack_depth: depth,
-            _stack_z: CARD_Z_TOP - depth,
+            _stack_z: frontZ - depth,
+            // Shading (req-viz-stack-shading): the front is strongest and each card behind it is fainter.
+            _stack_border_opacity: (depthShown - depth) / depthShown,
             shape: cardShape,
         };
         if (cardFill) data.fill_color = cardFill;

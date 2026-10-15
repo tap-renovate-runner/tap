@@ -332,7 +332,7 @@ Opts:
 
 | Key | Type | Default | Description |
 | --- | --- | :---: | --- |
-| `tiers` | array | required | Ordered tier declarations. Each tier is `{name, entityTypes: [string, ...]}`. Order is top-to-bottom. |
+| `tiers` | array | required | Ordered tier declarations. Each tier is `{name, entityTypes: [string, ...], align}`. Order is top-to-bottom. `align` is `"center"` (default) or `"start"`, which sits the row against the left edge of the layout's width, for a row that should stand in the container's top-left corner. |
 | `rowGap` | number | `20` | Vertical gap between rows. |
 | `itemGap` | number | `12` | Horizontal gap between items within a row. |
 
@@ -404,6 +404,7 @@ Separating classification from placement lets authors add scene-specific layouts
 | req-viz-nested-projection-natural-layouts-4 | Pure Function Contract | Implemented | All natural layouts are side-effect-free `(children, opts) → {width, height, placements}`. | |
 | req-viz-nested-projection-natural-layouts-5 | Flow Layout | Implemented | `flow` packs children into wrapping rows of variable-size cells at a target aspect ratio; no cell is wider than its own child. | Observed 2026-09-02 on `/git-serious`: the account box went from fit zoom 0.23 (grid) to a dense block that fills a 1400×1000 viewport (tap#292). |
 | req-viz-nested-projection-natural-layouts-6 | Ranked Layout | In Development | `ranked` places children in columns by integer `data._stage` (equal stages share a column, stacked vertically); `direction: "rtl"` mirrors `"ltr"` exactly; a child without an integer `_stage` lands in a trailing unranked column and an `unranked_children` warning is returned, never silently in column 0. | tap#293. No JS test runner exists in the repo (package.json is the vendor closure only); verification is observation on the machinery projection, as for `flow`. Fixture from the issue: `_stage ∈ {0,0,1,1,1,2}` → columns of 2/3/1. |
+| req-viz-nested-projection-natural-layouts-7 | Tier Row Alignment | Implemented | A `tiered-rows` tier declared `align: "start"` sits against the left edge of the layout's width; a tier with no `align`, or `"center"`, is centered as before. | |
 
 #### Future
 
