@@ -74,6 +74,7 @@ remain the boot record's territory. The two compose; neither substitutes for the
 | req-cicd-sbom-13 | [Ecosystem Coverage](#ecosystem-coverage) | Implemented | Doctrine: adopt each ecosystem's OWN distribution system and merge at the lockfile seam. JS gap CLOSED: package-lock + `npm ci --ignore-scripts` js-vendor stage, all five files hash-matched upstream (no forks), echarts XSS surfaced+fixed by the native tooling on day one; hand-authored manifests remain last-resort named debt |
 | req-cicd-sbom-14 | [Consumer Verification Docs](#consumer-verification-docs) | Proposed | The req-cicd-sbom-5 resolve-and-verify flow carried verbatim in the release/consumer documentation, once that surface exists |
 | req-cicd-sbom-15 | [Plugin SBOM Composition](#plugin-sbom-composition) | Proposed | The composition half of -10: bake-time single derivation reconciled against plugin-declared SBOMs; boot records reference release SBOMs by digest — rides the appliance arc with -9 |
+| req-cicd-sbom-16 | [Crypto Bill of Materials (CBOM) in the Image SBOM](#crypto-bill-of-materials-cbom-in-the-image-sbom) | Proposed | Close the CBOM gap inside the existing single derivation: `tap.crypto_bom` findings and dispositions ride the attested CycloneDX document as `tap:crypto:*` properties on the owning component; one document, one predicate. Providers only in the first slice; other assetTypes named, sourced and deferred. Ingestion verifies the attestation before it parses. |
 
 ---
 
@@ -690,6 +691,167 @@ instance's boot record references plugin release SBOMs by digest/purl rather tha
 restating them — instance BOM = image-SBOM reference + per-plugin SBOM references +
 runtime deltas. Rides the appliance arc with req-cicd-sbom-9; the fleet-wide plugin
 release SBOMs (2026-08-20) are the ready inputs.
+
+### Crypto Bill of Materials (CBOM) in the Image SBOM
+----
+RID: `req-cicd-sbom-16`
+
+Status: `Proposed`
+
+**What a CBOM is.** A CBOM is a bill of materials for cryptography: not "which packages are inside" but "which cryptographic
+implementations, algorithms, protocols, certificates and key material are inside, and what was decided about each". There is no
+separate CBOM format. CycloneDX 1.6 added the `cryptographic-asset` component type and a `cryptoProperties` block with four
+`assetType` values: `algorithm`, `certificate`, `protocol`, `related-crypto-material` (read: `scripts/sbom/schemas/bom-1.6.schema.json`,
+`definitions.cryptoProperties`). CycloneDX is also the Ecma standard ECMA-424: 1st edition = CycloneDX 1.6, 2nd edition = CycloneDX 1.7
+(read: the Ecma-TC54/ECMA-424 repository README, <https://github.com/Ecma-TC54/ECMA-424>, which lists the 1st edition as v1.6 and the 2nd as
+v1.7; the 2nd edition was published December 2025 per a web search of <https://tc54.org/cyclonedx/> and
+<https://ecma-international.org/publications-and-standards/standards/ecma-424/>, search snippet, not read in full. The README did not
+itself mention CBOM; that ECMA-424 covers cryptographic assets is the search snippet's wording and is NOT separately observed in the standard's text).
+
+**The gap, measured.** `tap.crypto_bom` (`req-fips-crypto-bom`, Implemented) fingerprints native artifacts and gives each a disposition, as
+a scan, a CI gate and a boot gate. It emits no CycloneDX (ran: `grep -rl cryptoProperties` over the tree matches only the vendored
+`scripts/sbom/schemas/bom-1.6.schema.json`; the real tap-web:0.2.2 attestations, parsed, contain neither `cryptoProperties` nor a
+`cryptographic-asset` component). What the attested SBOM already carries is one crypto fact: the self-built `openssl-fips-provider`
+supplemental component with a derived `tap:fips-validation` property (read: both per-arch documents, 1 of 191 components). So the
+published, signed, per-digest artifact says that a FIPS provider is present and its validation status, and does not say which of the
+other binaries route through it, which are out of boundary, or what was decided. That last part lives only in a scan result.
+
+**Why this is not a new pipeline.** Everything a CBOM document needs to be trustworthy already exists in this lane: a per-digest
+derivation (`-1`, `-6`), out-of-band merging into the same document (`-3`), schema and minimum-elements validation (`-11`), a Sigstore
+attestation bound to the digest with a release gate (`-4`), and a verify command. The missing piece is one more merge into the single
+derivation, and a consumer that reads it.
+
+#### Decision 1 - Scope: providers first; every other assetType named with its source
+
+| assetType | In the first slice? | What it would need | Source that could supply it | Method |
+| --- | :---: | --- | --- | --- |
+| (provider) | Yes | A record of each crypto implementation found in an artifact and its disposition. CycloneDX has no provider assetType: the four values are algorithm, certificate, protocol, related-crypto-material, so a provider is a software component, not a cryptographic-asset | `tap.crypto_bom` findings (artifact path, provider, `Boundary`, rationale, rid) | read (schema enum; `tap/crypto_bom.py` `Finding`) |
+| `algorithm` | No | Names of algorithms actually available and approved, with `primitive`, `certificationLevel`, `implementationPlatform` | NOT derivable from binary fingerprinting (the byte signatures name a provider, not its algorithms; `tap/crypto_providers.py` `SIGNATURES`). Candidate sources, each unverified for fitness: the validated module's own listing (`openssl list -digest-algorithms` etc. with the `fips` provider), the CMVP security policy for the certificate, or Python's `hashlib`/`cryptography` capability listing | read (signatures); ran: in the stat-card stack `openssl list -providers` shows `fips` 3.5.8 active and `-digest-algorithms` 74 lines, `-cipher-algorithms` 206, `-kdf-algorithms` 10, `-mac-algorithms` 6, `-signature-algorithms` 53 with `-provider fips -provider base` (line counts include aliases and headers, not a count of distinct algorithms). Whether the list is the approved subset is NOT OBSERVED |
+| `protocol` | No | TLS/SSH versions and cipher suites a service is configured to accept | Declared configuration (openssl.cnf, the web tier's TLS settings, `libpq` `sslmode`), not binaries. Instance-level (what this deployment configures), so it belongs to the boot record before it belongs to the image | inferred |
+| `certificate` | No | Subject, issuer, validity, signature algorithm | Deployed certificates exist at runtime (and `ca-certificates-bundle` is an apk, whose roots are data in a package). Instance-level; a collector, not the image derivation | inferred |
+| `related-crypto-material` | No, deliberately | Keys, secrets, tokens: metadata only (type, state, `securedBy`) | The secret-source and `manage-secret` surface. The `value` field MUST NEVER be populated, and `crypto_provider` already refuses any key-material column (the no-key-material criterion of the `crypto_provider` model in the computing-core-tap spec) | read (computing-core spec); inferred (source) |
+
+The artifact-versus-instance boundary of this spec's Philosophy applies unchanged: the image CBOM covers what every copy of this version
+contains; configured protocols and live certificates are the instance's and ride the boot record or a collector.
+
+#### Decision 2 - Mapping: a finding becomes properties on the owning component
+
+A provider is not a cryptographic-asset, so the registry's vocabulary rides as `tap:`-namespaced properties on the component that owns the
+artifact, the pattern this document already uses (`tap:fips-validation`, `tap:source-built`, `tap:path`) and the pattern Syft uses for repeated
+facts (indexed names such as `syft:metadata:provides:0`, read in the real documents).
+
+| Finding field | CycloneDX home | Note |
+| --- | --- | --- |
+| `provider` | `tap:crypto:<n>:provider` | the registry's name, verbatim (`openssl-system`, `rust-aws-lc-rs`, ...) |
+| `boundary` | `tap:crypto:<n>:boundary` | exactly the five `Boundary` values; the disposition lives HERE and nowhere else in the document |
+| `artifact` | `tap:crypto:<n>:artifact` | the path in the image, as `crypto_bom` reports it |
+| `detail` / rationale | `tap:crypto:<n>:rationale` | the registry's reviewed sentence |
+| `rid` | `tap:crypto:<n>:rid` | the requirement the disposition cites |
+
+`<n>` is a per-component index. Owner resolution is the new work: the SBOM documents carry no file-to-package ownership (read: apk components
+have `syft:location:0:path` = the apk database path, no per-file list, and no `evidence`), so the generator must derive the owner. For apk, the
+file inventory the unknowns budget already reads (`scripts/sbom/oob_detect.py`, `req-cicd-sbom-12`); for files under the Python environment, the installed
+distribution's RECORD (the derivation `req-fips-crypto-bom-waiver-ownership` proposes for waivers; the two SHOULD share one function); for
+supplemental entries, the declared `tap:path`. **A finding whose owner cannot be resolved is never dropped**: it becomes a standalone component
+of type `file` carrying the same properties, and the unowned count is reported in the coverage statement.
+
+Rejected: (a) one `file` component per finding, always. It would add roughly 30 components to a 191-component document (ran: 30 findings in the
+stat-card tap-web image) and pollute the package diff of `req-cicd-sbom-8`; kept only as the fallback above. (b) `cryptographic-asset` with
+`assetType: algorithm` per provider. It asserts algorithms the scan did not observe, which is the plausible-but-wrong SBOM this spec exists to prevent.
+
+`cryptographic-asset` components are reserved for Decision 1's later rows and are added only when a real source for them exists. Where they
+are, the `dependencies[].provides` field (present in the vendored schema, read) links an owning component to the assets it implements.
+
+#### Decision 3 - Placement: inside the single derivation, one document, one predicate
+
+The CBOM is a **section of the existing CycloneDX document**, merged during generation like the supplemental components (`-3`) and the
+source-built marks (`-12`), not a second scan and not a second attested file. `req-cicd-sbom-6` forbids a second independent scan of the same
+facts; this is not one. Syft remains the sole component inventory, and `crypto_bom` observes a different fact (byte signatures in ELF files),
+merged as annotations. Reasons for one document:
+
+1. One attestation per digest and per predicate; the release gate (`-4`, tap#525) needs no new predicate and no new "missing attestation" state.
+2. The consumer holds one hash-stable artifact answering "what is in it and what crypto does it use", and release diffs (`-8`) see one document.
+3. The document is ~0.62 MB per arch (read: 615,427 and 624,316 bytes); a crypto section of tens of properties does not change that.
+
+A separate CBOM document would be justified by: a CBOM-only consumer that rejects non-crypto components, or an independent release cadence. Neither
+exists. If one appears, the answer is a **filtered view of this document** attested under a second predicate, never a rescan.
+
+The scan input is the **exported filesystem of the verified per-arch digest**, using `scan()`'s explicit-roots interface (`req-fips-crypto-bom-3`), run by
+first-party code in the generation job. It does not run the image's own copy of the scanner on itself. Binary roots map through the export prefix.
+
+#### Decision 4 - Validation and attestation
+
+* **Schema:** the document is already validated at generation. Read: `validate_schema` validates the CycloneDX document against the vendored **1.6** schema, and
+  the real documents declare `specVersion: 1.7` (Syft 1.51.0). Both facts were read; whether 1.7 changed `cryptoProperties` relative to 1.6 is
+  NOT OBSERVED (the 1.7 schema is not vendored). Before any `cryptographic-asset` is emitted, the vendored schema MUST match the emitted `specVersion`.
+* **Fail-closed checks** (alongside `check_minimum_elements` and the canaries): every finding carries a disposition and a closed-vocabulary value; the sentinel
+  of `req-fips-crypto-bom` holds in the document (the scan read binaries and saw `openssl-system` and the declared FIPS provider); the `tap:coverage` statement names
+  providers as covered and algorithms, protocols, certificates and key material as not covered.
+* **Attestation:** the existing `https://cyclonedx.org/bom` predicate, per arch digest, signed by the existing job. No new predicate type, because the document is the same document.
+* **Ingestion verifies before it parses.** Ran, 2026-10-15: `gh attestation verify oci://ghcr.io/unified-systems-com/tap-web@sha256:d86ebb774dd2...0bc7 --owner
+  unified-systems-com --predicate-type https://cyclonedx.org/bom --format json` exited 0 and returned one verified attestation. Its `statement.subject` digest was the
+  requested digest, its `statement.predicateType` was `https://cyclonedx.org/bom`, and its signing certificate named
+  `unified-systems-com/tap/.github/workflows/publish-images.yml@refs/heads/main`, a GitHub-hosted runner, at source commit `cbe3e700...`. The returned
+  `statement.predicate` was byte-identical (canonical JSON) to the CycloneDX file another session had downloaded for that digest. So the parser MUST ingest the
+  `statement.predicate` that verification returned, never a separately fetched file. What it proves: this document was signed by that workflow for that digest, recorded
+  in the transparency log. What it does not: that the workflow's inputs were honest (the Residual named in `-4`), or that the cryptographic claims are right, only that TAP asserted them.
+
+#### Decision 5 - Ingestion into the grid (the parser is shared with SBOM ingestion)
+
+A CBOM parser is not a separate parser: it is the `tap:crypto:*` step of the one generic CycloneDX parser, because Decision 3 puts both in one document. What that
+parser maps, with the computing_core vocabulary read from `specs/spec-computing-core-v0.md` in unified-systems-com/computing-core-tap:
+
+| CycloneDX element | Grid result | Method |
+| --- | --- | --- |
+| the whole document | one SBOM node: full JSON, subject digest, attestation reference | George's stated intent; node type and owner are Open Decision B |
+| `components[]` with purl type `apk`/`pypi`/`npm` | `package` keyed `(ecosystem = purl type, name, version)`; `purl`, `cpe`, `license` copied; `architecture` from the purl `arch` qualifier; `source_document: sbom` | read (spec); ran (101 apk, 71 pypi, 15 npm, 2 github, 1 generic, 1 without purl, in the real documents) |
+| apk origin | `source_package` and `DERIVES_FROM_SOURCE_PACKAGE`, see below | ran |
+| supplemental components (`tap:supplemental`) | `library` (and `SHIPS_LIBRARY` where a package ships it) | inferred from the `library` section of the computing-core-tap spec |
+| `tap:crypto:<n>:*` | `crypto_provider` keyed `(scope, artifact, provider)` with `boundary` and `rationale`; `CARRIES_CRYPTO_PROVIDER` from the owning package/library | read (spec) |
+| `metadata.component` (container, digest) | the image's host/OS context, `INSTALLS_PACKAGE` | Open Decision D |
+
+**Convergence, not duplication.** `crypto_provider` nodes already exist (31 in the playground inventory bundle, per the support session's account; NOT OBSERVED by this
+author). Parsed CBOM findings MUST produce the same identity `(scope, artifact, provider)` using the registry's own strings, so a parse updates those nodes and
+creates none beside them. This is why Decision 2 keeps the artifact path and the provider name verbatim.
+
+**The apk origin feeds `source_package` from the SBOM.** Verified on the real tap-web:0.2.2 documents (ran, both arm64 and amd64): `syft:metadata:originPackage` is present on
+**101 of 101** apk components; the purl qualifier `upstream=` is present on **54 of 101**, exactly the components whose origin differs from their name (the other 47 are their own
+origin, and the purl omits the qualifier). The property is therefore the complete source; the qualifier is a subset. The result is 69 distinct origins, 11 with more than one binary
+package, which matches the apk-database observation recorded in the `source_package` section of the computing-core-tap spec (101 records, 69 sources, 11 multi-binary, 47 self-origin). In all 11 multi-binary
+origins every member had one `version` string (ran). Neither source carries the origin's **version**; the node's key needs one, so it is taken from the member packages'
+shared version (supported by the previous sentence and by the computing-core observation; a member with a differing version would be refused, not guessed). What this changes: nothing in the
+types or edges; `source_package` and `DERIVES_FROM_SOURCE_PACKAGE` are unchanged. Only the feeder changes: the parser reads the SBOM instead of the apk database, and a join by source still never
+needs a fallback branch because every package draws the edge.
+
+#### Open decisions for the maintainer (not decided here)
+
+* **A. Do the dependency links become edges?** The documents hold 458 `dependsOn` links on arm64 (356 apk to apk, 88 pypi to pypi, 14 npm to npm) and 420 on amd64 (318 apk) (ran), so the graph
+  differs per architecture while `package` identity does not (`(ecosystem, name, version)`, architecture is not identity). Options: (1) none: the SBOM node's JSON keeps the graph and packages are
+  nodes only (leaner, loses "what depends on this vulnerable library" in Gryphon); (2) a new package-to-package edge, needing a spec in the owning plugin and an arch discriminator or an accepted
+  union across arches; (3) edges for pypi/npm only. Recommendation: (1) for the first slice, revisit when a question needs the graph; the document retains it, so nothing is lost.
+* **B. Who owns the SBOM node and the parser?** (1) `computing_core`: the target types and edges are there, no new plugin; but that plugin is a vocabulary plugin and says "nothing in this plugin
+  emits these types yet; a collector or bundle does" (read). (2) a new `*_core` plugin depending downward on `computing_core`: document, attestation reference and parser live together, vocabulary stays neutral; costs one more plugin. (3) `compliance_core`: the
+  document is evidence, but it is not a finding. Recommendation: (2); fall back to (1) if the maintainer prefers fewer plugins.
+* **C. Which assetTypes after providers, and from which source?** Decision 1 lists candidates; none is chosen. Recommendation: stop at providers until a consumer asks.
+* **D. What is the host for an image?** `host` is keyed `(realm, stable_id)` and a container is a host with `kind: container`; an image digest is not a running container. Needs a ruling on a `realm` for an image
+  digest before `INSTALLS_PACKAGE` is drawn.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-cicd-sbom-16-1 | One document | Proposed | The crypto section is merged into the primary CycloneDX document during the single derivation; no second CBOM document and no second predicate type exists. | Decision 3. |
+| req-cicd-sbom-16-2 | Findings land on an owner | Proposed | Every `crypto_bom` finding for the scanned digest appears in the document as `tap:crypto:<n>:*` properties on its owning component; an unowned finding becomes a `file` component with the same properties and is counted in the coverage statement. None is dropped. | Decision 2. |
+| req-cicd-sbom-16-3 | Closed disposition vocabulary | Proposed | `tap:crypto:<n>:boundary` is exactly one of the five `Boundary` values; a finding without one, or with another, fails generation. | A document may not launder an unclassified provider. |
+| req-cicd-sbom-16-4 | Sentinel in the document | Proposed | Generation fails if the scan read no binaries, or did not see `openssl-system` and the declared FIPS provider. | The anti-fail-open sentinel of `req-fips-crypto-bom`, carried to the document. |
+| req-cicd-sbom-16-5 | Coverage states the limits | Proposed | `tap:coverage` states that providers are covered and that algorithms, protocols, certificates and key material are not, until a later requirement adds them. | Known-unknowns discipline, `req-cicd-sbom-11`. |
+| req-cicd-sbom-16-6 | Schema matches the emitted version | Proposed | The vendored CycloneDX schema used for validation has the same `specVersion` as the emitted document before any `cryptographic-asset` component is emitted. | Today a 1.7 document is validated against the 1.6 schema. |
+| req-cicd-sbom-16-7 | Scan of the exported digest | Proposed | The scan reads the exported filesystem of the verified per-arch digest through explicit roots, in first-party code; the image never scans itself. | `req-fips-crypto-bom-3`; tap#507 token separation unchanged. |
+| req-cicd-sbom-16-8 | No key material | Proposed | The document carries no `related-crypto-material` `value`, and no key, secret or token bytes under any `tap:crypto:*` property. | Mirrors the computing-core-tap `crypto_provider` no-key-material criterion. |
+| req-cicd-sbom-16-9 | Verify before parse | Proposed | Ingestion parses only the `statement.predicate` returned by a successful `gh attestation verify --predicate-type https://cyclonedx.org/bom` for the document's subject digest, and records the digest and the verification outcome on the SBOM node. A failed or unobservable verification ingests nothing. | Three states as `-4`: verified, missing, not observable. |
+| req-cicd-sbom-16-10 | One generic parser | Proposed | The CBOM mapping is a step of the same CycloneDX parser that maps packages, libraries and source packages; there is no second parser. | Decision 5. |
+| req-cicd-sbom-16-11 | Provider identity converges | Proposed | A parsed finding keys on `(scope, artifact, provider)` with the registry's own strings, so it updates an existing `crypto_provider` node and never creates a second. | Decision 5. |
+| req-cicd-sbom-16-12 | Source packages from the SBOM origin | Proposed | `source_package` nodes are derived from `syft:metadata:originPackage` (or `name` where equal), with the version taken from the members' shared version; a disagreeing member fails the parse. No type or edge changes. | Decision 5; observed 101/101, 69 origins, 11 multi-binary. |
 
 ## Non-Goals and Named Residuals
 

@@ -99,6 +99,8 @@ do not double-count (doc L4); the OpenSSL-version-banner heuristic is deliberate
 build metadata, e.g. `git` embeds the system banner); and an anti-fail-open sentinel asserts the scan
 actually read binaries and saw the known providers (doc L2/L12).
 
+**Machine-readable form (Proposed).** The findings above are a scan result today. [`req-cicd-sbom-16`](spec-cicd-sbom.md#crypto-bill-of-materials-cbom-in-the-image-sbom) proposes carrying them, with their dispositions, in the attested per-digest CycloneDX document (CycloneDX 1.6+ is the CBOM standard), inside the existing single derivation.
+
 #### Acceptance Criteria
 
 | RID | Name | Status | Detail | Notes |
