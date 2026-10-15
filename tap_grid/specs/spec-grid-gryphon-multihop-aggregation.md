@@ -10,7 +10,7 @@ This spec extends gryphon along three axes to unlock a class of queries that are
 
 The choice to extend the language, rather than push the query into a custom Python runner, is deliberate. Each custom runner is a chunk of code that bypasses the gryphon compilation pipeline and its validation, read-only guarantees, and backend-agnosticism. Runners are the right tool when semantics exceed what a declarative query can express; they are the wrong tool when the semantics *can* be declared and we're just missing language surface. This extension keeps semantics declarative wherever the query shape allows it.
 
-The extension is scoped tight on purpose. `COUNT` is the only aggregate; `SUM`/`AVG`/`MIN`/`MAX` are not in scope. `NOT EXISTS` covers anti-joins but `EXISTS`, `OPTIONAL MATCH`, and `UNION` do not. Variable-length traversal (`-[*1..3]->`) remains rejected by the executor even though the grammar parses it. Each deferred item has a clear upgrade path when a real use case arrives.
+The extension is scoped tight on purpose. `COUNT`, `MIN` and `MAX` are the only aggregates; `SUM` and `AVG` are not in scope. `NOT EXISTS` covers anti-joins but `EXISTS`, `OPTIONAL MATCH`, and `UNION` do not. Variable-length traversal (`-[*1..3]->`) remains rejected by the executor even though the grammar parses it. Each deferred item has a clear upgrade path when a real use case arrives.
 
 **Gryphon commandment guidance.** Multi-hop, anti-join, aggregation, optional-match, and future
 recursive-path work must read and apply
@@ -42,7 +42,7 @@ for avoiding silent drops, join drift, unsupported-shape approximation, and orac
 | req-grid-gryphon-optional-match | [OPTIONAL MATCH Left-Outer Join](#optional-match-left-outer-join) | Implemented | `OPTIONAL MATCH` keeps mandatory rows that have no optional match; `COUNT` of the optional variable is 0, not absent |
 | req-grid-gryphon-order-by-envelope | [ORDER BY / LIMIT On A Type-Scan Graph Envelope](#order-by--limit-on-a-type-scan-graph-envelope) | Implemented | A labelled type-scan with envelope `RETURN` accepts `ORDER BY <var>.<field-path>` and `LIMIT`; compiles to SQL `ORDER BY` / `LIMIT` |
 | req-grid-gryphon-distinct | [RETURN DISTINCT Row Deduplication](#return-distinct-row-deduplication) | Proposed | `RETURN DISTINCT <field projections>` dedups projected rows via SQL `SELECT DISTINCT` (incl. JSON scalar sub-keys); composes with `ORDER BY` / `LIMIT`; single-var envelope honored as no-op; `count(DISTINCT)`, multi-var envelope, JSON-container, and aggregate-return DISTINCT rejected |
-| req-grid-gryphon-minmax | [MIN and MAX Aggregates](#min-and-max-aggregates) | Proposed | `MIN(field)` / `MAX(field)` in `RETURN` over a typed scalar field path, grouped implicitly like `COUNT`; the first numeric aggregate, motivated by a "first seen" column; `SUM`, `AVG`, `COUNT(*)` and `COUNT(DISTINCT)` stay rejected |
+| req-grid-gryphon-minmax | [MIN and MAX Aggregates](#min-and-max-aggregates) | Implemented | `MIN(field)` / `MAX(field)` in `RETURN` over a typed scalar field path, grouped implicitly like `COUNT`; the first numeric aggregate, motivated by a "first seen" column; `SUM`, `AVG`, `COUNT(*)` and `COUNT(DISTINCT)` stay rejected |
 | req-grid-gryphon-compat | [Backward Compatibility](#backward-compatibility) | Implemented | Existing queries parse, execute, and return identical results |
 
 ---
@@ -186,7 +186,7 @@ Gryphon gains a single aggregate function, `COUNT`, usable in `RETURN` projectio
 
 #### Development
 
-The scope of this requirement is deliberately narrow. Numeric aggregates (`SUM`, `AVG`, `MIN`, `MAX`) and `DISTINCT` are all straightforward grammar and compiler additions on top of this foundation — but adding them now introduces surface area we don't have real queries for. Wait for the first concrete use case, then pull the lever. The ACID set below includes "only COUNT is supported" as an explicit acceptance criterion so drift is caught at review time.
+The scope of this requirement is deliberately narrow. Numeric aggregates (`SUM`, `AVG`, `MIN`, `MAX`) and `DISTINCT` are all straightforward grammar and compiler additions on top of this foundation — but adding them now introduces surface area we don't have real queries for. Wait for the first concrete use case, then pull the lever. The ACID set below includes "only COUNT is supported" as an explicit acceptance criterion (since amended to "COUNT, MIN and MAX" by `req-grid-gryphon-minmax`) so drift is caught at review time.
 
 #### Acceptance Criteria
 
@@ -196,7 +196,7 @@ The scope of this requirement is deliberately narrow. Numeric aggregates (`SUM`,
 | req-grid-gryphon-count-2 | AS Alias Required For Aggregates | Implemented | Every aggregate RETURN item must carry an `AS alias`; parse fails otherwise. | |
 | req-grid-gryphon-count-3 | Implicit GROUP BY | Implemented | Non-aggregate RETURN items become GROUP BY keys when any aggregate is present. | |
 | req-grid-gryphon-count-4 | All-Aggregate Returns Single Row | Implemented | Queries whose RETURN contains only aggregates produce exactly one result row. | |
-| req-grid-gryphon-count-5 | COUNT Is The Only Aggregate | Implemented | `SUM`, `AVG`, `MIN`, `MAX`, `COUNT(*)`, and `COUNT(DISTINCT ...)` are rejected with an unsupported-feature error. | Each has a future-iteration upgrade path |
+| req-grid-gryphon-count-5 | COUNT, MIN And MAX Are The Only Aggregates | Implemented | `SUM`, `AVG`, `COUNT(*)`, and `COUNT(DISTINCT ...)` are rejected with an unsupported-feature error. | Amended by `req-grid-gryphon-minmax`, which added `MIN` and `MAX`; each rejected form has a future-iteration upgrade path |
 | req-grid-gryphon-count-6 | Integer Result | Implemented | Count results are integers in the rows envelope. | |
 
 #### Future
@@ -576,49 +576,55 @@ DISTINCT is lowered uniformly to SQL `SELECT DISTINCT` in both dispatch paths by
 ----
 RID: `req-grid-gryphon-minmax`
 
-Status: `Proposed`
+Status: `Implemented`
 
 Gryphon gains `MIN(<field path>)` and `MAX(<field path>)` as aggregate `RETURN` items, grouped implicitly by the non-aggregate items exactly as `COUNT` is (`req-grid-gryphon-count-3`). They are the smallest aggregate that answers "when was this first (or last) seen": the earliest or latest value of a field across the rows of a group, without computing it in a plugin or a custom runner.
 
-**Motivating shape (not yet run).** The RAMPART playground's by-vulnerability table lists each vulnerability once with the date its earliest alert was created, grouped over alerts reached from a vulnerability node. `COUNT` can produce the number of alerts and, by grouping on scanner or state, the sources and state counts, but nothing can produce the earliest `created_at` of a group. That query has not been run on the final graph shape — the `compliance_core` types it needs are not released — so this requirement is `Proposed`: per the Development note of `req-grid-gryphon-count`, the lever is pulled when the concrete query exists, and this text is written so that review and the build start from one agreed shape.
+**Motivating shape.** (`created_at` here means the alert's data-lane time; `MIN`/`MAX` over a spine timestamp is deferred, see Future.) The RAMPART playground's by-vulnerability table lists each vulnerability once with the date its earliest alert was created, grouped over alerts reached from a vulnerability node. `COUNT` can produce the number of alerts and, by grouping on scanner or state, the sources and state counts, but nothing could produce the earliest `created_at` of a group. The `compliance_core` types that query needs are not released, so the shipped tests and Gridkin scenarios build the same shape (vulnerability -> finding -> alert, over generic `grid_fixtures` hub, leaf and node types) and assert the earliest observed time, the highest numeric score and the latest report per scanner. The lever was pulled on that concrete shape, per the Development note of `req-grid-gryphon-count`.
 
 #### Implementation
 
-- Grammar: extend `aggregate_call` with `MIN` and `MAX` beside `COUNT`; the argument is a **field path** (`n.data.created_at`), never a bare variable. `MIN(n)` is a parse-or-validation error that names the field-path form, because the minimum of a whole entity has no meaning.
-- AST: reuse `AggregateReturnItem`, carrying the function name; `AS alias` stays mandatory (`req-grid-gryphon-count-2`).
-- Executor: add `Min` and `Max` to the `_compute_rows` aggregate annotation map, parallel to `COUNT`, resolving the argument through the shared field-path resolver so a JSON scalar sub-key is treated like a column (`GRY-ARCH-2`). One mechanism, rung 1 SQL.
-- **Typed comparison only.** The argument's declared schema type decides how values compare. `integer` and `number` compare numerically; a `string` with `format: date-time` or `format: date` compares as an instant or date; anything else — a plain string, boolean, `object`, `array`, or an opaque untyped blob — raises `SearchExecutionError` naming the field and the accepted types. Comparing ISO-8601 strings as text happens to work only while every value uses one offset and precision; the language must not depend on that (`GRY-SEM-1`).
+- Grammar: `aggregate_call` gains `MIN` and `MAX` beside `COUNT` (`count_call`, `min_call`, `max_call`); the argument is a **field path** (`n.data.created_at`), never a bare variable. `MIN(n)` is a **parse error** (`GryphonParseError`, surfaced as `SearchExecutionError` by the search service like every parse error) that names the field-path form, because the minimum of a whole entity has no meaning. Raising it in the transformer means no execution path can see a bare-variable `MIN`.
+- AST: reuse `AggregateReturnItem`; `AggregateCall.function` is `"count" | "min" | "max"`; `AS alias` stays mandatory (`req-grid-gryphon-count-2`).
+- Executor: `_compute_rows` adds `Min` and `Max` to its aggregate annotation map, parallel to `COUNT`, through `_extremum_aggregate`, which resolves the argument through the shared field-path resolver so a JSON scalar sub-key is treated like a column (`GRY-ARCH-2`). One mechanism, rung 1 SQL: `Min` / `Max` over the ORM path, wrapped in a `Cast` to the declared type unless the stored column already has it.
+- **Typed comparison only.** The argument's declared schema type decides how values compare. `integer` and `number` compare numerically; a `string` with `format: date-time` or `format: date` compares as an instant or date; anything else — a plain string, boolean, `object`, `array`, or an opaque untyped blob — raises `SearchExecutionError` naming the field and the accepted types. The argument must be a **typed data-lane field of a labelled node** (`n.data.<field>`, or a declared sub-key of a JSON column); a spine field (`n.created_at`, `n.name`), an edge variable's field, or a field of an unlabelled node has no declared schema type and is rejected the same way (see Future). Comparing ISO-8601 strings as text happens to work only while every value uses one offset and precision; the language must not depend on that (`GRY-SEM-1`).
+- **Numeric range.** The comparison runs in the database at the declared type's width: `integer` as a signed 64-bit integer, `number` as a double-precision float. Integers beyond 64 bits are refused by the cast (a `SearchExecutionError`), and adjacent integers above 2^53 stored under a declared `number` can compare as equal; no TAP model declares such a field today, and an arbitrary-precision lowering (`Cast` to `Decimal`) is the Future path if one appears.
 - **Nulls.** `NULL` values are ignored, as in SQL; a group whose every value is `NULL` yields `NULL`, which in the grid convention means unobserved, never a default (`GRY-SEM-2` is untouched: this governs aggregation, not predicate truth).
-- **Result type.** The result has the field's type; a date-time is returned as the stored ISO-8601 string so the rows envelope stays primitives-only (`req-grid-gryphon-rows-5`).
+- **Result type.** The result has the field's type; a date-time is returned as an ISO-8601 string in UTC with a `Z` suffix (a date as `YYYY-MM-DD`) so the rows envelope stays primitives-only (`req-grid-gryphon-rows-5`). The value is the extremal instant, normalised: a value stored with another offset comes back as the same instant in UTC, not in its original spelling. (Implementation note, a deviation from the text as first proposed, which said the "stored" string: a native datetime column has no stored spelling, and a JSON text sub-key's spelling cannot be recovered through a rung-1 aggregate.)
 - **Applied or rejected on every aggregate path** (`GRY-ARCH-3`): the `_compute_rows` aggregate branch supports `MIN`/`MAX`; `_execute_optional_match`, whose shape is the COUNT-only scoreboard, rejects them with `SearchExecutionError` rather than ignoring them.
-- **Amends `req-grid-gryphon-count-5`** when implemented: that ACID changes from "COUNT is the only aggregate" to "COUNT, MIN and MAX are the only aggregates"; `SUM`, `AVG`, `COUNT(*)` and `COUNT(DISTINCT ...)` stay rejected. It is not edited now, because it describes shipped behaviour.
+- **Amends `req-grid-gryphon-count-5`**, now edited: that ACID changed from "COUNT is the only aggregate" to "COUNT, MIN and MAX are the only aggregates"; `SUM`, `AVG`, `COUNT(*)` and `COUNT(DISTINCT ...)` stay rejected.
 - Mixing `MIN`/`MAX` with `COUNT` in one `RETURN` is allowed; all aggregate items share the one implicit `GROUP BY`.
+- **Aggregation is scoped to traversals.** A node-only `MATCH (a:T) RETURN MAX(a.data.f) AS m` is refused ("Advanced executor requires at least one edge"), exactly as `COUNT` is today; it is not silently answered.
+- **Malformed stored values.** The write path does not enforce `format: date-time` and accepts `7.0` for an `integer`, so a stored `"n/a"` can fail the cast. That surfaces as a `SearchExecutionError` naming the problem, never a raw database error.
+- **All-aggregate `RETURN`** (no group key) is one group and one row (`req-grid-gryphon-count-4`). This was found broken while building: `.values()` with no columns grouped by every model column, so `RETURN COUNT(a) AS n` answered one row per match, each with a count of 1. `materialize_rows` now lowers a group-less aggregate plan through `.aggregate()`, for every shape that reaches it (edge chains and `OPTIONAL MATCH`; `RETURN COUNT(w)` over an `OPTIONAL MATCH` is now one total row, where it used to be one count per anchor). Over an empty match set that one row is `COUNT` 0 and `MIN`/`MAX` `NULL` (SQL aggregate semantics); with a group key an empty match set still has no groups and no rows.
 
 #### Development
 
-The scope is the one aggregate the motivating column needs. `SUM` and `AVG` have no demand signal and remain deferred. Sources and per-state counts do not need a new aggregate: grouping by scanner or by state with `COUNT` yields them as rows. If a "sources" column must be one cell listing several scanners, that is a different feature (a collecting aggregate) and is not proposed here.
+The scope is the one pair of aggregates the motivating column needs. `SUM` and `AVG` have no demand signal and remain deferred. Sources and per-state counts do not need a new aggregate: grouping by scanner or by state with `COUNT` yields them as rows. If a "sources" column must be one cell listing several scanners, that is a different feature (a collecting aggregate) and is not proposed here.
 
-Build sequence, per the `build-gryphon-capability` skill: confirm the failing query on the real graph first; then spec, grammar, AST, parser, executor, Gridkin scenarios with oracle expecteds, and `test_gryphon.py` tests in one commit; TCK corners mined from `clauses/return` and aggregation folders.
+Built per the `build-gryphon-capability` skill: spec, grammar, AST, parser, executor, `test_gryphon.py` tests and, in the `gryphon-playground-tap` plugin, a Gridkin fixture (`minmax.grift.json`), scenarios with hand-authored expecteds, and the model oracle's `MIN`/`MAX` evaluation (the oracle types a group by its values, with no schema, so it models only numbers, offset-bearing ISO instants and ISO dates; everything else is `OracleUnmodeled`). TCK corners were mined from the `expressions/aggregation` folder.
 
 #### Acceptance Criteria
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | :---: | --- | --- |
-| req-grid-gryphon-minmax-1 | MIN And MAX Accepted | Proposed | `MIN(<field path>)` and `MAX(<field path>)` parse as aggregate `RETURN` items and require `AS alias`. | |
-| req-grid-gryphon-minmax-2 | Field Path Argument Only | Proposed | A bare-variable argument (`MIN(n)`) is rejected with an error naming the field-path form. | |
-| req-grid-gryphon-minmax-3 | Implicit GROUP BY Shared With COUNT | Proposed | Non-aggregate `RETURN` items are the GROUP BY keys; `MIN`, `MAX` and `COUNT` items share one grouping; an all-aggregate `RETURN` yields one row. | |
-| req-grid-gryphon-minmax-4 | Typed Comparison | Proposed | `integer`, `number`, `date-time` and `date` fields compare by value; a plain string, boolean, `object`, `array` or opaque blob argument raises `SearchExecutionError` naming the accepted types. | Text comparison of ISO strings is not relied on |
-| req-grid-gryphon-minmax-5 | Nulls Ignored, All-Null Is Null | Proposed | `NULL` values do not affect the result; a group of only `NULL` values yields `NULL`. | Null means unobserved |
-| req-grid-gryphon-minmax-6 | Result Keeps The Field's Type | Proposed | Numeric fields return numbers; date-time and date fields return their stored ISO-8601 string, keeping rows primitives-only. | |
-| req-grid-gryphon-minmax-7 | JSON Scalar Sub-Key Parity | Proposed | `MIN(n.data.<...>)` over a JSON scalar sub-key lowers through the shared field-path resolver exactly as a column does. | |
-| req-grid-gryphon-minmax-8 | Applied Or Rejected On Every Aggregate Path | Proposed | The `_compute_rows` aggregate branch applies `MIN`/`MAX`; the OPTIONAL MATCH path rejects them with `SearchExecutionError`; no path silently drops them. | |
-| req-grid-gryphon-minmax-9 | Other Aggregates Still Rejected | Proposed | `SUM`, `AVG`, `COUNT(*)` and `COUNT(DISTINCT ...)` remain rejected with an unsupported-feature error. | Amends `req-grid-gryphon-count-5` when implemented |
+| req-grid-gryphon-minmax-1 | MIN And MAX Accepted | Implemented | `MIN(<field path>)` and `MAX(<field path>)` parse as aggregate `RETURN` items and require `AS alias`. | |
+| req-grid-gryphon-minmax-2 | Field Path Argument Only | Implemented | A bare-variable argument (`MIN(n)`) is rejected with an error naming the field-path form. | |
+| req-grid-gryphon-minmax-3 | Implicit GROUP BY Shared With COUNT | Implemented | Non-aggregate `RETURN` items are the GROUP BY keys; `MIN`, `MAX` and `COUNT` items share one grouping; an all-aggregate `RETURN` yields one row, including over an empty match set (`COUNT` 0, `MIN`/`MAX` `NULL`). | Also repairs `req-grid-gryphon-count-4` for `COUNT` alone |
+| req-grid-gryphon-minmax-4 | Typed Comparison | Implemented | `integer`, `number`, `date-time` and `date` fields compare by value; a plain string, boolean, `object`, `array` or opaque blob argument, and a spine, edge or unlabelled-node field, raises `SearchExecutionError` naming the accepted types. | Text comparison of ISO strings is not relied on: a text column or JSON sub-key declared `date-time` is cast and compared as an instant |
+| req-grid-gryphon-minmax-5 | Nulls Ignored, All-Null Is Null | Implemented | `NULL` values do not affect the result; a group of only `NULL` values yields `NULL`. | Null means unobserved |
+| req-grid-gryphon-minmax-6 | Result Keeps The Field's Type | Implemented | Numeric fields return numbers; date-time fields return an ISO-8601 UTC string (`...Z`) and date fields `YYYY-MM-DD`, keeping rows primitives-only. | See the Result type note |
+| req-grid-gryphon-minmax-7 | JSON Scalar Sub-Key Parity | Implemented | `MIN(n.data.<...>)` over a JSON scalar sub-key lowers through the shared field-path resolver exactly as a column does. | |
+| req-grid-gryphon-minmax-8 | Applied Or Rejected On Every Aggregate Path | Implemented | The `_compute_rows` aggregate branch applies `MIN`/`MAX`; the OPTIONAL MATCH path rejects them with `SearchExecutionError`; no path silently drops them. | |
+| req-grid-gryphon-minmax-9 | Other Aggregates Still Rejected | Implemented | `SUM`, `AVG`, `COUNT(*)` and `COUNT(DISTINCT ...)` remain rejected with an unsupported-feature error. | Amends `req-grid-gryphon-count-5` |
 
 #### Future
 
 - `SUM` and `AVG`, if a demand signal appears.
 - A collecting aggregate (distinct values of a field joined into one cell), if a table needs several sources in one cell.
-- `ORDER BY` over aggregated columns, already listed under `req-grid-gryphon-count`.
+- `MIN`/`MAX` over a spine timestamp (`n.created_at`, `n.updated_at`), which are `DateTimeField` columns with no `FIELD_CRUD_SCHEMA` entry; they are rejected today for want of a declared type. Pull this in when a query needs entity-creation time rather than a data-lane time.
+- Arbitrary-precision `MIN`/`MAX` for `number` fields beyond double precision.
+- `MIN`/`MAX` over a text value (lexicographic order), over booleans, or over an OPTIONAL MATCH variable.
 
 ---
 
@@ -652,7 +658,7 @@ Every query that parses and executes before this extension lands continues to pa
 ## Future Work
 
 - **Positive `EXISTS { ... }`** subqueries.
-- **Numeric aggregates** (`SUM`, `AVG`); `MIN` and `MAX` are proposed in `req-grid-gryphon-minmax`.
+- **Numeric aggregates** (`SUM`, `AVG`); `MIN` and `MAX` landed in `req-grid-gryphon-minmax`.
 - **`COUNT(DISTINCT ...)`** and **`COUNT(*)`**.
 - **`HAVING`** clause for post-aggregation filtering.
 - **`SKIP` / `OFFSET`** for query-level pagination, composing with `ORDER BY` / `LIMIT`.

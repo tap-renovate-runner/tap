@@ -6,9 +6,10 @@ Converts gryphon text (str or list[str]) into a GryphonAST using lark.
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Any, Literal
 
 from lark import Lark, Token, Transformer, UnexpectedInput, v_args
+from lark.exceptions import VisitError
 
 from tap_grid.gryphon.ast_nodes import (
     AggregateCall,
@@ -397,10 +398,29 @@ class _ASTTransformer(Transformer):
     def aggregate_item(self, aggregate: AggregateCall, alias: Any) -> AggregateReturnItem:
         return AggregateReturnItem(aggregate=aggregate, alias=str(alias))
 
-    def aggregate_call(self, path: FieldPath) -> AggregateCall:
-        # Only COUNT is supported in v1; the _COUNT_KW terminal is discarded
-        # by lark so the only child here is the field_path argument.
+    def count_call(self, path: FieldPath) -> AggregateCall:
+        # The _COUNT_KW terminal is discarded by lark so the only child here is
+        # the field_path argument.
         return AggregateCall(function="count", argument=path)
+
+    def min_call(self, path: FieldPath) -> AggregateCall:
+        return self._extremum_call("min", path)
+
+    def max_call(self, path: FieldPath) -> AggregateCall:
+        return self._extremum_call("max", path)
+
+    @staticmethod
+    def _extremum_call(function: Literal["min", "max"], path: FieldPath) -> AggregateCall:
+        # req-grid-gryphon-minmax-2: the extremum of a whole entity has no meaning,
+        # so a bare variable is refused here -- at parse time, before any execution
+        # path (or OPTIONAL MATCH scoreboard) can see it -- naming the accepted form.
+        if not path.steps:
+            name = function.upper()
+            raise GryphonParseError(
+                f"{name}({path.variable}) is not supported: {name} takes a field path, "
+                f"e.g. {name}({path.variable}.data.<field>), not a bare variable."
+            )
+        return AggregateCall(function=function, argument=path)
 
     # -- Values --
 
@@ -473,6 +493,13 @@ def parse_gryphon(text: str | list[str]) -> GryphonAST:
         return _TRANSFORMER.transform(tree)
     except GryphonParseError:
         raise
+    except VisitError as exc:
+        # lark wraps an exception raised inside a transformer rule; surface a
+        # GryphonParseError raised by a rule (e.g. MIN(n)) as itself, so the message
+        # the user sees is the rule's, not lark's "Error trying to process rule".
+        if isinstance(exc.orig_exc, GryphonParseError):
+            raise exc.orig_exc from None
+        raise GryphonParseError(str(exc)) from exc
     except UnexpectedInput as exc:
         raise GryphonParseError(
             str(exc).split("\n")[0],
