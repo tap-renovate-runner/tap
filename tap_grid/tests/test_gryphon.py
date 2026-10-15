@@ -1472,29 +1472,6 @@ class TestGryphonV2Executor:
         assert rows[str(sam.pk)] == 1  # sting
         assert rows[str(aragorn.pk)] == 1  # anduril
 
-    @pytest.mark.spec("req-grid-gryphon-count-4")
-    def test_all_aggregate_return_is_one_row(self):
-        """RETURN COUNT(a) AS n, with no group key, is ONE row holding the whole count.
-
-        Found building the Stat Cards panel: the executor projected ``.values()`` with no
-        group keys, which Django reads as "all fields", so the aggregate grouped by primary
-        key and came back as one row per matched node (3 rows of n=1, not 1 row of n=4).
-        """
-        self._setup_wielders()
-        search = Search(
-            search_type="gryphon",
-            root="node",
-            name="all-aggregate",
-            definition={
-                "query": (
-                    "MATCH (c:grid_fixtures__constrained_source)-[:SCHEMA_LINK__grid_fixtures]->"
-                    "(a:grid_fixtures__dual_endpoint) RETURN COUNT(a) AS n"
-                )
-            },
-        )
-        result = execute_search(search, inputs={})
-        assert result["rows"] == [{"n": 4}]
-
     def test_not_exists_excludes_correlated_rows(self):
         """NOT EXISTS filters out outer rows whose shared var matches an inner pattern."""
         frodo, sam, aragorn, ring, sting, anduril = self._setup_wielders()
@@ -4032,3 +4009,449 @@ class TestGryphonParamNullExecutor:
         filtered = explain_gryphon_raw(self.OPTIONAL_FILTER, {"org": "Aragorn"})
         unfiltered = explain_gryphon_raw("MATCH (c:grid_fixtures__constrained_source)", {})
         assert [s.sql for s in filtered["sql"].statements] != [s.sql for s in unfiltered["sql"].statements]
+
+
+# ---------------------------------------------------------------------------
+# MIN / MAX aggregates -- req-grid-gryphon-minmax
+# ---------------------------------------------------------------------------
+
+
+class TestGryphonMinMaxParser:
+    """req-grid-gryphon-minmax-1/-2/-9: MIN / MAX parse as aggregate items; the rest stay refused."""
+
+    def test_min_and_max_parse_as_aggregate_items(self):
+        """req-grid-gryphon-minmax-1: both functions, any letter case, carry the field path."""
+        from tap_grid.gryphon.ast_nodes import AggregateReturnItem
+
+        ast = parse_gryphon(
+            "MATCH (a)-[:R]->(b) RETURN a.entity_id AS id, MIN(b.data.score) AS lo, max(b.data.seen_at) AS hi, COUNT(b) AS n"
+        )
+        assert ast.return_clause.items is not None
+        aggs = [i for i in ast.return_clause.items if isinstance(i, AggregateReturnItem)]
+        assert [(a.aggregate.function, a.alias) for a in aggs] == [("min", "lo"), ("max", "hi"), ("count", "n")]
+        assert aggs[0].aggregate.argument.variable == "b"
+        assert [getattr(s, "name", None) for s in aggs[0].aggregate.argument.steps] == ["data", "score"]
+
+    @pytest.mark.parametrize("fn", ["MIN", "MAX"])
+    def test_alias_is_mandatory(self, fn):
+        """req-grid-gryphon-minmax-1: like COUNT, an aggregate without AS is a parse error."""
+        with pytest.raises(GryphonParseError):
+            parse_gryphon(f"MATCH (a)-[:R]->(b) RETURN {fn}(b.data.score)")
+
+    @pytest.mark.parametrize("fn", ["MIN", "MAX"])
+    def test_bare_variable_argument_names_the_field_path_form(self, fn):
+        """req-grid-gryphon-minmax-2: MIN(n) is refused, and the message names the accepted form."""
+        with pytest.raises(GryphonParseError) as exc:
+            parse_gryphon(f"MATCH (a)-[:R]->(b) RETURN {fn}(b) AS x")
+        msg = str(exc.value)
+        assert f"{fn}(b)" in msg and f"{fn}(b.data.<field>)" in msg
+        assert "Error trying to process rule" not in msg  # lark's wrapper is unwrapped
+
+    @pytest.mark.parametrize(
+        "ret", ["SUM(b.data.score) AS x", "AVG(b.data.score) AS x", "COUNT(*) AS x", "COUNT(DISTINCT b) AS x"]
+    )
+    def test_other_aggregates_still_rejected(self, ret):
+        """req-grid-gryphon-minmax-9 (amends count-5): SUM / AVG / COUNT(*) / COUNT(DISTINCT) stay refused."""
+        with pytest.raises(GryphonParseError):
+            parse_gryphon(f"MATCH (a)-[:R]->(b) RETURN {ret}")
+
+
+@pytest.mark.django_db(transaction=True, databases=["default", "search_readonly"])
+class TestGryphonMinMaxExecutor:
+    """Executor coverage for MIN / MAX over a vulnerability -> finding -> alert graph.
+
+    Built from generic grid_fixtures nodes shaped like the motivating query: hubs stand
+    in for vulnerabilities, leaves for findings, nodes for alerts. The alert fields used
+    are ``severity_score`` (integer column), ``observed_at`` (date-time column), ``kind``
+    (the scanner) and ``tags`` (a JSON column, given a typed sub-key schema where a test
+    needs one).
+    """
+
+    ONE_HOP = "MATCH (f:grid_fixtures__leaf)-[:PG_LINKS__grid_fixtures]->(a:grid_fixtures__node) "
+    TWO_HOP = (
+        "MATCH (v:grid_fixtures__hub)-[:PG_LINKS__grid_fixtures]->(f:grid_fixtures__leaf)"
+        "-[:PG_LINKS__grid_fixtures]->(a:grid_fixtures__node) "
+    )
+
+    def _build(self) -> None:
+        """Vulnerabilities A, B, C -> findings -> alerts; B's alerts are all unobserved (NULL)."""
+        import uuid
+        from datetime import datetime
+
+        from tap_plugin.grid_fixtures.models import PgHub, PgLeaf, PgNode
+
+        from tap_grid.caller_context import CallerContext, get_caller_context, set_caller_context
+        from tap_grid.models import Edge, Entity
+
+        ambient = get_caller_context()
+        assert ambient is not None
+        set_caller_context(CallerContext(user=ambient.user, batch_id=str(uuid.uuid4())))
+
+        def make(model: Any, entity_type: str, name: str, **fields: Any) -> Any:
+            entity = Entity.objects.create(entity_type=entity_type, name=name)
+            model.objects.create(entity=entity, name=name, **fields)
+            return entity
+
+        def link(src: Any, dst: Any) -> None:
+            Edge.objects.create(
+                entity=Entity.objects.create(entity_type="edge"),
+                from_entity=src,
+                to_entity=dst,
+                edge_type="PG_LINKS__grid_fixtures",
+            )
+
+        def t(iso: str | None) -> datetime | None:
+            return datetime.fromisoformat(iso) if iso else None
+
+        vulns = {n: make(PgHub, "grid_fixtures__hub", n) for n in ("CVE-A", "CVE-B", "CVE-C")}
+        findings = {n: make(PgLeaf, "grid_fixtures__leaf", n) for n in ("f1", "f2", "f3", "f4")}
+        # (name, severity, observed_at, scanner, finding)
+        alerts = [
+            ("a1", 5, "2026-03-02T10:00:00+00:00", "scanner-x", "f1"),
+            ("a2", 9, "2026-03-01T09:00:00+00:00", "scanner-y", "f1"),
+            ("a3", 7, "2026-03-05T00:00:00+00:00", "scanner-x", "f2"),
+            ("a4", 3, None, "scanner-y", "f3"),
+            ("a5", 4, None, "scanner-y", "f3"),
+            ("a6", 8, "2026-03-10T12:00:00+00:00", "scanner-x", "f4"),
+        ]
+        for name, sev, seen, scanner, fnd in alerts:
+            alert = make(PgNode, "grid_fixtures__node", name, severity_score=sev, observed_at=t(seen), kind=scanner)
+            link(findings[fnd], alert)
+        for vuln, fnds in (("CVE-A", ("f1", "f2")), ("CVE-B", ("f3",)), ("CVE-C", ("f4",))):
+            for fnd in fnds:
+                link(vulns[vuln], findings[fnd])
+
+    def _rows(self, query: str, inputs: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        search = Search(search_type="gryphon", root="node", name="minmax", definition={"query": query})
+        rows: list[dict[str, Any]] = execute_search(search, inputs=inputs or {})["rows"]
+        return rows
+
+    # -- the motivating shape ------------------------------------------------
+
+    def test_earliest_alert_and_highest_score_per_vulnerability(self):
+        """The motivating query: earliest created/observed time and highest score per vulnerability,
+        over a finding -> alert traversal, mixed with COUNT under one implicit GROUP BY (minmax-3/-5/-6)."""
+        self._build()
+        rows = self._rows(
+            self.TWO_HOP + "RETURN v.name AS vulnerability, MIN(a.data.observed_at) AS first_seen, "
+            "MAX(a.data.severity_score) AS highest, COUNT(a) AS alerts ORDER BY vulnerability"
+        )
+        assert rows == [
+            {"vulnerability": "CVE-A", "first_seen": "2026-03-01T09:00:00Z", "highest": 9, "alerts": 3},
+            # every alert of CVE-B is unobserved: NULL is ignored, an all-NULL group is NULL (minmax-5)
+            {"vulnerability": "CVE-B", "first_seen": None, "highest": 4, "alerts": 2},
+            {"vulnerability": "CVE-C", "first_seen": "2026-03-10T12:00:00Z", "highest": 8, "alerts": 1},
+        ]
+
+    def test_last_report_per_scanner(self):
+        """MAX of a date-time per group: the most recent report per scanner (NULLs ignored)."""
+        self._build()
+        rows = self._rows(
+            self.ONE_HOP + "RETURN a.data.kind AS scanner, MAX(a.data.observed_at) AS last_report ORDER BY scanner"
+        )
+        assert rows == [
+            {"scanner": "scanner-x", "last_report": "2026-03-10T12:00:00Z"},
+            {"scanner": "scanner-y", "last_report": "2026-03-01T09:00:00Z"},
+        ]
+
+    def test_all_aggregate_return_is_one_row(self):
+        """req-grid-gryphon-minmax-3: with no group key the whole match set is one group, one row."""
+        self._build()
+        rows = self._rows(
+            self.ONE_HOP + "RETURN MIN(a.data.severity_score) AS lo, MAX(a.data.severity_score) AS hi, "
+            "MIN(a.data.observed_at) AS first, COUNT(a) AS n"
+        )
+        assert rows == [{"lo": 3, "hi": 9, "first": "2026-03-01T09:00:00Z", "n": 6}]
+
+    def test_integer_result_is_a_number_not_a_string(self):
+        """req-grid-gryphon-minmax-6: numeric fields return numbers."""
+        self._build()
+        (row,) = self._rows(self.ONE_HOP + "RETURN MAX(a.data.severity_score) AS hi")
+        assert row["hi"] == 9 and isinstance(row["hi"], int)
+
+    def test_order_by_an_aggregate_column(self):
+        """MIN / MAX columns are ordinary RETURN outputs: ORDER BY and LIMIT apply to them."""
+        self._build()
+        rows = self._rows(
+            self.TWO_HOP + "RETURN v.name AS vulnerability, MAX(a.data.severity_score) AS highest "
+            "ORDER BY highest DESC LIMIT 2"
+        )
+        assert [(r["vulnerability"], r["highest"]) for r in rows] == [("CVE-A", 9), ("CVE-C", 8)]
+
+    # -- typing (minmax-4) ----------------------------------------------------
+
+    @pytest.mark.parametrize(
+        "field, declared",
+        [
+            ("name", "string"),
+            ("is_open", "boolean"),
+            ("tags", "object"),
+            ("tags.anything", "an open blob"),
+            ("not_a_declared_field", "an undeclared field"),
+        ],
+    )
+    @pytest.mark.parametrize("fn", ["MIN", "MAX"])
+    def test_untyped_argument_is_rejected_naming_the_accepted_types(self, fn, field, declared):
+        """req-grid-gryphon-minmax-4: a plain string, boolean, object, array or opaque blob raises."""
+        self._build()
+        with pytest.raises(SearchExecutionError) as exc:
+            self._rows(self.ONE_HOP + f"RETURN {fn}(a.data.{field}) AS x")
+        assert f"{fn}(a.data.{field})" in str(exc.value) or "has no declared scalar type" in str(exc.value)
+        assert "date-time" in str(exc.value) and "integer" in str(exc.value)
+
+    def test_array_argument_is_rejected(self, monkeypatch):
+        """req-grid-gryphon-minmax-4: a declared array is not comparable."""
+        from tap_plugin.grid_fixtures.models import PgNode as _PgNode
+
+        PgNode: Any = _PgNode
+
+        self._build()
+        monkeypatch.setattr(PgNode, "FIELD_CRUD_SCHEMA", {**PgNode.FIELD_CRUD_SCHEMA, "tags": {"type": "array"}})
+        with pytest.raises(SearchExecutionError, match="no declared scalar type|declared"):
+            self._rows(self.ONE_HOP + "RETURN MIN(a.data.tags) AS x")
+
+    def test_spine_and_edge_arguments_are_rejected(self):
+        """Only a typed data-lane field of a labelled node is comparable (spine / edge / unlabelled refused)."""
+        self._build()
+        for arg in ("a.name", "a.created_at", "a.entity_id"):
+            with pytest.raises(SearchExecutionError, match=r"typed data-lane field"):
+                self._rows(self.ONE_HOP + f"RETURN MIN({arg}) AS x")
+        with pytest.raises(SearchExecutionError, match=r"typed data-lane field"):
+            self._rows(
+                "MATCH (f:grid_fixtures__leaf)-[e:PG_LINKS__grid_fixtures]->(a:grid_fixtures__node) "
+                "RETURN MIN(e.data.edge_type) AS x"
+            )
+        with pytest.raises(SearchExecutionError, match=r"typed data-lane field"):
+            self._rows("MATCH (f)-[:PG_LINKS__grid_fixtures]->(a) RETURN MIN(a.data.severity_score) AS x")
+
+    def test_unknown_variable_is_rejected(self):
+        self._build()
+        with pytest.raises(SearchExecutionError, match="Unknown variable 'zz'"):
+            self._rows(self.ONE_HOP + "RETURN MIN(zz.data.severity_score) AS x")
+
+    def test_number_declared_field_compares_numerically(self, monkeypatch):
+        """A `number` field returns the stored value, compared numerically."""
+        from tap_plugin.grid_fixtures.models import PgNode as _PgNode
+
+        PgNode: Any = _PgNode
+
+        self._build()
+        monkeypatch.setattr(
+            PgNode, "FIELD_CRUD_SCHEMA", {**PgNode.FIELD_CRUD_SCHEMA, "severity_score": {"type": "number"}}
+        )
+        (row,) = self._rows(self.ONE_HOP + "RETURN MIN(a.data.severity_score) AS lo, MAX(a.data.severity_score) AS hi")
+        assert row == {"lo": 3, "hi": 9}
+
+    def test_date_time_text_column_compares_as_an_instant_not_as_text(self, monkeypatch):
+        """req-grid-gryphon-minmax-4: a text column declared `date-time` compares as an instant.
+
+        As text "2026-03-01T09:00:00+02:00" < "2026-03-01T08:30:00+00:00" would be false even
+        though it is the earlier instant (07:00Z vs 08:30Z) -- the pair that text comparison gets wrong.
+        """
+        from tap_plugin.grid_fixtures.models import PgNode as _PgNode
+
+        PgNode: Any = _PgNode
+
+        self._build()
+        PgNode.objects.filter(name="a1").update(description="2026-03-01T09:00:00+02:00")  # 07:00Z
+        PgNode.objects.filter(name="a2").update(description="2026-03-01T08:30:00+00:00")  # 08:30Z
+        PgNode.objects.filter(name="a3").update(description="2026-03-01T08:45:00Z")  # 08:45Z
+        PgNode.objects.filter(name__in=["a4", "a5", "a6"]).update(description="2026-03-02T00:00:00+00:00")
+        monkeypatch.setattr(
+            PgNode,
+            "FIELD_CRUD_SCHEMA",
+            {**PgNode.FIELD_CRUD_SCHEMA, "description": {"type": "string", "format": "date-time"}},
+        )
+        (row,) = self._rows(self.ONE_HOP + "RETURN MIN(a.data.description) AS lo, MAX(a.data.description) AS hi")
+        assert row == {"lo": "2026-03-01T07:00:00Z", "hi": "2026-03-02T00:00:00Z"}
+
+    def test_date_format_returns_iso_date(self, monkeypatch):
+        """`format: date` compares as a date and returns YYYY-MM-DD."""
+        from tap_plugin.grid_fixtures.models import PgNode as _PgNode
+
+        PgNode: Any = _PgNode
+
+        self._build()
+        for name, day in (("a1", "2026-03-09"), ("a2", "2026-03-10"), ("a3", "2026-02-28")):
+            PgNode.objects.filter(name=name).update(description=day)
+        PgNode.objects.filter(name__in=["a4", "a5", "a6"]).update(description="2026-03-01")
+        monkeypatch.setattr(
+            PgNode,
+            "FIELD_CRUD_SCHEMA",
+            {**PgNode.FIELD_CRUD_SCHEMA, "description": {"type": "string", "format": "date"}},
+        )
+        (row,) = self._rows(self.ONE_HOP + "RETURN MIN(a.data.description) AS lo, MAX(a.data.description) AS hi")
+        assert row == {"lo": "2026-02-28", "hi": "2026-03-10"}
+
+    # -- JSON scalar sub-key parity (minmax-7) --------------------------------
+
+    def test_json_sub_key_matches_the_column_answer(self, monkeypatch):
+        """req-grid-gryphon-minmax-7: a typed JSON scalar sub-key answers exactly as the column does."""
+        from tap_plugin.grid_fixtures.models import PgNode as _PgNode
+
+        PgNode: Any = _PgNode
+
+        self._build()
+        for node in PgNode.objects.all():
+            node.tags = {
+                "score": node.severity_score,
+                "seen": node.observed_at.isoformat() if node.observed_at else None,
+                "nested": {"score": node.severity_score},
+            }
+            node.save()
+        monkeypatch.setattr(
+            PgNode,
+            "FIELD_CRUD_SCHEMA",
+            {
+                **PgNode.FIELD_CRUD_SCHEMA,
+                "tags": {
+                    "type": "object",
+                    "properties": {
+                        "score": {"type": "integer"},
+                        "seen": {"type": ["string", "null"], "format": "date-time"},
+                        "nested": {"type": "object", "properties": {"score": {"type": "integer"}}},
+                    },
+                },
+            },
+        )
+        column = self._rows(
+            self.ONE_HOP + "RETURN a.data.kind AS scanner, MIN(a.data.severity_score) AS lo, "
+            "MAX(a.data.observed_at) AS hi ORDER BY scanner"
+        )
+        sub_key = self._rows(
+            self.ONE_HOP + "RETURN a.data.kind AS scanner, MIN(a.data.tags.score) AS lo, "
+            "MAX(a.data.tags.seen) AS hi ORDER BY scanner"
+        )
+        bracket = self._rows(
+            self.ONE_HOP + 'RETURN a.data.kind AS scanner, MIN(a.data.tags["score"]) AS lo, '
+            'MAX(a.data.tags["seen"]) AS hi ORDER BY scanner'
+        )
+        nested = self._rows(
+            self.ONE_HOP + "RETURN a.data.kind AS scanner, MIN(a.data.tags.nested.score) AS lo ORDER BY scanner"
+        )
+        assert column == sub_key == bracket
+        assert [r["lo"] for r in nested] == [r["lo"] for r in column]
+        assert column[0]["hi"] == "2026-03-10T12:00:00Z"
+
+    def test_json_sub_key_with_undeclared_type_is_rejected(self):
+        """The JSON column's schema declares no sub-key types today, so the sub-key is an opaque blob."""
+        self._build()
+        with pytest.raises(SearchExecutionError, match="no declared scalar type"):
+            self._rows(self.ONE_HOP + "RETURN MIN(a.data.tags.score) AS x")
+
+    # -- every aggregate path applies or rejects (minmax-8) -------------------
+
+    def test_optional_match_rejects_min_and_max(self):
+        """req-grid-gryphon-minmax-8: the OPTIONAL MATCH scoreboard names COUNT as its only aggregate."""
+        self._build()
+        for fn in ("MIN", "MAX"):
+            with pytest.raises(SearchExecutionError, match=rf"supports only COUNT; got {fn}"):
+                self._rows(
+                    "MATCH (f:grid_fixtures__leaf) OPTIONAL MATCH (f)-[:PG_LINKS__grid_fixtures]->(a:grid_fixtures__node) "
+                    f"RETURN f.entity_id AS id, {fn}(a.data.severity_score) AS x"
+                )
+
+    def test_where_filters_before_the_aggregate(self):
+        """MIN / MAX see only the rows that survive WHERE."""
+        self._build()
+        (row,) = self._rows(
+            self.ONE_HOP + 'WHERE a.data.kind = "scanner-y" RETURN MAX(a.data.severity_score) AS hi, COUNT(a) AS n'
+        )
+        assert row == {"hi": 9, "n": 3}
+
+    def test_result_is_primitives_only(self):
+        """req-grid-gryphon-minmax-6 / rows-5: every cell of a MIN / MAX row is JSON-serialisable."""
+        import json
+
+        self._build()
+        rows = self._rows(
+            self.TWO_HOP + "RETURN v.name AS v, MIN(a.data.observed_at) AS t, MAX(a.data.severity_score) AS s"
+        )
+        json.dumps(rows)  # raises on a datetime / Decimal / UUID
+
+    # -- the all-aggregate defect found while building this (GRY-TEST-7) -------
+
+    @pytest.mark.spec("req-grid-gryphon-count-4")
+    def test_all_aggregate_count_alone_is_one_row(self):
+        """Regression: `RETURN COUNT(a)` with no group key answered one row PER MATCH (count 1 each).
+
+        Found while building req-grid-gryphon-minmax-3: `.values()` with no columns grouped by every
+        model column. It predates MIN / MAX and affects COUNT alone, so it is pinned without them.
+        """
+        self._build()
+        assert self._rows(self.ONE_HOP + "RETURN COUNT(a) AS n") == [{"n": 6}]
+        assert self._rows(self.TWO_HOP + "RETURN COUNT(a) AS n") == [{"n": 6}]
+
+    def test_all_aggregate_over_no_matches_is_one_row_of_zero_and_null(self):
+        """SQL aggregate semantics for an empty match set: COUNT is 0, MIN / MAX are NULL (unobserved)."""
+        self._build()
+        rows = self._rows(
+            self.ONE_HOP + 'WHERE a.data.kind = "no-such-scanner" '
+            "RETURN COUNT(a) AS n, MIN(a.data.severity_score) AS lo, MAX(a.data.observed_at) AS hi"
+        )
+        assert rows == [{"n": 0, "lo": None, "hi": None}]
+
+    def test_grouped_aggregate_over_no_matches_has_no_rows(self):
+        """With a group key an empty match set has no groups, hence no rows (unchanged)."""
+        self._build()
+        rows = self._rows(
+            self.ONE_HOP
+            + 'WHERE a.data.kind = "no-such-scanner" RETURN a.data.kind AS k, MIN(a.data.severity_score) AS lo'
+        )
+        assert rows == []
+
+    def test_all_aggregate_limit_zero_is_empty(self):
+        self._build()
+        assert self._rows(self.ONE_HOP + "RETURN MIN(a.data.severity_score) AS lo LIMIT 0") == []
+
+    def test_min_and_max_lower_to_sql_aggregates(self):
+        """Construct effect (GRY-ARCH-3): the aggregates reach the SQL, they are not dropped."""
+        from tap_grid.gryphon.executor import explain_gryphon_raw
+
+        self._build()
+        sql = " ".join(
+            s.sql
+            for s in explain_gryphon_raw(
+                self.ONE_HOP
+                + "RETURN a.data.kind AS k, MIN(a.data.severity_score) AS lo, MAX(a.data.observed_at) AS hi",
+                {},
+            )["sql"].statements
+        )
+        assert "MIN(" in sql and "MAX(" in sql and "GROUP BY" in sql
+
+    # -- review findings: malformed stored values, type-scan shape, OPTIONAL MATCH ---
+
+    def test_malformed_stored_value_is_a_refusal_not_a_500(self, monkeypatch):
+        """A text column declared `date-time` holding "n/a" fails the Postgres cast; the caller gets a
+        SearchExecutionError (a 422), never a raw DataError (the write path does not enforce `format`)."""
+        from tap_plugin.grid_fixtures.models import PgNode as _PgNode
+
+        PgNode: Any = _PgNode
+        self._build()
+        PgNode.objects.filter(name="a1").update(description="n/a")
+        monkeypatch.setattr(
+            PgNode,
+            "FIELD_CRUD_SCHEMA",
+            {**PgNode.FIELD_CRUD_SCHEMA, "description": {"type": "string", "format": "date-time"}},
+        )
+        with pytest.raises(SearchExecutionError, match="stored value could not be compared"):
+            self._rows(self.ONE_HOP + "RETURN MIN(a.data.description) AS lo")
+        with pytest.raises(SearchExecutionError, match="stored value could not be compared") as exc:
+            self._rows(self.ONE_HOP + "RETURN a.data.kind AS k, MAX(a.data.description) AS hi")
+        assert "n/a" not in str(exc.value)  # the driver's text (it quotes the value) stays server-side
+
+    def test_node_only_type_scan_aggregate_is_rejected(self):
+        """Aggregation is scoped to traversals today (COUNT has the same limit): a node-only
+        `MATCH (a:T) RETURN MAX(...)` is refused with the edge requirement named, never ignored."""
+        self._build()
+        with pytest.raises(SearchExecutionError, match="at least one edge"):
+            self._rows("MATCH (a:grid_fixtures__node) RETURN MAX(a.data.severity_score) AS hi")
+
+    def test_count_alone_over_optional_match_is_one_total_row(self):
+        """`RETURN COUNT(w)` with no group key over an OPTIONAL MATCH is one group: one total row."""
+        self._build()
+        rows = self._rows(
+            "MATCH (f:grid_fixtures__leaf) OPTIONAL MATCH (f)-[:PG_LINKS__grid_fixtures]->(a:grid_fixtures__node) "
+            "RETURN COUNT(a) AS alerts"
+        )
+        assert rows == [{"alerts": 6}]

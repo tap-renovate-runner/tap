@@ -116,7 +116,12 @@ return_clause: _RETURN_KW return_item ("," return_item)*
 return_item: aggregate_call _AS_KW NAME   -> aggregate_item
            | field_path (_AS_KW NAME)?    -> field_item
 
-aggregate_call: _COUNT_KW "(" field_path ")"
+// COUNT takes a bare variable or a single dot-step; MIN / MAX take a field path
+// (req-grid-gryphon-minmax) -- a bare-variable MIN(n) parses and is refused by the
+// transformer with a message naming the field-path form.
+aggregate_call: _COUNT_KW "(" field_path ")"  -> count_call
+              | _MIN_KW "(" field_path ")"    -> min_call
+              | _MAX_KW "(" field_path ")"    -> max_call
 
 // ---------------------------------------------------------------------------
 // ORDER BY / LIMIT
@@ -164,6 +169,8 @@ _AS_KW:     /AS/i
 _IN_KW:     /IN/i
 _EXISTS_KW: /EXISTS/i
 _COUNT_KW:  /COUNT/i
+_MIN_KW:    /MIN/i
+_MAX_KW:    /MAX/i
 _IS_KW:     /IS/i
 _NULL_KW:   /NULL/i
 // Observation-semantic predicates (req-grid-traversal-lang-observation): the

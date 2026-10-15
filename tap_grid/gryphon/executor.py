@@ -33,7 +33,10 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
+from dataclasses import field as dc_field
 from typing import TYPE_CHECKING, Any
+
+from django.db import DataError
 
 from tap.db_aliases import SEARCH_READONLY
 from tap_auth.capabilities import READ_CAPABILITY
@@ -3115,12 +3118,18 @@ class MaterializationPlan:
     # `.values().distinct()` application is wired, `materialize_rows` fails closed
     # on a set flag (reject, never silently no-op) rather than accepting it.
     distinct: bool = False
+    # agg_internal_alias -> callable applied to that aggregate's value after the
+    # query runs. MIN / MAX over a date-time or date field use it to return the
+    # stored ISO-8601 string so the rows envelope stays primitives-only
+    # (req-grid-gryphon-minmax-6). Empty for COUNT-only plans.
+    aggregate_postprocess: dict[str, Callable[[Any], Any]] = dc_field(default_factory=dict)
 
 
 def _rows_from_values(
     raw_rows: Any,
     group_pairs: tuple[tuple[str, str], ...],
     aggregate_pairs: tuple[tuple[str, str], ...],
+    aggregate_postprocess: dict[str, Callable[[Any], Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Build row dicts from `.values()` output — the one uuid-stringify site.
 
@@ -3130,6 +3139,7 @@ def _rows_from_values(
     collapse last-write-wins, preserved byte-identically
     (`req-grid-traversal-exec-row-materialization-15`).
     """
+    post = aggregate_postprocess or {}
     rows: list[dict[str, Any]] = []
     for raw in raw_rows:
         row: dict[str, Any] = {}
@@ -3137,15 +3147,39 @@ def _rows_from_values(
             val = raw.get(internal)
             row[user] = str(val) if hasattr(val, "hex") else val
         for internal, user in aggregate_pairs:
-            row[user] = raw.get(internal)
+            val = raw.get(internal)
+            fmt = post.get(internal)
+            row[user] = fmt(val) if fmt is not None and val is not None else val
         rows.append(row)
     return rows
+
+
+def _stored_value_error() -> SearchExecutionError:
+    """A stored value the declared type cannot hold, surfaced as a refusal and not a 500.
+
+    MIN / MAX cast a text column or JSON sub-key to its declared type; the write path
+    does not enforce ``format: date-time`` and accepts ``7.0`` for an ``integer``, so a
+    stored ``""`` / ``"n/a"`` / ``7.0`` can fail the cast inside Postgres. The message is
+    constant on purpose: the driver's text can quote the stored value or name schema
+    objects, so it stays on ``__cause__`` (server-side) and never reaches the caller.
+    """
+    return SearchExecutionError(
+        "A stored value could not be compared as its declared type (MIN / MAX cast the field to "
+        "integer, number, date-time or date). Fix or remove the malformed stored value."
+    )
+
+
+def _has_extremum(plan: MaterializationPlan) -> bool:
+    """True when the plan carries a MIN / MAX aggregate (the only casts that can fail on stored data)."""
+    from django.db.models import Max, Min
+
+    return any(isinstance(agg, (Min, Max)) for agg in plan.aggregate_annotations.values())
 
 
 def materialize_rows(plan: MaterializationPlan) -> list[dict[str, Any]]:
     """The shared Layer-B row backend: a resolved plan -> the ``rows`` list.
 
-    TAP-IMPLEMENTS: req-grid-traversal-exec-row-materialization@edbd98db287d/c49a80f20523 (derivation) —
+    TAP-IMPLEMENTS: req-grid-traversal-exec-row-materialization@edbd98db287d/de54a88dd468 (derivation) —
         the requirement exists to forbid per-dispatch row tails; this function is the one
         backend every shape reaches, so a fifth row tail is a defect by construction.
 
@@ -3181,11 +3215,21 @@ def materialize_rows(plan: MaterializationPlan) -> list[dict[str, Any]]:
 
     group_internals = [internal for internal, _ in plan.group_pairs]
     if plan.aggregate_annotations and not group_internals:
-        # req-grid-gryphon-count-4: an all-aggregate RETURN is ONE row over the whole match set.
-        # `.values()` with no names means "every field" to Django, so annotating after it would
-        # group by primary key and return one row per matched row. `.aggregate()` is the
-        # ungrouped form (and yields a count of 0, not no row, over an empty match).
-        return _rows_from_values([qs.aggregate(**plan.aggregate_annotations)], plan.group_pairs, plan.aggregate_pairs)
+        # An all-aggregate RETURN has no group key, so the whole match set is ONE
+        # group and the answer is exactly one row (req-grid-gryphon-minmax-3). It must
+        # go through `.aggregate()`: `.values()` with no columns means "every model
+        # column", which grouped per row and returned one row per match (a COUNT of
+        # 1 each) -- a wrong answer, not a missing feature. SQL aggregate semantics
+        # also hold for an empty match set: COUNT is 0 and MIN / MAX are NULL.
+        if plan.limit is not None and plan.limit.count == 0:
+            return []
+        try:
+            totals = qs.order_by().aggregate(**plan.aggregate_annotations)
+        except DataError as exc:
+            if not _has_extremum(plan):
+                raise
+            raise _stored_value_error() from exc
+        return _rows_from_values([totals], plan.group_pairs, plan.aggregate_pairs, plan.aggregate_postprocess)
     qs = qs.values(*group_internals)
     if plan.aggregate_annotations:
         qs = qs.annotate(**plan.aggregate_annotations)
@@ -3194,7 +3238,153 @@ def materialize_rows(plan: MaterializationPlan) -> list[dict[str, Any]]:
     if plan.limit is not None:
         qs = qs[: plan.limit.count]
 
-    return _rows_from_values(list(qs), plan.group_pairs, plan.aggregate_pairs)
+    try:
+        raw_rows = list(qs)
+    except DataError as exc:
+        if not _has_extremum(plan):
+            raise
+        raise _stored_value_error() from exc
+    return _rows_from_values(raw_rows, plan.group_pairs, plan.aggregate_pairs, plan.aggregate_postprocess)
+
+
+_EXTREMUM_ACCEPTED = "integer, number, date-time (a string with format date-time) and date (a string with format date)"
+
+
+def _format_temporal(value: Any) -> str:
+    """Render a MIN / MAX date or date-time result as its ISO-8601 string.
+
+    A date-time is normalised to UTC with a ``Z`` suffix (a naive value is read
+    as UTC, which is what the ORM returns under ``USE_TZ``); a date is its
+    ``YYYY-MM-DD`` form. Keeps the rows envelope primitives-only
+    (``req-grid-gryphon-minmax-6``).
+    """
+    from datetime import UTC, datetime
+
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return str(value.astimezone(UTC).isoformat()).replace("+00:00", "Z")
+    return str(value.isoformat())
+
+
+def _extremum_aggregate(
+    function: str,
+    binding: dict[str, Any],
+    arg: FieldPath,
+) -> tuple[Any, Callable[[str], Any], Callable[[Any], Any] | None]:
+    """Lower ``MIN(<field path>)`` / ``MAX(<field path>)`` to an ORM aggregate.
+
+    TAP-IMPLEMENTS: req-grid-gryphon-minmax@3831cfc0889a/1d97317124f7 (derivation) — MIN / MAX lower here: typed
+        comparison, nulls ignored, the shared field-path resolver, ISO-string results.
+
+    Returns ``(source_expression, aggregate_factory, postprocess)``: the expression
+    to annotate before ``.values()``, a callable that builds the ``Min`` / ``Max``
+    over that annotation alias, and an optional result formatter (date-time / date
+    results come back as ISO-8601 strings).
+
+    The declared schema type of the argument decides how values compare
+    (``req-grid-gryphon-minmax-4``): ``integer`` and ``number`` numerically, a
+    ``string`` with ``format: date-time`` / ``date`` as an instant / date. The ORM
+    expression is cast to that type unless the stored column already has it, so a
+    JSON sub-key (``->>`` text) or a text column never compares as text. Anything
+    else -- a plain string, boolean, ``object``, ``array``, an undeclared or open
+    blob, a spine field, an edge field -- is rejected naming the accepted types.
+    Rung 1: ``Min`` / ``Max`` / ``Cast`` over the ORM path the shared resolver returns.
+
+    .. tap:capability:: Gryphon MIN and MAX aggregation
+       :id: cap-grid-gryphon-minmax
+       :status: implemented
+       :audience: external-user; agent; developer
+       :affordance: querying
+       :covered-by: gridkin:minmax-earliest-alert-time-highest-score-and-alert-count-per-vulnerability-over-a-finding-to-alert-traversal
+       :limitations: Typed data-lane fields only (integer, number, date-time, date); no text, boolean, spine or edge fields; not over an OPTIONAL MATCH.
+
+       ``MIN(var.data.field)`` / ``MAX(var.data.field)`` in RETURN take the smallest or
+       largest value of a group, grouped implicitly like ``COUNT``. NULLs are ignored and
+       an all-NULL group is NULL; a date-time comes back as an ISO-8601 UTC string.
+
+       Example::
+
+          MATCH (v:grid_fixtures__hub)-[:PG_LINKS__grid_fixtures]->(f:grid_fixtures__leaf)-[:PG_LINKS__grid_fixtures]->(a:grid_fixtures__node)
+          RETURN v.name AS vulnerability, MIN(a.data.observed_at) AS first_seen, MAX(a.data.severity_score) AS highest
+    """
+    from django.db import models as dj_models
+    from django.db.models import F, Max, Min
+    from django.db.models.fields.json import KeyTextTransform, KeyTransform
+    from django.db.models.functions import Cast
+
+    from tap_grid.registry import get_model_class
+
+    name = function.upper()
+    rendered = _format_field_path(arg)
+    steps = arg.steps
+    if (
+        binding.get("role") != "node"
+        or not binding.get("label")
+        or not steps
+        or not isinstance(steps[0], DotStep)
+        or steps[0].name != _DATA_LANE_PREFIX
+    ):
+        raise SearchExecutionError(
+            f"{name}({rendered}) is not supported: {name} compares a typed data-lane field of a labelled "
+            f"node, e.g. {name}(n.data.<field>) on (n:<type>). Accepted types: {_EXTREMUM_ACCEPTED}."
+        )
+    model_cls = get_model_class(binding["label"])
+    leaf = _data_lane_leaf_schema(model_cls, arg)
+    declared = _schema_type_set(leaf) if leaf is not None else None
+    scalar = (declared or set()) - {"null"}
+    if leaf is None or not scalar:
+        raise SearchExecutionError(
+            f"{name}({rendered}) is not supported: {rendered} has no declared scalar type "
+            f"(an undeclared field, or an open or opaque blob). Accepted types: {_EXTREMUM_ACCEPTED}."
+        )
+    shown = ", ".join(sorted(scalar))
+    fmt = leaf.get("format")
+    if scalar <= {"integer"}:
+        target: Any = dj_models.BigIntegerField()
+        kind = "integer"
+    elif scalar <= {"integer", "number"}:
+        target = dj_models.FloatField()
+        kind = "number"
+    elif scalar == {"string"} and fmt == "date-time":
+        target = dj_models.DateTimeField()
+        kind = "date-time"
+    elif scalar == {"string"} and fmt == "date":
+        target = dj_models.DateField()
+        kind = "date"
+    else:
+        raise SearchExecutionError(
+            f"{name}({rendered}) is not supported: {rendered} is declared {{{shown}}}"
+            f"{' (format ' + str(fmt) + ')' if fmt else ''}. {name} compares only {_EXTREMUM_ACCEPTED}."
+        )
+
+    # The shared resolver (and its data-lane allowlist) produces the ORM path; a JSON
+    # sub-key is treated exactly as a column is, then cast to the declared type.
+    orm_path = _resolve_orm_path(binding, arg)
+    postprocess = _format_temporal if kind in ("date-time", "date") else None
+    key_steps = len(steps) - 2  # steps after `data.<column>`
+    if key_steps > 0:
+        parts = orm_path.split("__")
+        expr: Any = F("__".join(parts[:-key_steps]))
+        keys = parts[-key_steps:]
+        for key in keys[:-1]:
+            expr = KeyTransform(key, expr)
+        source: Any = Cast(KeyTextTransform(keys[-1], expr), target)
+    else:
+        column_step = steps[1]
+        assert isinstance(column_step, DotStep)  # _data_lane_leaf_schema only resolves a dot-step column
+        column = model_cls._meta.get_field(column_step.name)  # type: ignore[attr-defined]
+        if kind in ("integer", "number"):
+            native = isinstance(column, dj_models.IntegerField) or (
+                kind == "number" and isinstance(column, dj_models.FloatField)
+            )
+        elif kind == "date-time":
+            native = isinstance(column, dj_models.DateTimeField)
+        else:
+            native = isinstance(column, dj_models.DateField) and not isinstance(column, dj_models.DateTimeField)
+        source = F(orm_path) if native else Cast(F(orm_path), target)
+    agg_cls = Min if function == "min" else Max
+    return source, (lambda alias: agg_cls(alias)), postprocess
 
 
 def _compute_rows(
@@ -3207,10 +3397,10 @@ def _compute_rows(
 ) -> list[dict[str, Any]]:
     """Execute the queryset and produce row dicts honoring RETURN aliases and aggregates.
 
-    TAP-IMPLEMENTS: req-grid-gryphon-count@ca056f66dee5/7c97eada462b (derivation) — COUNT
+    TAP-IMPLEMENTS: req-grid-gryphon-count@e13dab8b16b3/1ae3a8085fbc (derivation) — COUNT
         aggregation and its implicit GROUP BY key set compute here.
 
-    TAP-IMPLEMENTS: req-grid-gryphon-rows@577171676b4f/7c97eada462b (derivation) — the envelope's
+    TAP-IMPLEMENTS: req-grid-gryphon-rows@577171676b4f/1ae3a8085fbc (derivation) — the envelope's
         rows field is populated here.
 
     All RETURN columns are first annotated as F-aliases on the queryset, then
@@ -3225,7 +3415,7 @@ def _compute_rows(
        :audience: external-user; agent; developer
        :affordance: querying
        :covered-by: gridkin:aggregation-count-of-pg-node-neighbors-per-hub
-       :limitations: COUNT is the only aggregate; SUM / MIN / MAX / AVG and COUNT(DISTINCT) are not implemented.
+       :limitations: COUNT, MIN and MAX are the only aggregates; SUM / AVG, COUNT(*) and COUNT(DISTINCT) are not implemented.
 
        ``COUNT(var)`` in RETURN aggregates with an implicit GROUP BY on the
        non-aggregated columns; results land in the envelope's ``rows`` list.
@@ -3275,11 +3465,26 @@ def _compute_rows(
         group_by_pairs.append((internal, user_alias))
 
     aggregate_annotations: dict[str, Any] = {}
+    aggregate_postprocess: dict[str, Callable[[Any], Any]] = {}
     for idx, ai in enumerate(aggregate_items):
         agg: AggregateCall = ai.aggregate
+        arg: FieldPath = agg.argument
+        src_alias = f"_g_count_src_{idx}"
+        agg_alias = f"_g_agg_{idx}"
+        if agg.function in ("min", "max"):
+            # req-grid-gryphon-minmax: the argument resolves through the shared
+            # field-path resolver and compares by its declared schema type.
+            if arg.variable not in bindings:
+                raise SearchExecutionError(f"Unknown variable '{arg.variable}' in {agg.function.upper()}().")
+            src_expr, agg_expr, postprocess = _extremum_aggregate(agg.function, bindings[arg.variable], arg)
+            annotations[src_alias] = src_expr
+            aggregate_annotations[agg_alias] = agg_expr(src_alias)
+            if postprocess is not None:
+                aggregate_postprocess[agg_alias] = postprocess
+            aggregate_pairs.append((agg_alias, ai.alias))
+            continue
         if agg.function != "count":
             raise SearchExecutionError(f"Unsupported aggregate function: {agg.function}")
-        arg: FieldPath = agg.argument
         if arg.variable not in bindings:
             raise SearchExecutionError(f"Unknown variable '{arg.variable}' in COUNT().")
         if len(arg.steps) == 0:
@@ -3288,8 +3493,6 @@ def _compute_rows(
             count_col = _orm_path_for_field(bindings[arg.variable], arg.steps[0].name)
         else:
             raise SearchExecutionError("COUNT argument must be a bare variable or single dot-step.")
-        src_alias = f"_g_count_src_{idx}"
-        agg_alias = f"_g_agg_{idx}"
         annotations[src_alias] = F(count_col)
         aggregate_annotations[agg_alias] = Count(src_alias)
         aggregate_pairs.append((agg_alias, ai.alias))
@@ -3321,6 +3524,7 @@ def _compute_rows(
         aggregate_pairs=tuple(aggregate_pairs),
         order_cols=order_cols,
         limit=limit,
+        aggregate_postprocess=aggregate_postprocess,
     )
     return materialize_rows(plan)
 
@@ -3400,29 +3604,27 @@ def _json_type_of_value(value: Any) -> str | None:
     return None
 
 
-def _declared_data_types(model_cls: type, field_path: FieldPath) -> set[str] | None:
-    """Resolve the declared scalar type set for a data-lane field path, or None.
+def _data_lane_leaf_schema(model_cls: type, field_path: FieldPath) -> dict[str, Any] | None:
+    """Walk ``model_cls.FIELD_CRUD_SCHEMA`` to the JSON-Schema node a data-lane path addresses.
 
-    Walks ``model_cls.FIELD_CRUD_SCHEMA`` (the per-field JSON Schema) to the leaf
-    addressed by ``field_path``. Returns a set of JSON-Schema scalar type names
-    when the leaf declares a concrete scalar type (or a union of them); returns
-    ``None`` — meaning "no strictness here" — for any path that is not a typed
-    data-lane scalar: spine fields, undeclared fields, or a node that bottoms out
-    in an un-typed / container (``object`` / ``array``) schema (the open-blob
-    case; see spec-security-posture.md "Named open edges").
+    Returns the leaf schema dict, or ``None`` when the path is not a declared
+    data-lane leaf: a spine / dimensions / display path, an undeclared field, a
+    wildcard / index step, or a sub-key the schema does not declare (the open-blob
+    case). The container check lives in the callers -- strictness skips containers,
+    MIN / MAX rejects them -- so each decides what an ``object`` / ``array`` leaf means.
     """
     steps = field_path.steps
     if not steps or not isinstance(steps[0], DotStep) or steps[0].name != _DATA_LANE_PREFIX:
-        return None  # spine / dimensions / display — not the typed data lane
+        return None  # spine / dimensions / display -- not the typed data lane
     if len(steps) < 2 or not isinstance(steps[1], DotStep):
         return None
     schema = getattr(model_cls, "FIELD_CRUD_SCHEMA", {}) or {}
     node = schema.get(steps[1].name)
     if not isinstance(node, dict):
-        return None  # field not declared in the CRUD schema — skip
+        return None  # field not declared in the CRUD schema -- skip
     # Walk any remaining sub-key steps into the JSON Schema `properties`. Only
     # plain dot / bracket-key steps name a static sub-key; wildcard / index steps
-    # do not resolve to one declared type, so strictness stops (returns None).
+    # do not resolve to one declared type, so the walk stops (returns None).
     for step in steps[2:]:
         if isinstance(step, DotStep):
             key = step.name
@@ -3432,18 +3634,41 @@ def _declared_data_types(model_cls: type, field_path: FieldPath) -> set[str] | N
             return None
         props = node.get("properties")
         if not isinstance(props, dict) or not isinstance(props.get(key), dict):
-            return None  # open blob / undeclared sub-key — strictness stops here
+            return None  # open blob / undeclared sub-key -- the walk stops here
         node = props[key]
+    return node
+
+
+def _schema_type_set(node: dict[str, Any]) -> set[str] | None:
+    """The declared ``type`` of a JSON-Schema node as a set of names, or None when undeclared."""
     declared = node.get("type")
     if isinstance(declared, str):
-        types = {declared}
-    elif isinstance(declared, list):
-        types = {t for t in declared if isinstance(t, str)}
-    else:
-        return None  # no declared type — skip
+        return {declared}
+    if isinstance(declared, list):
+        return {t for t in declared if isinstance(t, str)}
+    return None
+
+
+def _declared_data_types(model_cls: type, field_path: FieldPath) -> set[str] | None:
+    """Resolve the declared scalar type set for a data-lane field path, or None.
+
+    Walks ``model_cls.FIELD_CRUD_SCHEMA`` (the per-field JSON Schema) to the leaf
+    addressed by ``field_path``. Returns a set of JSON-Schema scalar type names
+    when the leaf declares a concrete scalar type (or a union of them); returns
+    ``None`` -- meaning "no strictness here" -- for any path that is not a typed
+    data-lane scalar: spine fields, undeclared fields, or a node that bottoms out
+    in an un-typed / container (``object`` / ``array``) schema (the open-blob
+    case; see spec-security-posture.md "Named open edges").
+    """
+    node = _data_lane_leaf_schema(model_cls, field_path)
+    if node is None:
+        return None
+    types = _schema_type_set(node)
+    if types is None:
+        return None  # no declared type -- skip
     scalar = types - {"null"}
     if not scalar or (scalar & {"object", "array"}):
-        return None  # container / open — strictness does not reach inside
+        return None  # container / open -- strictness does not reach inside
     return types
 
 
@@ -3641,7 +3866,7 @@ def _execute_optional_match(
 ) -> dict[str, Any]:
     """Execute a MATCH + OPTIONAL MATCH query — left-outer-join semantics.
 
-    TAP-IMPLEMENTS: req-grid-gryphon-optional-match@15c86aacbfad/531c75205f85 (derivation) —
+    TAP-IMPLEMENTS: req-grid-gryphon-optional-match@15c86aacbfad/c4283cd7b217 (derivation) —
         OPTIONAL MATCH left-join semantics execute here.
 
     v0 scope: exactly one node-only mandatory MATCH (a labelled type scan
@@ -3840,7 +4065,11 @@ def _execute_optional_match(
         elif isinstance(item, AggregateReturnItem):
             agg = item.aggregate
             if agg.function != "count":
-                raise SearchExecutionError(f"OPTIONAL MATCH v0 supports only COUNT; got {agg.function!r}.")
+                raise SearchExecutionError(
+                    f"OPTIONAL MATCH v0 supports only COUNT; got {agg.function.upper()}. MIN and MAX are "
+                    "available on traversal and multi-hop MATCH patterns (req-grid-gryphon-minmax), not "
+                    "over the optional variable of an OPTIONAL MATCH."
+                )
             arg = agg.argument
             if arg.variable not in opt_bindings or arg.steps:
                 raise SearchExecutionError(

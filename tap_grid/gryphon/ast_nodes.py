@@ -371,12 +371,14 @@ class ReturnItem:
 class AggregateCall:
     """An aggregate function call in a RETURN projection.
 
-    `function` is the aggregate name (currently only `"count"` is supported).
-    `argument` is a FieldPath. A bare `COUNT(var)` parses as a FieldPath with
-    no steps; `COUNT(var.field)` parses as a FieldPath with one or more steps.
+    `function` is the aggregate name: `"count"`, `"min"` or `"max"`
+    (req-grid-gryphon-minmax). `argument` is a FieldPath. A bare `COUNT(var)`
+    parses as a FieldPath with no steps; `COUNT(var.field)` parses as a FieldPath
+    with one or more steps. `MIN` / `MAX` always carry at least one step: the
+    parser refuses a bare variable (the extremum of a whole entity has no meaning).
     """
 
-    function: Literal["count"]
+    function: Literal["count", "min", "max"]
     argument: FieldPath
 
 
