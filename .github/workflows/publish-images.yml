@@ -535,9 +535,10 @@ jobs:
       - name: Scan published image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          # The Trivy binary, named rather than inherited from the action pin (v0.70.0 is
-          # ed142fd0's default). tap/tests/test_trivy_sarif_severity.py keeps every copy equal.
-          version: v0.70.0
+          # The Trivy binary, named rather than inherited from the action pin (ed142fd0's
+          # own default is v0.70.0, which cannot decode CycloneDX 1.7 documents; v0.75.0 does).
+          # tap/tests/test_trivy_sarif_severity.py keeps every copy equal.
+          version: v0.75.0
           image-ref: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:sha-${{ steps.meta.outputs.short }}
           format: sarif
           output: trivy-${{ matrix.image }}.sarif
