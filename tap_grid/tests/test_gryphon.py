@@ -5,6 +5,7 @@ Covers spec-grid-traversal-language.md and spec-grid-traversal-execution.md.
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 from typing import Any
 
@@ -4048,12 +4049,29 @@ class TestGryphonMinMaxParser:
         assert "Error trying to process rule" not in msg  # lark's wrapper is unwrapped
 
     @pytest.mark.parametrize(
-        "ret", ["SUM(b.data.score) AS x", "AVG(b.data.score) AS x", "COUNT(*) AS x", "COUNT(DISTINCT b) AS x"]
+        "ret, named",
+        [
+            ("SUM(b.data.score) AS x", "SUM is not a supported aggregate"),
+            ("sum (b.data.score) AS x", "SUM is not a supported aggregate"),
+            ("AVG(b.data.score) AS x", "AVG is not a supported aggregate"),
+            ("AVERAGE(b.data.score)", "AVERAGE is not a supported aggregate"),
+            ("COUNT(*) AS x", r"COUNT\(\*\) is not supported"),
+            ("COUNT(DISTINCT b) AS x", r"COUNT\(DISTINCT \.\.\.\) is not supported"),
+            ("a.data.k AS k, SUM(b.data.score) AS x", "SUM is not a supported aggregate"),
+        ],
     )
-    def test_other_aggregates_still_rejected(self, ret):
-        """req-grid-gryphon-minmax-9 (amends count-5): SUM / AVG / COUNT(*) / COUNT(DISTINCT) stay refused."""
-        with pytest.raises(GryphonParseError):
+    def test_other_aggregates_still_rejected(self, ret, named):
+        """req-grid-gryphon-minmax-9 (amends count-5): SUM / AVG / COUNT(*) / COUNT(DISTINCT) stay refused,
+        by name, and the message lists the supported aggregates."""
+        with pytest.raises(GryphonParseError, match=named) as exc:
             parse_gryphon(f"MATCH (a)-[:R]->(b) RETURN {ret}")
+        assert "COUNT, MIN and MAX" in str(exc.value)
+        assert "No terminal matches" not in str(exc.value)
+
+    def test_field_named_like_an_unsupported_aggregate_still_parses(self):
+        """A field called `sum` or `avg` is an ordinary field path; only a call `SUM(` is refused."""
+        ast = parse_gryphon("MATCH (a)-[:R]->(b) RETURN b.data.sum AS s, b.data.avg")
+        assert ast.return_clause.items is not None and len(ast.return_clause.items) == 2
 
 
 @pytest.mark.django_db(transaction=True, databases=["default", "search_readonly"])
@@ -4455,3 +4473,16 @@ class TestGryphonMinMaxExecutor:
             "RETURN COUNT(a) AS alerts"
         )
         assert rows == [{"alerts": 6}]
+
+    def test_unsupported_aggregate_is_a_422_on_the_search_path(self):
+        """The refusal reaches the caller as SearchExecutionError (the API's 422), naming the aggregate."""
+        self._build()
+        for ret, named in (
+            ("SUM(a.data.severity_score) AS x", "SUM is not a supported aggregate"),
+            ("AVG(a.data.severity_score) AS x", "AVG is not a supported aggregate"),
+            ("COUNT(*) AS x", "COUNT(*) is not supported"),
+            ("COUNT(DISTINCT a) AS x", "COUNT(DISTINCT ...) is not supported"),
+        ):
+            with pytest.raises(SearchExecutionError, match=re.escape(named)) as exc:
+                self._rows(self.ONE_HOP + f"RETURN {ret}")
+            assert "COUNT, MIN and MAX" in str(exc.value)
