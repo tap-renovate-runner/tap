@@ -147,7 +147,8 @@ the procedure. These are the guard rails around it.
   computed by a query. A value typed into a row for the table's sake is a gap in the model, not a column.
   *ruling George 2026-10-14.*
 - **Derived values are computed, never stored.** Counts, sums, findings per row and the like are Gryphon aggregates
-  (COUNT is the only aggregate today; no SUM or UNION) with the panel's JavaScript as the fallback. A derived value
+  (COUNT, MIN and MAX; SUM, AVG and UNION are not available and a SUM or AVG is refused by name) with the panel's
+  JavaScript as the fallback. A derived value
   is not written onto an entity. *canon `spec-grid-gryphon-multihop-aggregation`; ruling George 2026-10-14.*
 - **Several small tables beat one wide one.** Similar things share a table with the columns that apply to them;
   other things get their own, so no column is overloaded. *ruling George 2026-10-14.*
@@ -164,9 +165,10 @@ the procedure. These are the guard rails around it.
   for `mock`.
 - **Build the page with `add-page`, `add-panel` and `design-page`.** A panel type used by more than one project
   belongs in `tap_web`, through a reviewed PR (AGENTS.md item 2).
-- **Charts and stat cards are a platform capability first.** The chart panel loads ECharts and draws nothing in v0,
-  and there is no stat-card panel; build the shared piece in `tap_web` before a page depends on it. *observed
-  2026-10-14.*
+- **Charts and stat cards are a platform capability first.** The chart panel loads ECharts and draws nothing in v0;
+  the Stat Cards panel (`stat-cards`) is in `tap_web`, configured from a Search. When a view needs a shared piece
+  that does not exist, build it in `tap_web` before a page depends on it. *observed 2026-10-14; the stat-card
+  panel landed after that (`req-web-stdpanel-statcards`).*
 
 ---
 
