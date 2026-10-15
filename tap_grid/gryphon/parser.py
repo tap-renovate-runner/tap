@@ -398,6 +398,35 @@ class _ASTTransformer(Transformer):
     def aggregate_item(self, aggregate: AggregateCall, alias: Any) -> AggregateReturnItem:
         return AggregateReturnItem(aggregate=aggregate, alias=str(alias))
 
+    # -- aggregates Gryphon does not implement: refuse them by name ---------------
+
+    _SUPPORTED_AGGREGATES = "COUNT, MIN and MAX"
+
+    def unsupported_item(self, *_parts: Any) -> Any:
+        raise AssertionError("unsupported aggregates raise in their own rule")  # pragma: no cover
+
+    def unsupported_aggregate(self, inner: Any) -> Any:  # pragma: no cover - alias rules below fire
+        return inner
+
+    def unsupported_function(self, name: Token, *_argument: Any) -> Any:
+        fn = str(name).upper()
+        raise GryphonParseError(
+            f"{fn} is not a supported aggregate. The supported aggregates are {self._SUPPORTED_AGGREGATES}: "
+            "COUNT(var), MIN(var.data.<field>), MAX(var.data.<field>)."
+        )
+
+    def unsupported_count_star(self, *_star: Any) -> Any:
+        raise GryphonParseError(
+            "COUNT(*) is not supported: count a bound variable instead, e.g. COUNT(n). "
+            f"The supported aggregates are {self._SUPPORTED_AGGREGATES}."
+        )
+
+    def unsupported_count_distinct(self, _path: Any) -> Any:
+        raise GryphonParseError(
+            "COUNT(DISTINCT ...) is not supported: use COUNT(var), which counts every match. "
+            f"The supported aggregates are {self._SUPPORTED_AGGREGATES}."
+        )
+
     def count_call(self, path: FieldPath) -> AggregateCall:
         # The _COUNT_KW terminal is discarded by lark so the only child here is
         # the field_path argument.

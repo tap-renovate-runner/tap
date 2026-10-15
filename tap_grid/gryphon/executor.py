@@ -3274,7 +3274,7 @@ def _extremum_aggregate(
 ) -> tuple[Any, Callable[[str], Any], Callable[[Any], Any] | None]:
     """Lower ``MIN(<field path>)`` / ``MAX(<field path>)`` to an ORM aggregate.
 
-    TAP-IMPLEMENTS: req-grid-gryphon-minmax@3831cfc0889a/1d97317124f7 (derivation) — MIN / MAX lower here: typed
+    TAP-IMPLEMENTS: req-grid-gryphon-minmax@ad3a06784160/1d97317124f7 (derivation) — MIN / MAX lower here: typed
         comparison, nulls ignored, the shared field-path resolver, ISO-string results.
 
     Returns ``(source_expression, aggregate_factory, postprocess)``: the expression
@@ -3397,7 +3397,7 @@ def _compute_rows(
 ) -> list[dict[str, Any]]:
     """Execute the queryset and produce row dicts honoring RETURN aliases and aggregates.
 
-    TAP-IMPLEMENTS: req-grid-gryphon-count@e13dab8b16b3/1ae3a8085fbc (derivation) — COUNT
+    TAP-IMPLEMENTS: req-grid-gryphon-count@3d4f1458fd64/1ae3a8085fbc (derivation) — COUNT
         aggregation and its implicit GROUP BY key set compute here.
 
     TAP-IMPLEMENTS: req-grid-gryphon-rows@577171676b4f/1ae3a8085fbc (derivation) — the envelope's

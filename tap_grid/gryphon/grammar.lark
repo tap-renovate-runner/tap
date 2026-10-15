@@ -114,7 +114,19 @@ STRING_OP: /STARTS_WITH|ENDS_WITH|CONTAINS/i
 return_clause: _RETURN_KW return_item ("," return_item)*
 
 return_item: aggregate_call _AS_KW NAME   -> aggregate_item
+           | unsupported_aggregate (_AS_KW NAME)?  -> unsupported_item
            | field_path (_AS_KW NAME)?    -> field_item
+
+// Aggregate spellings Gryphon does not implement. They parse only so the transformer
+// can refuse them with an error that names the aggregate and the supported ones,
+// instead of a bare "No terminal matches '('" (req-grid-gryphon-minmax-9).
+unsupported_aggregate: UNSUPPORTED_AGG_FN "(" UNSUPPORTED_ARG? ")"   -> unsupported_function
+                     | _COUNT_KW "(" STAR ")"                -> unsupported_count_star
+                     | _COUNT_KW "(" _DISTINCT_KW field_path ")"  -> unsupported_count_distinct
+
+UNSUPPORTED_ARG: /[^()]+/
+UNSUPPORTED_AGG_FN: /(SUM|AVG|AVERAGE)(?=\s*\()/i
+_DISTINCT_KW: /DISTINCT/i
 
 // COUNT takes a bare variable or a single dot-step; MIN / MAX take a field path
 // (req-grid-gryphon-minmax) -- a bare-variable MIN(n) parses and is refused by the
