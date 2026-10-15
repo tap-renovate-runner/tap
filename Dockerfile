@@ -56,12 +56,17 @@ ARG TAP_FIPS=1
 # docker/activate-fips-system-wide.sh and doc-fips-assessment-record.md for the decision record.
 ARG TAP_FIPS_ACTIVATION=system
 
+# The Wolfi base, pinned tag@digest, written ONCE here (req-cicd-base-image-labels): every
+# FROM below uses it, and the two OCI base-image labels in `base` are derived from it, so the
+# pin and the labels cannot disagree. Renovate's dockerfile manager reads this ARG's default.
+ARG WOLFI_BASE=cgr.dev/chainguard/wolfi-base:latest@sha256:bef0f4d47edc72a93d1537eae54eb53db2b2cc352c028128ff0f16c5b5a3c1e4
+
 # Base images are pinned tag@digest (req-cicd-base-image-lifecycle-1): wolfi-base:latest
 # rotates its digest DAILY, which invalidated every downstream layer (apk toolchain, the
 # OpenSSL FIPS compile) on the first CI build of each day — and silently changed the FIPS
 # build environment. Pinning makes bumps deliberate, reviewed commits (Renovate wiring is
-# the deferred automation). Bump procedure, all FROM/COPY --from lines in BOTH Dockerfiles
-# (this one and docker/postgres/Dockerfile) in the same commit:
+# the deferred automation). Bump procedure: the WOLFI_BASE ARG above in BOTH Dockerfiles
+# (this one and docker/postgres/Dockerfile) and every COPY --from pin, in the same commit:
 #   docker buildx imagetools inspect cgr.dev/chainguard/wolfi-base:latest   # new digest
 #   docker buildx imagetools inspect ghcr.io/astral-sh/uv:<latest release>
 
@@ -72,7 +77,7 @@ ARG TAP_FIPS_ACTIVATION=system
 # nothing COPYs from it in the fips-0 path). We run the pinned fips.so module against
 # the base's MODERN libcrypto at runtime — OpenSSL guarantees a certified fips.so is
 # binary-compatible with any LATER libcrypto, so OpenSSL 3.0's LTS-EOL is irrelevant (D4).
-FROM cgr.dev/chainguard/wolfi-base:latest@sha256:bef0f4d47edc72a93d1537eae54eb53db2b2cc352c028128ff0f16c5b5a3c1e4 AS ossl-builder
+FROM ${WOLFI_BASE} AS ossl-builder
 # Wolfi's apk repo flakes under load (observed 2026-08-16: HTTP 403s mid-install;
 # 2026-08-20: fetch error on one package) — bounded retry with backoff, failing
 # closed after 3 attempts. apk add is idempotent across retries.
@@ -94,7 +99,15 @@ RUN /opt/ossl/build-openssl-fips.sh
 # ============================================================================
 # base — the common runtime (identical for both FIPS modes)
 # ============================================================================
-FROM cgr.dev/chainguard/wolfi-base:latest@sha256:bef0f4d47edc72a93d1537eae54eb53db2b2cc352c028128ff0f16c5b5a3c1e4 AS base
+FROM ${WOLFI_BASE} AS base
+ARG WOLFI_BASE
+
+# What this image is built on, recorded in the image itself (OCI image-spec pre-defined
+# annotations) so a consumer reads the base from the image, not from this Dockerfile.
+# Derived from the one pin at the top by Dockerfile variable expansion: name is everything
+# before the @, digest everything after it (req-cicd-base-image-labels).
+LABEL org.opencontainers.image.base.name="${WOLFI_BASE%%@*}" \
+      org.opencontainers.image.base.digest="${WOLFI_BASE##*@}"
 
 # Prevents Python from writing .pyc bytecode files to disk (waste + stale-cache risk).
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -266,7 +279,7 @@ RUN python3 /seed_manifest.py generate /root/.cache/uv /root/uv-cache-seed.manif
 # The output is the lockfile's bytes, not the toolchain's: `npm ci` verifies every
 # tarball against the lock's integrity hash, so a toolchain bump cannot change them.
 # ============================================================================
-FROM cgr.dev/chainguard/wolfi-base:latest@sha256:bef0f4d47edc72a93d1537eae54eb53db2b2cc352c028128ff0f16c5b5a3c1e4 AS js-vendor
+FROM ${WOLFI_BASE} AS js-vendor
 # Same bounded apk retry as the stages above (Wolfi's repo flakes under load).
 RUN for i in 1 2 3; do \
       if apk add --no-cache nodejs-24=24.21.0-r3 npm=12.0.2-r0; then break; fi; \

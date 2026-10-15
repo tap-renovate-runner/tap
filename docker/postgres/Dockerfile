@@ -27,12 +27,17 @@ ARG TAP_FIPS=1
 # rationale; both images share the same script and the same decision record (§5.4).
 ARG TAP_FIPS_ACTIVATION=system
 
+# The Wolfi base, pinned tag@digest, written ONCE here (req-cicd-base-image-labels): every
+# FROM below uses it, and the two OCI base-image labels in `base` are derived from it, so the
+# pin and the labels cannot disagree. Renovate's dockerfile manager reads this ARG's default.
+ARG WOLFI_BASE=cgr.dev/chainguard/wolfi-base:latest@sha256:bef0f4d47edc72a93d1537eae54eb53db2b2cc352c028128ff0f16c5b5a3c1e4
+
 # ============================================================================
 # ossl-builder — compile the pinned OpenSSL FIPS provider (fips.so)
 # ============================================================================
 # Pinned tag@digest (req-cicd-base-image-lifecycle-1) — bump together with the root
 # Dockerfile's pins (procedure documented there).
-FROM cgr.dev/chainguard/wolfi-base:latest@sha256:bef0f4d47edc72a93d1537eae54eb53db2b2cc352c028128ff0f16c5b5a3c1e4 AS ossl-builder
+FROM ${WOLFI_BASE} AS ossl-builder
 # Wolfi's apk repo flakes under load (observed 2026-08-16: HTTP 403s mid-install;
 # 2026-08-20: fetch error on one package) — bounded retry with backoff, failing
 # closed after 3 attempts. apk add is idempotent across retries.
@@ -54,7 +59,15 @@ RUN /opt/ossl/build-openssl-fips.sh
 # ============================================================================
 # base — Postgres 16 runtime (identical for both FIPS modes)
 # ============================================================================
-FROM cgr.dev/chainguard/wolfi-base:latest@sha256:bef0f4d47edc72a93d1537eae54eb53db2b2cc352c028128ff0f16c5b5a3c1e4 AS base
+FROM ${WOLFI_BASE} AS base
+ARG WOLFI_BASE
+
+# What this image is built on, recorded in the image itself (OCI image-spec pre-defined
+# annotations) so a consumer reads the base from the image, not from this Dockerfile.
+# Derived from the one pin at the top by Dockerfile variable expansion: name is everything
+# before the @, digest everything after it (req-cicd-base-image-labels).
+LABEL org.opencontainers.image.base.name="${WOLFI_BASE%%@*}" \
+      org.opencontainers.image.base.digest="${WOLFI_BASE##*@}"
 
 # postgresql-16 + client (pg_isready/psql for the healthcheck + pg_dump), the oci-entrypoint
 # (canonical docker-library entrypoint), gosu (privilege drop root→postgres, as the official
