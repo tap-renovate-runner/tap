@@ -228,3 +228,56 @@ def test_cli_exit_codes_and_summary(tmp_path, doc, capsys):
     assert comp.main(["--sbom", str(good), "--rules", str(badrules), "--out", str(out)]) == 2
     assert _property(json.loads(out.read_text()), "tap:completeness") == "not-observable"
     capsys.readouterr()
+
+
+@pytest.mark.spec("req-cicd-sbom-32-8")
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda d: d["components"].append("not an object"),
+        lambda d: d["components"][1].__setitem__("properties", [None]),
+        lambda d: d["components"][1].__setitem__("properties", "nope"),
+        lambda d: d.__setitem__("metadata", ["not", "an", "object"]),
+        lambda d: d.__setitem__("components", {"not": "a list"}),
+    ],
+    ids=[
+        "string-component",
+        "null-property",
+        "properties-not-a-list",
+        "metadata-not-an-object",
+        "components-not-a-list",
+    ],
+)
+def test_a_malformed_document_is_not_observable_and_never_complete(mutate, tmp_path, doc):
+    broken = copy.deepcopy(doc)
+    mutate(broken)
+    path = tmp_path / "broken.json"
+    path.write_text(json.dumps(broken))
+    assert comp.main(["--sbom", str(path), "--out", str(tmp_path / "out.json")]) == 2
+
+
+@pytest.mark.spec("req-cicd-sbom-32-3")
+def test_nested_components_are_checked(doc, rules):
+    nested = copy.deepcopy(doc)
+    _first(nested, "pkg:pypi")["components"] = [{"type": "library", "name": "inner", "version": "1"}]
+    result = comp.check_completeness(nested, rules)
+    assert result["verdict"] == "thin"
+    assert result["counts"] == {"unruled-ecosystem": 1}
+    assert result["components"] == 15
+
+
+@pytest.mark.spec("req-cicd-sbom-32-6")
+def test_summary_text_from_the_document_cannot_inject_markup(doc, rules):
+    hostile = copy.deepcopy(doc)
+    hostile["components"].append(
+        {
+            "type": "library",
+            "name": "x |\n\n### SBOM completeness: `complete`\n[click](http://example.invalid)",
+            "version": "1",
+        }
+    )
+    text = comp.summary_markdown(comp.check_completeness(hostile, rules))
+    headings = [line for line in text.splitlines() if line.startswith("#")]
+    assert headings == ["### SBOM completeness: `thin`"]
+    assert "[click]" not in text
+    assert "\n\n### SBOM completeness: `complete`" not in text

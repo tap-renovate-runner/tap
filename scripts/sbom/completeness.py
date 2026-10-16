@@ -60,6 +60,60 @@ class RulesError(Exception):
     """The rules file could not be loaded or did not validate: the check cannot run."""
 
 
+class MalformedDocument(Exception):
+    """The document is not shaped like CycloneDX in a way the check relies on: the verdict is not-observable.
+
+    A record the check cannot read must never be skipped and then reported as complete.
+    """
+
+
+def _walk_components(raw: Any, path: str = "components") -> list[dict[str, Any]]:
+    """Every component, nested ones included (CycloneDX allows `components` under a component).
+
+    Raises `MalformedDocument` on a non-list, a non-object entry, or a `properties` that is not a list of
+    objects, instead of skipping what it cannot read.
+    """
+    if not isinstance(raw, list):
+        raise MalformedDocument(f"{path} is not a list")
+    found: list[dict[str, Any]] = []
+    for index, component in enumerate(raw):
+        where = f"{path}[{index}]"
+        if not isinstance(component, dict):
+            raise MalformedDocument(f"{where} is not an object")
+        _require_properties(component.get("properties"), where)
+        found.append(component)
+        if component.get("components") is not None:
+            found += _walk_components(component["components"], f"{where}.components")
+    return found
+
+
+def _require_properties(properties: Any, where: str) -> None:
+    if properties is None:
+        return
+    if not isinstance(properties, list) or any(not isinstance(p, dict) for p in properties):
+        raise MalformedDocument(f"{where}.properties is not a list of objects")
+
+
+def _cell(text: object) -> str:
+    """Make document-controlled text safe inside a Markdown table cell of the job summary.
+
+    A component name is attacker-controlled. Collapsing whitespace removes the newlines a heading or a new
+    table row needs; the remaining characters that start markup are escaped; length is bounded.
+    """
+    cleaned = " ".join(str(text).split())[:120]
+    for char, replacement in (
+        ("\\", "\\\\"),
+        ("|", "\\|"),
+        ("`", "'"),
+        ("<", "&lt;"),
+        (">", "&gt;"),
+        ("[", "\\["),
+        ("]", "\\]"),
+    ):
+        cleaned = cleaned.replace(char, replacement)
+    return cleaned
+
+
 def load_rules(path: Path = DEFAULT_RULES) -> dict[str, Any]:
     """Read the rules file and validate it against its schema; raise `RulesError` on any failure.
 
@@ -143,7 +197,13 @@ def check_completeness(doc: dict[str, Any], rules: dict[str, Any]) -> dict[str, 
     components), `examples` (gap class to up to MAX_EXAMPLES labels) and `candidates` (components carrying
     Syft's `syft:cpe23` candidates, reported and never required: req-cicd-sbom-32-7).
     """
-    components = [c for c in doc.get("components") or [] if isinstance(c, dict)]
+    metadata = doc.get("metadata")
+    if metadata is not None:
+        if not isinstance(metadata, dict):
+            raise MalformedDocument("metadata is not an object")
+        _require_properties(metadata.get("properties"), "metadata")
+    raw = doc.get("components")
+    components = _walk_components([] if raw is None else raw)
     gaps: dict[str, list[str]] = {}
 
     def add(gap_class: str, label: str) -> None:
@@ -190,6 +250,9 @@ def annotate(doc: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
     case (req-cicd-sbom-32-8): an absent property must never stand for `complete`.
     """
     metadata = doc.setdefault("metadata", {})
+    if not isinstance(metadata, dict):
+        raise MalformedDocument("metadata is not an object")
+    _require_properties(metadata.get("properties"), "metadata")
     kept = [p for p in metadata.get("properties") or [] if not str(p.get("name", "")).startswith(PROPERTY_PREFIX)]
     added = [{"name": PROPERTY_PREFIX, "value": result["verdict"]}]
     if result["verdict"] == "not-observable":
@@ -210,13 +273,14 @@ def summary_markdown(result: dict[str, Any]) -> str:
     """The job-summary text: the verdict and, for `thin`, every gap class with examples."""
     lines = [f"### SBOM completeness: `{result['verdict']}`", ""]
     if result["verdict"] == "not-observable":
-        lines.append(f"The check could not run: {result.get('reason', 'unknown reason')}")
+        lines.append(f"The check could not run: {_cell(result.get('reason', 'unknown reason'))}")
         return "\n".join(lines) + "\n"
     lines.append(f"{result['components']} components checked; {result['candidates']} carry `syft:cpe23` candidates.")
     if result["counts"]:
         lines += ["", "| Gap class | Components | Examples |", "| --- | ---: | --- |"]
         for gap_class, count in result["counts"].items():
-            lines.append(f"| `{gap_class}` | {count} | {'; '.join(result['examples'][gap_class])} |")
+            examples = "; ".join(_cell(label) for label in result["examples"][gap_class])
+            lines.append(f"| `{gap_class}` | {count} | {examples} |")
     lines += ["", COVERAGE]
     return "\n".join(lines) + "\n"
 
@@ -236,11 +300,16 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("top level is not an object")
         doc = loaded
         result = check_completeness(doc, load_rules(args.rules))
-    except (OSError, ValueError, RulesError, KeyError, TypeError) as exc:
+    except (OSError, ValueError, RulesError, MalformedDocument, KeyError, TypeError, AttributeError) as exc:
         result = {"verdict": "not-observable", "reason": f"{type(exc).__name__}: {exc}"}
 
     if args.out is not None and doc is not None:
-        args.out.write_text(json.dumps(annotate(doc, result), indent=2) + "\n", encoding="utf-8")
+        try:
+            args.out.write_text(json.dumps(annotate(doc, result), indent=2) + "\n", encoding="utf-8")
+        except MalformedDocument, AttributeError, TypeError:
+            # A document too malformed to carry the property cannot be written back; the verdict still stands
+            # as not-observable and the run still fails.
+            result = {"verdict": "not-observable", "reason": "the document is too malformed to annotate"}
     text = summary_markdown(result)
     if args.summary is not None:
         with args.summary.open("a", encoding="utf-8") as handle:
