@@ -89,6 +89,7 @@ remain the boot record's territory. The two compose; neither substitutes for the
 | req-cicd-sbom-28 | [Dependency Links as Edges (Provisional)](#dependency-links-as-edges-provisional) | Proposed | Decided SV-4: `dependsOn` becomes `REQUIRES_PACKAGE` edges, plain identity, provisional with revisit conditions |
 | req-cicd-sbom-29 | [Scanner Pin Maintenance](#scanner-pin-maintenance) | Proposed | Decided SV-9: Renovate managers for the Syft and Grype pins in one group (build later); Trivy waits on tap#1038 |
 | req-cicd-sbom-30 | [What This Feeds - CBOM and VDR](#what-this-feeds---cbom-and-vdr) | Proposed | How this feeds `req-cicd-sbom-16` and what a VDR consumer needs from the grid (VDR itself not specified) |
+| req-cicd-sbom-32 | [SBOM Field Completeness Check](#sbom-field-completeness-check) | Proposed | A CI check that an SBOM carries the fields the grid and Grype match on (full purl qualifiers, CPE, apk origin, distro component); a thin SBOM is refused or visibly flagged, never silently under-reported |
 
 ---
 
@@ -892,6 +893,8 @@ reasoned, not observed. Anything not observed is marked NOT OBSERVED.
 | SV-7 | Dependabot: fetch in CI, or leave it to the existing collector? | Decided: fetch in CI | `req-cicd-sbom-23` |
 | SV-8 | Whose attestation signers does TAP trust? | Decided: default-deny list, one signer to start | `req-cicd-sbom-22` |
 | SV-9 | The Renovate gap for the scanner pins | Decided: add managers (build later) | `req-cicd-sbom-29` |
+| SV-10 | CI side: is a thin SBOM refused, or recorded and flagged? | Decided (George 2026-10-15): fail first; the run fails on a `thin` verdict. Whether a caller may opt in to recording `thin` instead is not ruled and is not specified | `req-cicd-sbom-32-6` |
+| SV-11 | CI side: does every scan publish a revision, or only a scan whose facts changed? | Decided (George 2026-10-15): a revision is published only when the facts changed; REVISIT once Issue# 322 - tap and Issue# 323 - tap (epic Issue# 886 - tap) are in place, when publishing every scan becomes possible and the unused grid state can carry the scan time | `req-cicd-sbom-20-11` |
 
 All nine were ruled by George on 2026-10-15 through the support session, which relayed them to the coordinating session; the relayed text is the only record of the rulings at this time (SV-8 was
 confirmed a second time). Where a requirement fills in detail the ruling did not state (the waiver path, retention numbers, the edge name, the correlation key), that detail is this spec's proposal and
@@ -912,6 +915,7 @@ Stages, in order, each fail-closed unless marked:
 | # | Stage | Requirement | Method |
 | --- | --- | --- | --- |
 | 1 | Generate | Pinned Syft, one derivation per digest, CycloneDX 1.7 primary (`req-cicd-sbom-1`, `-6`). SPDX is emitted from the same scan; Syft v1.54.1 emits SPDX 3.0.1 (`-o spdx-json@3.0`, document `@context` is the 3.0.1 context) | ran (v1.54.1 on a one-file directory: CycloneDX `specVersion` 1.7 and SPDX 3.0.1 context); the current pin is v1.51.0 (read, `scripts/sbom/generate.py`), which emits 1.7 (read, the real documents) |
+| 1b | Check completeness | The field check of `req-cicd-sbom-32` over the generated (or caller-supplied) document, before any scanner reads it | proposed; fields measured on the real document (ran, jq) |
 | 2 | Scan the SBOM | Grype (see `req-cicd-sbom-19`) reads the SBOM as the component record | ran |
 | 3 | Scan the image | A cross-check by a second scanner, difference-reporting (`req-cicd-sbom-19`) | read (existing Trivy lane) |
 | 4 | Merge (as the next revision of the SAME document, `req-cicd-sbom-20`) | `req-cicd-sbom-18` | ran |
@@ -935,6 +939,8 @@ brief; NOT OBSERVED by this author). Grype reading SPDX 3.0.1 is the support ses
 | req-cicd-sbom-17-3 | Fail closed per stage | Proposed | A failed, skipped or unobservable stage 1, 2, 4, 5, 6 or 7 fails the run; stage 3 and the Dependabot intake record a visible not-observed marker instead (`req-cicd-sbom-19-3`, `req-cicd-sbom-23-2`). | Three states: done, failed, not observed. |
 | req-cicd-sbom-17-4 | Rescan mode | Proposed | The workflow can rescan a digest from its verified, already-published SBOM without regenerating it. | |
 | req-cicd-sbom-17-5 | Scanners are unsigned | Proposed | Scanner steps run in a read-only unsigned job; only a first-party job that merges and validates holds the signing token (`req-cicd-sbom-20-6`). | |
+| req-cicd-sbom-17-6 | Completeness stage | Proposed | Stage 1b runs before any scanner and fails the run on a `thin` verdict (`req-cicd-sbom-32-6`); a check that could not run fails the run. | Added by the CI-side spec (tap#1044). |
+| req-cicd-sbom-17-7 | Two jobs, named | Proposed | The workflow has exactly two kinds of job: `scan` (unsigned, `contents: read`, runs Syft, Grype, Trivy and the network fetches of `req-cicd-sbom-18-8`) and `seal` (first-party steps only, no scanner and no third-party action, holds `id-token` and `attestations`, merges, enriches, validates, attests). Raw scan outputs pass from `scan` to `seal` as workflow artifacts whose SHA-256 the `scan` job records in its outputs and `seal` re-computes before use. | tap#507 unchanged; refines `-17-5`. |
 
 ### Merge and Enrichment
 ----
@@ -964,8 +970,8 @@ Status: `Proposed`
 | --- | --- | --- | --- |
 | CVSS, CWE | the CVE record (CVE Program JSON 5) | `ratings[]` with `source`, `method`, `vector`; `cwes[]` | ran (CVE-2021-44228 record fetched from `cveawg.mitre.org`) |
 | SSVC (Exploitation, Automatable, Technical Impact) | the CISA-ADP container of the CVE record: `containers.adp[]` with `providerMetadata.shortName` `CISA-ADP`, `metrics[].other.type` = `ssvc`, content version `2.0.3`, a timestamp | a rating with `method: SSVC`, the three options, and the assessment timestamp; `SSVC` is a member of the CycloneDX `scoreMethod` enum (read, vendored schema) | ran |
-| KEV | CISA's catalog JSON (`known_exploited_vulnerabilities.json`) | a rating with `method: other`, `source.name: CISA KEV Catalog`, `justification: Listed in CISA KEV`, plus `tap:kev:catalog-version`, `tap:kev:date-released`, `tap:kev:fetched-at` and `tap:kev:date-added` properties | ran: the catalog carries `catalogVersion` (`2026.10.15`), `dateReleased`, `count` (1746) |
-| EPSS | taken from Grype's FIRST rating as emitted | rating, `source.name: FIRST` | ran |
+| KEV | CISA's catalog JSON (`known_exploited_vulnerabilities.json`) | a rating with `method: other`, `source.name: CISA KEV Catalog`, `justification: Listed in CISA KEV`, plus `tap:kev:catalog-version`, `tap:kev:date-released`, `tap:kev:fetched-at`, `tap:kev:date-added` and `tap:kev:matched-id` (the alias the catalog matched, always a CVE id) properties, on the ONE merged entry of the canonical id (`-18-7`) | ran: the catalog carries `catalogVersion` (`2026.10.15`), `dateReleased`, `count` (1746) |
+| EPSS | taken from Grype's FIRST rating as emitted; the score date comes from Grype's native JSON when it carries one | rating, `source.name: FIRST`, plus `tap:epss:date` when known | ran (rating); the native-JSON date field is NOT OBSERVED by this author |
 
 KEV has no standard CycloneDX field. The convention TAP adopts is Grype's: Grype emits exactly that rating shape when a KEV match exists (ran: a probe SBOM of `log4j-core@2.14.1`, grype v0.120.1, gave the entry
 `GHSA-jfh8-c2jp-5v3q` with a `CISA KEV Catalog` rating, score 1, justification `Listed in CISA KEV`, and an EPSS rating of 0.99999). Two cautions from the same probe: Grype named the vulnerability by its GHSA id,
@@ -984,6 +990,11 @@ The 2026-10-15 tap-web arm64 measurement found **no KEV-listed vulnerability** a
 | req-cicd-sbom-18-4 | Provenance on every enrichment | Proposed | Each CVSS, SSVC and KEV fact carries its source, retrieval time and source version; a fact with no recorded source is refused. | |
 | req-cicd-sbom-18-5 | KEV over aliases | Proposed | A KEV match is evaluated over every alias of a vulnerability; the catalog version, release time and fetch time are stamped into the document. | |
 | req-cicd-sbom-18-6 | Not read is not false | Proposed | If the KEV catalog or a CVE record could not be read, the fact is recorded as not observed, never as "not KEV" or "no score". | `kev: null` versus `false`, as the vulnerability node's convention. |
+| req-cicd-sbom-18-7 | KEV lands on the canonical entry | Proposed | When Grype names a finding by GHSA and the catalog matches one of its CVE aliases, the KEV rating and `tap:kev:*` properties are written on the merged entry of the canonical id (the CVE, per rule 3), never on a separate GHSA entry; `tap:kev:matched-id` names the CVE. | Read from the existing probe outputs (log4j-core 2.14.1, Grype v0.120.1, support's `kevspike/out`, `jq`): in the CycloneDX output the KEV rating (`source.name` `CISA KEV Catalog`, score 1) sits on the entry named `GHSA-jfh8-c2jp-5v3q`, with no CVE id and no date anywhere in that entry; the CVE (`CVE-2021-44228`) and `dateAdded` appear only in the native JSON (`knownExploited[]`, `relatedVulnerabilities[]`). So the CVE for `tap:kev:matched-id` MUST come from the native JSON. The merged document itself is NOT OBSERVED until the merge is built. |
+| req-cicd-sbom-18-8 | Fetch unsigned, join first-party | Proposed | The KEV catalog and CVE records are fetched in the `scan` job and travel as hash-held artifacts; the `seal` job parses and joins them offline in first-party code, and records each source's SHA-256 in the document. | The signing job needs no network beyond Sigstore. |
+| req-cicd-sbom-18-9 | Affects point at the SBOM's own refs | Proposed | Every merged entry's `affects[].ref` is the `bom-ref` of the revision-1 component with the same purl, never a `bom-ref` taken from a scanner output. | Grype regenerates refs (`-18-1`). |
+| req-cicd-sbom-18-10 | Every revision re-evaluates | Proposed | Enrichment facts are recomputed from the sources fetched for THAT scan; a fact is never copied forward from the previous revision, so a KEV flip, an SSVC change or a retracted match appears in the next revision. | A copied-forward fact would make the stamp lie about its date. |
+| req-cicd-sbom-18-11 | No lookup on the consuming side | Proposed | Every enrichment fact the grid or the deploy-gate reporting needs (KEV, EPSS, SSVC, CVSS, CWE) is read from the verified document; an instance makes no outbound lookup to obtain it. | George 2026-10-15: CI does the lookups. The deploy gate's fresh catalog fetch (`-21`) is a gate action, not an instance lookup. |
 
 ### Scan Coverage - SBOM Scan and Image Cross-Check
 ----
@@ -1081,6 +1092,10 @@ failure class), and a second source of truth to keep consistent. George chose on
 | req-cicd-sbom-20-6 | Separation of duties | Proposed | Scanners run in an unsigned read-only job; a first-party job merges, validates and signs. | |
 | req-cicd-sbom-20-7 | Every revision is kept | Proposed | Every revision file is kept in the tap#1035 file store, never in the database; no retention policy exists for now. | Decided; REVISIT when volume matters (about 1 MB per revision per architecture per day). |
 | req-cicd-sbom-20-8 | Restore keeps the files | Proposed | Before the file store is relied on, the backup manifest declares it, so a restore brings back the files its SBOM nodes refer to or states that they are absent. | Open question of tap#1035; `spec-tap-backup.md` `media` component. |
+| req-cicd-sbom-20-9 | Revision chain is checkable | Proposed | Every revision after the first carries `tap:revision:previous-content-digest` (SHA-256 of the revision it was made from) and `tap:revision:input-attestation` (the digest of the verified attestation it read); a consumer can then detect a missing or skipped revision. | CI-side proposal; serial and version alone cannot show a gap. |
+| req-cicd-sbom-20-10 | Rescan reads the highest verified revision | Proposed | A rescan takes as input the highest `version` of the serial whose attestation verifies against the trust list; it never starts from a lower revision and never from a regenerated SBOM. If two highest revisions tie, it uses the tie-break of `-20-4`. | |
+| req-cicd-sbom-20-11 | Publish only on change | Proposed | A scan publishes the next revision only when the document's facts differ from the highest verified revision: the components, the set of vulnerability entries (canonical id, affected component, aliases, fix versions), their CVSS, SSVC and KEV facts, and `tap:completeness`. Timestamps, scanner database build times, source fetch times and the KEV catalog version stamp are NOT facts for this test, and neither are EPSS score and percentile, which move daily; a changed EPSS alone does not publish. A scan that publishes nothing still leaves its run log and job summary naming the digest, the revision compared and the verdict `unchanged`. | Decided (SV-11, George): the ingest re-writes finding nodes, and until Issue# 322 - tap ships each unchanged re-write adds history. The EPSS exclusion is this spec's proposal. REVISIT when #322 and #323 are in place (note on Issue# 886 - tap): publish every scan then. Cost: the grid cannot show "scanned clean as of T" on unchanged days. |
+| req-cicd-sbom-20-12 | CI emits the ingest keys | Proposed | The document and attestation carry what the grid keys on: a `serialNumber` equal to revision 1's, a `version` of the previous plus 1, and an attestation subject equal to the per-arch image digest; the content digest is computed by the consumer over the bytes it fetched. | The grid fields `serial_number`, `revision`, `subject_digest`, `content_digest` come from computing-core's spec (branch spec/computing-core-sbom-ingest); `signer` and `verified` are produced by the consumer's verification, not by CI. |
 
 ### Deploy Gate
 ----
@@ -1168,8 +1183,13 @@ compromised or mistaken generation step can sign a false document bound to the r
 | req-cicd-sbom-22-2 | Three checks on ingest | Proposed | Signer identity, subject digest and predicate type are each checked; failure of any one ingests nothing. | |
 | req-cicd-sbom-22-3 | One starting signer | Proposed | The list ships with exactly one entry, the reusable workflow at a pinned ref and signer digest. | |
 | req-cicd-sbom-22-4 | Signature time | Proposed | The recorded signing time is the transparency-log integrated time. | |
-| req-cicd-sbom-22-5 | Reusable-workflow identity is proven | Proposed | Before the list is relied on, a bundle from a real called reusable workflow is inspected and the signer and calling-repository fields recorded. | NOT OBSERVED at proposal time. |
+| req-cicd-sbom-22-5 | Reusable-workflow identity is proven | Proposed | Before the list is relied on, a bundle from a real called reusable workflow is inspected and the signer and calling-repository fields recorded. | OBSERVED for a same-repository caller (2026-10-15, throwaway run 38818229225 - tap, branch since deleted): Subject Alternative Name and Build Signer URI (1.3.6.1.4.1.57264.1.9) named the REUSABLE workflow `.../.github/workflows/r2-reusable.yml@refs/heads/tmp/r2-ci-tests`; Build Config URI (`.18`) named the CALLER `.../r2-caller.yml@...`; Build Signer Digest (`.10`) was a commit sha; Source Repository (`.12`) was the repository. This supports the inference above and contradicts the plugin lane comment. A caller in a DIFFERENT repository was not tested, so what Source Repository says there is NOT OBSERVED. |
 | req-cicd-sbom-22-6 | Per-team attribution | Proposed | The calling repository is recorded on the SBOM node alongside the signer. | Depends on 22-5. |
+| req-cicd-sbom-22-7 | Trust list is data with a schema | Proposed | The list is one committed JSON file with a JSON Schema (top-level and per-entry descriptions). An entry names `repository`, `workflow_path`, `ref`, `signer_digest`, `reason` and `added_by`; an unknown field, a missing `signer_digest` or an empty list is a load failure. | Repository rule for new structured formats. Where the file lives is decided with the ingestion owner. |
+| req-cicd-sbom-22-8 | Verification is delegated, with the entry's values | Proposed | The consumer verifies by running `gh attestation verify --predicate-type https://cyclonedx.org/bom --signer-workflow <repository>/<workflow_path> --signer-digest <signer_digest>` (and `--source-ref` when the entry pins one) for the subject digest; TAP does not reimplement certificate checks. | The flags exist in gh 2.100.0 (read, `gh attestation verify --help`); the help says a reusable workflow's identity is validated with `--signer-workflow` or `--signer-repo`. A run against a real bundle is NOT OBSERVED (`-22-5`). |
+| req-cicd-sbom-22-9 | Outcome is tri-state | Proposed | Verification yields `verified`, `refused` (with the failing check named) or `not-observable`; only `verified` is parsed, and the other two are recorded on the SBOM node, never dropped. | Feeds `sbom_document.verified`. |
+| req-cicd-sbom-22-10 | Growing the list is reviewed | Proposed | The trust list has a CODEOWNERS rule, and a pull request that adds or loosens an entry (a broader `workflow_path`, a dropped `signer_digest`, a removed pin) is reported in its body. | An allowlist that grows is a weakened control (AGENTS.md review contract). |
+| req-cicd-sbom-22-11 | Attribution stays per entry | Proposed | Trusting the signer does not remove per-entry `tools` attribution (`-18-2`): the page and traceability still show which scanner reported what. | George: signer is the trust anchor; `tools` is for traceability. |
 
 ### Dependabot Intake
 ----
@@ -1178,7 +1198,7 @@ RID: `req-cicd-sbom-23`
 Status: `Proposed`
 
 **Decided (SV-7, George 2026-10-15): Dependabot alerts are fetched in CI.** The lane lists the calling repository's Dependabot alerts through the REST API and carries them as findings of a scanner
-named Dependabot. GitHub's documentation, as the task brief cites it, says `security-events: read` lets a workflow list the repository's Dependabot alerts. **That permission claim is NOT OBSERVED**: the REST
+named Dependabot. GitHub's documentation, as the task brief cites it, says `security-events: read` lets a workflow list the repository's Dependabot alerts. **That permission claim is FALSE as stated (ran, `-23-4`): `security-events: read` returned 403; the workflow permission that works is `vulnerability-alerts: read`.** The earlier note, written before the test: the REST
 page I fetched states that classic tokens need the `security_events` scope (`public_repo` for public repositories only) and does not mention `GITHUB_TOKEN` or a workflow `security-events` permission; it was not tested
 (no token was used). It also does not say what the alert contains about the installed version: an alert records a vulnerable version range, not the installed version (inferred from the API shape; NOT OBSERVED
 in a live response), so matching to the SBOM requires evaluating the lockfile version against the range.
@@ -1194,7 +1214,7 @@ document and in the job summary. It MUST NOT write an empty alert list: an empty
 | req-cicd-sbom-23-1 | Alerts fetched in CI | Proposed | When permitted, the lane fetches the repository's Dependabot alerts and records each with its alert number and state. | |
 | req-cicd-sbom-23-2 | Not-observed marker | Proposed | In a fork run, a Dependabot-triggered run, or on an API failure, the document records `not-observed` with a reason, never an empty list. | |
 | req-cicd-sbom-23-3 | Matched by installed version | Proposed | An alert is attached to a component only when the component's exact version lies in the alert's vulnerable range; otherwise it is reported as unmatched. | |
-| req-cicd-sbom-23-4 | Permission claim tested | Proposed | The workflow permission needed is established by a run on a real repository before the lane depends on it. | NOT OBSERVED. |
+| req-cicd-sbom-23-4 | Permission claim tested | Proposed | The job that lists alerts declares `permissions: vulnerability-alerts: read`; `security-events: read` alone is not enough. | OBSERVED (2026-10-15, throwaway run 38818229225 - tap, ran): with `security-events: read` and `vulnerability-alerts: read` the call `GET /repos/{repo}/dependabot/alerts` returned HTTP 200 and 48 alerts (header `X-Accepted-Github-Permissions: vulnerability_alerts=read`); the earlier run 38818096043 with `security-events: read` alone, and a control with neither, returned HTTP 403 "Resource not accessible by integration". Same-repository, push-triggered run only; a fork run and a Dependabot-triggered run were not tested. |
 
 ### Ingestion - SBOM Node, Parser and Ownership
 ----
@@ -1462,11 +1482,72 @@ The existing VDR vocabulary in the FedRAMP plugin is outside this scope and unto
 | req-cicd-sbom-30-1 | CBOM shares the pipeline | Proposed | The CBOM ingestion path is the one defined in `req-cicd-sbom-24`; no CBOM-specific trust, node or parser exists. | |
 | req-cicd-sbom-30-2 | VDR needs are queryable | Proposed | The five needs above are each answerable from the grid by Gryphon without reading the stored file. | |
 
+### SBOM Field Completeness Check
+----
+RID: `req-cicd-sbom-32`
+
+Status: `Proposed`
+
+Why: a scanner matches on what the SBOM carries. An SBOM that lacks the matching fields does not fail; it quietly reports fewer vulnerabilities, and nobody sees the gap. TAP's own generator keeps the fields today, so the
+check protects the case George named: other teams producing CycloneDX SBOMs for field software, where a thin document would under-report without a sign. "Complete" here means **field completeness**, that each component
+carries the identifiers a matcher uses. It does NOT mean inventory completeness (that every package in the image is listed); that is `req-cicd-sbom-2`, `-7` and `-12`.
+
+**What the real document carries (ran, `jq` over the attested tap-web arm64 CycloneDX 1.7 document, Syft 1.51.0, 192 components):**
+
+| Ecosystem | Components | With purl | With cpe | With `syft:cpe23` candidate properties |
+| --- | ---: | ---: | ---: | ---: |
+| apk | 102 | 102 | 102 | 71 |
+| pypi | 71 | 71 | 71 | 63 |
+| npm | 15 | 15 | 15 | 5 |
+| generic | 1 | 1 | 1 | 0 |
+| github | 2 | 2 | 0 | 0 |
+| operating-system (wolfi 20230201) | 1 | 0 | 0 | 0 |
+
+For the 102 apk components: `arch=` and `distro=` qualifiers on 102; `syft:metadata:originPackage` on 102; the `upstream=` qualifier on 54, which is exactly the 54 whose origin package name differs from the component name
+(ran, `jq`). So the upstream qualifier is **conditional on the origin differing**, and a rule demanding it on every apk component would refuse a correct document.
+
+**How much each field is worth (relayed from the support session's ablation, and re-counted here from its output files `gridsbom/out/*.json` with `jq`; Grype v0.120.1 on SBOMs rebuilt from selected fields; the counts are
+what I re-counted, the runs themselves are NOT re-run here):**
+
+| Fields kept | Grype matches |
+| --- | ---: |
+| purl + upstream + cpe + candidates (the original) | 91 |
+| purl + cpe + OS, no candidates | 89 |
+| purl + OS, no cpe | 50 |
+| purl only, no OS component | 50 |
+| purl + OS, no upstream and no cpe | 12 |
+
+Two things the ablation does not show, stated so nobody over-reads it: (1) the OS component did not change the result (50 with it and without it), so its value to Grype is NOT demonstrated; it stays required because the grid
+side consumes it (`req-cicd-sbom-24`), not because Grype needs it; (2) no run removed the upstream qualifier while keeping cpe, so the separate worth of `upstream=` is NOT OBSERVED.
+
+**The rules are data.** The per-ecosystem requirements live in one committed JSON file with a JSON Schema, not in the check's code (repository rule for new structured formats; "what is required" is declarative, "how it is
+checked" is code). The starting rows come from the table above: apk, pypi, npm and generic components require purl and cpe; github components require purl only; every apk component requires `arch`, `distro` and
+`syft:metadata:originPackage`, and the `upstream` qualifier when the origin differs; exactly one operating-system component with a name and a version is required.
+
+**Verdict.** The check writes `tap:completeness` into the document: `complete`, `thin` (with a count per named gap class and up to a handful of example components each), or `not-observable` (the check could not run). It is
+never absent and never an empty list standing for "complete".
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-cicd-sbom-32-1 | Runs on every document | Proposed | The check runs at stage 1b (`req-cicd-sbom-17-6`) over TAP-generated and caller-supplied CycloneDX documents alike, before any scanner reads them. | |
+| req-cicd-sbom-32-2 | Rules are a schema-validated data file | Proposed | The per-ecosystem rules are one committed JSON file validated against a committed JSON Schema at load; an unknown ecosystem key, a missing description or an invalid file fails the load. | |
+| req-cicd-sbom-32-3 | Required fields per ecosystem | Proposed | A component of a ruled ecosystem lacking a required field is a gap of a named class (`purl`, `purl-qualifier:arch`, `purl-qualifier:distro`, `purl-qualifier:upstream`, `cpe`, `origin-package`). | Starting rows from the table above. |
+| req-cicd-sbom-32-4 | Upstream is conditional | Proposed | An apk component whose `syft:metadata:originPackage` differs from its name requires the `upstream=` qualifier; one whose origin equals its name does not. | 54 of 54 on the real document; a blanket rule refuses a correct SBOM. |
+| req-cicd-sbom-32-5 | Distro component | Proposed | Exactly one operating-system component with a name and a version must exist for an image SBOM. | Needed by the grid; its worth to Grype is NOT demonstrated. |
+| req-cicd-sbom-32-6 | Thin is refused | Proposed | A `thin` verdict fails the run, and the gaps are listed in the job summary. | Decided (SV-10, George: fail first). An opt-in to record `thin` instead is deliberately not specified. |
+| req-cicd-sbom-32-7 | Candidates are reported, not required | Proposed | The count of components carrying `syft:cpe23` candidates is recorded in `tap:completeness`; its absence does not make a document `thin`. | Worth 2 of 91 matches in the ablation, and Syft emits candidates only where it has them. |
+| req-cicd-sbom-32-8 | Verdict is never silent | Proposed | `tap:completeness` is present in every sealed document; a check that errored records `not-observable` and fails the run. | Three states, never two. |
+| req-cicd-sbom-32-9 | Seeded-defect fixtures | Proposed | The check's tests include the real tap-web document (must be `complete`) and one document per defect class built from it by deleting that one field (each must be `thin` naming that class). | Proves the pass is not vacuous. |
+| req-cicd-sbom-32-10 | Coverage states its limit | Proposed | `tap:completeness` states that it covers identifier fields and does not cover whether every package in the image is listed. | A `complete` verdict is not an inventory claim. |
+
 #### Method summary and NOT OBSERVED
 
 Ran (2026-10-15): grype v0.120.1, trivy 0.75.0 and 0.76.0, syft v1.54.1 in throwaway containers; the CISA KEV catalog and one CVE record fetched; openssl parsing of the two real attestation certificates;
-read-only JSON parsing of the real SBOMs and a grid export. Read: the specs, workflows and plugin clones named in the text. NOT OBSERVED: any reusable-workflow attestation bundle; the `security-events`
-permission claim; the VEX predicate URI; Grype reading SPDX 3.0.1 (support's claim); Trivy's inability to read SPDX 3; the cause of Trivy's maven non-result; which of Grype's extra apk matches are true
+read-only JSON parsing of the real SBOMs and a grid export. Read: the specs, workflows and plugin clones named in the text. CI-side additions (tap#1044, 2026-10-15): `jq` field counts over the attested tap-web arm64 document
+and a re-count of the support session's ablation outputs (ran); `gh attestation verify --help` of gh 2.100.0 (read). Not run by this author: the ablation itself, any workflow, any Grype or Syft invocation. NOT OBSERVED: a reusable-workflow attestation bundle
+from a caller in ANOTHER repository (a same-repository one was read, `-22-5`); a fork or Dependabot-triggered run of the alerts call (the push-triggered one was run, `-23-4`); the VEX predicate URI; Grype reading SPDX 3.0.1 (support's claim); Trivy's inability to read SPDX 3; the cause of Trivy's maven non-result; which of Grype's extra apk matches are true
 positives; whether `validate_plugin` accepts `REQUIRES_PACKAGE`; whether the grid records which digest is deployed; whether `compliance_exception` can carry an anchor-derived scope.
 
 ## Non-Goals and Named Residuals
