@@ -19,8 +19,7 @@ Three outcomes, never two: `complete`, `thin` (with a count per gap class and ex
 Exit codes follow: 0, 1, 2. Only `complete` passes.
 
 Usage:
-    python scripts/sbom/completeness.py --sbom doc.cdx.json [--rules rules.json] [--out annotated.json]
-                                        [--summary "$GITHUB_STEP_SUMMARY"]
+    python scripts/sbom/completeness.py [--annotate] < doc.cdx.json > annotated.json 2>> "$GITHUB_STEP_SUMMARY"
 """
 
 from __future__ import annotations
@@ -114,11 +113,12 @@ def _cell(text: object) -> str:
     return cleaned
 
 
-def load_rules(path: Path = DEFAULT_RULES) -> dict[str, Any]:
+def load_rules(path: Path | None = None) -> dict[str, Any]:
     """Read the rules file and validate it against its schema; raise `RulesError` on any failure.
 
     Fails closed: a missing `jsonschema` is a failure to load, not a reason to skip validation.
     """
+    path = DEFAULT_RULES if path is None else path
     try:
         import jsonschema  # noqa: PLC0415 - optional at import time so a bare host can still import this module
     except ImportError as exc:
@@ -286,35 +286,38 @@ def summary_markdown(result: dict[str, Any]) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Field-completeness check for a CycloneDX SBOM.")
-    parser.add_argument("--sbom", required=True, type=Path, help="CycloneDX JSON document to check")
-    parser.add_argument("--rules", type=Path, default=DEFAULT_RULES, help="completeness rules file")
-    parser.add_argument("--out", type=Path, help="write the document with the tap:completeness properties here")
-    parser.add_argument("--summary", type=Path, help="append the job-summary markdown to this file")
+    """Read a CycloneDX document on stdin; verdict markdown on stderr; exit 0, 1 or 2.
+
+    No file path is taken from the command line or built from the input: the document arrives on stdin, the
+    annotated document (with `--annotate`) leaves on stdout, and the job summary is the shell's redirect of
+    stderr (`2>> "$GITHUB_STEP_SUMMARY"`). The rules are the committed file next to this module.
+    """
+    parser = argparse.ArgumentParser(description="Field-completeness check for a CycloneDX SBOM, read from stdin.")
+    parser.add_argument(
+        "--annotate",
+        action="store_true",
+        help="write the document with the tap:completeness properties to stdout",
+    )
     args = parser.parse_args(argv)
 
     doc: dict[str, Any] | None = None
     try:
-        loaded = json.loads(args.sbom.read_text(encoding="utf-8"))
+        loaded = json.loads(sys.stdin.read())
         if not isinstance(loaded, dict):
             raise ValueError("top level is not an object")
         doc = loaded
-        result = check_completeness(doc, load_rules(args.rules))
+        result = check_completeness(doc, load_rules())
     except (OSError, ValueError, RulesError, MalformedDocument, KeyError, TypeError, AttributeError) as exc:
         result = {"verdict": "not-observable", "reason": f"{type(exc).__name__}: {exc}"}
 
-    if args.out is not None and doc is not None:
+    if args.annotate and doc is not None:
         try:
-            args.out.write_text(json.dumps(annotate(doc, result), indent=2) + "\n", encoding="utf-8")
+            sys.stdout.write(json.dumps(annotate(doc, result), indent=2) + "\n")
         except MalformedDocument, AttributeError, TypeError:
             # A document too malformed to carry the property cannot be written back; the verdict still stands
             # as not-observable and the run still fails.
             result = {"verdict": "not-observable", "reason": "the document is too malformed to annotate"}
-    text = summary_markdown(result)
-    if args.summary is not None:
-        with args.summary.open("a", encoding="utf-8") as handle:
-            handle.write(text)
-    sys.stdout.write(text)
+    sys.stderr.write(summary_markdown(result))
     return VERDICT_EXIT[result["verdict"]]
 
 

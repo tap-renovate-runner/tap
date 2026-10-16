@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import io
 import json
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -204,30 +206,39 @@ def test_the_committed_rules_validate(rules):
     assert rules["format"] == comp.RULES_FORMAT
 
 
+def _run_cli(monkeypatch, capsys, text: str, *args: str) -> tuple[int, str, str]:
+    """Run main() with `text` on stdin; return (exit code, stdout, stderr)."""
+    monkeypatch.setattr(sys, "stdin", io.StringIO(text))
+    code = comp.main(list(args))
+    captured = capsys.readouterr()
+    return code, captured.out, captured.err
+
+
 @pytest.mark.spec("req-cicd-sbom-32-6")
 @pytest.mark.spec("req-cicd-sbom-32-8")
-def test_cli_exit_codes_and_summary(tmp_path, doc, capsys):
-    good = tmp_path / "good.json"
-    good.write_text(json.dumps(doc))
-    out = tmp_path / "out.json"
-    summary = tmp_path / "summary.md"
-    assert comp.main(["--sbom", str(good), "--out", str(out), "--summary", str(summary)]) == 0
-    assert _property(json.loads(out.read_text()), "tap:completeness") == "complete"
+def test_cli_exit_codes_and_summary(monkeypatch, capsys, tmp_path, doc):
+    code, out, err = _run_cli(monkeypatch, capsys, json.dumps(doc), "--annotate")
+    assert code == 0
+    assert _property(json.loads(out), "tap:completeness") == "complete"
+    assert "SBOM completeness: `complete`" in err
 
     broken = copy.deepcopy(doc)
     _first(broken, "pkg:pypi").pop("cpe")
-    thin = tmp_path / "thin.json"
-    thin.write_text(json.dumps(broken))
-    assert comp.main(["--sbom", str(thin), "--out", str(out), "--summary", str(summary)]) == 1
-    assert _property(json.loads(out.read_text()), "tap:completeness") == "thin"
-    assert "`cpe`" in summary.read_text()  # the gap class is listed in the job summary
+    code, out, err = _run_cli(monkeypatch, capsys, json.dumps(broken), "--annotate")
+    assert code == 1
+    assert _property(json.loads(out), "tap:completeness") == "thin"
+    assert "`cpe`" in err  # the gap class is listed in the job summary
 
-    assert comp.main(["--sbom", str(tmp_path / "absent.json")]) == 2
+    code, out, err = _run_cli(monkeypatch, capsys, "not json at all")
+    assert code == 2
+    assert "could not run" in err
+
     badrules = tmp_path / "rules.json"
     badrules.write_text("{}")
-    assert comp.main(["--sbom", str(good), "--rules", str(badrules), "--out", str(out)]) == 2
-    assert _property(json.loads(out.read_text()), "tap:completeness") == "not-observable"
-    capsys.readouterr()
+    monkeypatch.setattr(comp, "DEFAULT_RULES", badrules)
+    code, out, err = _run_cli(monkeypatch, capsys, json.dumps(doc), "--annotate")
+    assert code == 2
+    assert _property(json.loads(out), "tap:completeness") == "not-observable"
 
 
 @pytest.mark.spec("req-cicd-sbom-32-8")
@@ -248,12 +259,11 @@ def test_cli_exit_codes_and_summary(tmp_path, doc, capsys):
         "components-not-a-list",
     ],
 )
-def test_a_malformed_document_is_not_observable_and_never_complete(mutate, tmp_path, doc):
+def test_a_malformed_document_is_not_observable_and_never_complete(mutate, monkeypatch, capsys, doc):
     broken = copy.deepcopy(doc)
     mutate(broken)
-    path = tmp_path / "broken.json"
-    path.write_text(json.dumps(broken))
-    assert comp.main(["--sbom", str(path), "--out", str(tmp_path / "out.json")]) == 2
+    code, _out, _err = _run_cli(monkeypatch, capsys, json.dumps(broken), "--annotate")
+    assert code == 2
 
 
 @pytest.mark.spec("req-cicd-sbom-32-3")
