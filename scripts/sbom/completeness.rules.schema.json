@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TAP SBOM completeness rules",
+  "description": "Per-ecosystem requirements for the SBOM field-completeness check (req-cicd-sbom-32). Validated at load; an unknown key, an unknown requirement name, a missing description or an invalid file fails the load and the check reports not-observable (req-cicd-sbom-32-2).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["_description", "format", "ecosystems", "operating_system"],
+  "properties": {
+    "_description": {"type": "string", "minLength": 1, "description": "Human/AI-readable purpose of this rules file and where its starting rows came from."},
+    "format": {"const": "tap-sbom-completeness-rules/1", "description": "Format discriminator; bump on breaking shape changes."},
+    "ecosystems": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "One entry per purl ecosystem the check has a rule for, keyed by the purl type (the text between pkg: and the first slash). A component whose ecosystem is absent here is a gap of class unruled-ecosystem.",
+      "propertyNames": {"pattern": "^[a-z][a-z0-9.+-]*$"},
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["_description", "require"],
+        "properties": {
+          "_description": {"type": "string", "minLength": 1, "description": "Why this ecosystem requires these fields."},
+          "require": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "description": "The fields a component of this ecosystem must carry.",
+            "items": {
+              "enum": [
+                "purl",
+                "cpe",
+                "origin-package",
+                "purl-qualifier:arch",
+                "purl-qualifier:distro",
+                "purl-qualifier:upstream-when-origin-differs"
+              ],
+              "description": "A closed vocabulary: each name maps to one check in completeness.py. purl-qualifier:upstream-when-origin-differs requires the upstream qualifier only when syft:metadata:originPackage differs from the component name."
+            }
+          }
+        }
+      }
+    },
+    "operating_system": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["_description", "require"],
+      "description": "The rule for the single operating-system component (req-cicd-sbom-32-5).",
+      "properties": {
+        "_description": {"type": "string", "minLength": 1, "description": "Why the operating-system component is required."},
+        "require": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Fields the operating-system component must carry.",
+          "items": {"enum": ["name", "version"], "description": "A component field."}
+        }
+      }
+    }
+  }
+}

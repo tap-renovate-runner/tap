@@ -1,0 +1,1203 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.7",
+  "serialNumber": "urn:uuid:90f083a0-a7b6-4183-a41d-ad1bb111feeb",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-10-15T15:02:05Z",
+    "component": {
+      "bom-ref": "c730f7c5a624911b",
+      "type": "container",
+      "name": "ghcr.io/unified-systems-com/tap-web",
+      "version": "sha256:a9149a88a6239fc7a5351d9854fbff42448d2ed28cc71951a4c2aa2f4aca7750"
+    }
+  },
+  "components": [
+    {
+      "bom-ref": "os:wolfi@20230201",
+      "type": "operating-system",
+      "name": "wolfi",
+      "version": "20230201",
+      "description": "Wolfi",
+      "swid": {
+        "tagId": "wolfi",
+        "name": "wolfi",
+        "version": "20230201"
+      },
+      "externalReferences": [
+        {
+          "url": "https://github.com/wolfi-dev/os/issues",
+          "type": "issue-tracker"
+        },
+        {
+          "url": "https://wolfi.dev",
+          "type": "website"
+        }
+      ],
+      "properties": [
+        {
+          "name": "syft:distro:extendedSupport",
+          "value": "false"
+        },
+        {
+          "name": "syft:distro:id",
+          "value": "wolfi"
+        },
+        {
+          "name": "syft:distro:prettyName",
+          "value": "Wolfi"
+        },
+        {
+          "name": "syft:distro:versionID",
+          "value": "20230201"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:apk/wolfi/ca-certificates-bundle@20260909-r1?arch=aarch64&distro=wolfi-20230201&package-id=dd3b0202d2da07d9&upstream=ca-certificates",
+      "type": "library",
+      "publisher": "wolfi",
+      "name": "ca-certificates-bundle",
+      "version": "20260909-r1",
+      "licenses": [
+        {
+          "expression": "MPL-2.0 AND MIT"
+        }
+      ],
+      "cpe": "cpe:2.3:a:ca-certificates-bundle:ca-certificates-bundle:20260909-r1:*:*:*:*:*:*:*",
+      "purl": "pkg:apk/wolfi/ca-certificates-bundle@20260909-r1?arch=aarch64&distro=wolfi-20230201&upstream=ca-certificates",
+      "properties": [
+        {
+          "name": "syft:package:foundBy",
+          "value": "apk-db-cataloger"
+        },
+        {
+          "name": "syft:package:type",
+          "value": "apk"
+        },
+        {
+          "name": "syft:package:metadataType",
+          "value": "apk-db-entry"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:ca-certificates-bundle:ca_certificates_bundle:20260909-r1:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:ca_certificates_bundle:ca-certificates-bundle:20260909-r1:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:ca_certificates_bundle:ca_certificates_bundle:20260909-r1:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:ca-certificates:ca-certificates-bundle:20260909-r1:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:ca-certificates:ca_certificates_bundle:20260909-r1:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:ca_certificates:ca-certificates-bundle:20260909-r1:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:ca_certificates:ca_certificates_bundle:20260909-r1:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:ca:ca-certificates-bundle:20260909-r1:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:ca:ca_certificates_bundle:20260909-r1:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:location:0:layerID",
+          "value": "sha256:f4145fe0246d4dcda63a01970abdb57a68c4cd6f0bea6b75d91425d5c0528a4c"
+        },
+        {
+          "name": "syft:location:0:path",
+          "value": "/usr/lib/apk/db/installed"
+        },
+        {
+          "name": "syft:metadata:gitCommitOfApkPort",
+          "value": "ee3eac73dda22e8dd32fa5fb3e3a1712a6e812d7"
+        },
+        {
+          "name": "syft:metadata:installedSize",
+          "value": "232559"
+        },
+        {
+          "name": "syft:metadata:originPackage",
+          "value": "ca-certificates"
+        },
+        {
+          "name": "syft:metadata:pullChecksum",
+          "value": "Q1VRejqJ4mpISZYu/Z6OxC6eXQfFA="
+        },
+        {
+          "name": "syft:metadata:pullDependencies:0",
+          "value": "merged-usrsbin"
+        },
+        {
+          "name": "syft:metadata:pullDependencies:1",
+          "value": "wolfi-baselayout"
+        },
+        {
+          "name": "syft:metadata:size",
+          "value": "117668"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:apk/wolfi/cyrus-sasl-heimdal-libs@2.1.28-r58?arch=aarch64&distro=wolfi-20230201&package-id=55ca3b69d03f9621&upstream=cyrus-sasl-heimdal",
+      "type": "library",
+      "publisher": "wolfi",
+      "name": "cyrus-sasl-heimdal-libs",
+      "version": "2.1.28-r58",
+      "description": "Shared libraries for cyrus-sasl-heimdal",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "cpe": "cpe:2.3:a:cyrus-sasl-heimdal-libs:cyrus-sasl-heimdal-libs:2.1.28-r58:*:*:*:*:*:*:*",
+      "purl": "pkg:apk/wolfi/cyrus-sasl-heimdal-libs@2.1.28-r58?arch=aarch64&distro=wolfi-20230201&upstream=cyrus-sasl-heimdal",
+      "properties": [
+        {
+          "name": "syft:package:foundBy",
+          "value": "apk-db-cataloger"
+        },
+        {
+          "name": "syft:package:type",
+          "value": "apk"
+        },
+        {
+          "name": "syft:package:metadataType",
+          "value": "apk-db-entry"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:cyrus-sasl-heimdal-libs:cyrus_sasl_heimdal_libs:2.1.28-r58:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:cyrus_sasl_heimdal_libs:cyrus-sasl-heimdal-libs:2.1.28-r58:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:cyrus_sasl_heimdal_libs:cyrus_sasl_heimdal_libs:2.1.28-r58:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:cyrus-sasl-heimdal:cyrus-sasl-heimdal-libs:2.1.28-r58:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:cyrus-sasl-heimdal:cyrus_sasl_heimdal_libs:2.1.28-r58:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:cyrus_sasl_heimdal:cyrus-sasl-heimdal-libs:2.1.28-r58:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:cyrus_sasl_heimdal:cyrus_sasl_heimdal_libs:2.1.28-r58:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:cyrus-sasl:cyrus-sasl-heimdal-libs:2.1.28-r58:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:cyrus-sasl:cyrus_sasl_heimdal_libs:2.1.28-r58:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:cyrus_sasl:cyrus-sasl-heimdal-libs:2.1.28-r58:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:cyrus_sasl:cyrus_sasl_heimdal_libs:2.1.28-r58:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:cyrus:cyrus-sasl-heimdal-libs:2.1.28-r58:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:cyrus:cyrus_sasl_heimdal_libs:2.1.28-r58:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:location:0:layerID",
+          "value": "sha256:f4145fe0246d4dcda63a01970abdb57a68c4cd6f0bea6b75d91425d5c0528a4c"
+        },
+        {
+          "name": "syft:location:0:path",
+          "value": "/usr/lib/apk/db/installed"
+        },
+        {
+          "name": "syft:metadata:gitCommitOfApkPort",
+          "value": "6a2a53d0046e82dc1f45ac4a9c9593d8d91aaa78"
+        },
+        {
+          "name": "syft:metadata:installedSize",
+          "value": "918807"
+        },
+        {
+          "name": "syft:metadata:originPackage",
+          "value": "cyrus-sasl-heimdal"
+        },
+        {
+          "name": "syft:metadata:provides:0",
+          "value": "cyrus-sasl-libs=2.1.28"
+        },
+        {
+          "name": "syft:metadata:provides:1",
+          "value": "so-ver:libsasl2.so.3=2.1.28-r58"
+        },
+        {
+          "name": "syft:metadata:provides:2",
+          "value": "so:libsasl2.so.3=3"
+        },
+        {
+          "name": "syft:metadata:pullChecksum",
+          "value": "Q1NOAPW2cQulC8VW9tww3lp1GnV5k="
+        },
+        {
+          "name": "syft:metadata:pullDependencies:0",
+          "value": "so:ld-linux-aarch64.so.1"
+        },
+        {
+          "name": "syft:metadata:pullDependencies:1",
+          "value": "so:libc.so.6"
+        },
+        {
+          "name": "syft:metadata:pullDependencies:2",
+          "value": "so:libcrypto.so.4"
+        },
+        {
+          "name": "syft:metadata:pullDependencies:3",
+          "value": "so:libgdbm.so.6"
+        },
+        {
+          "name": "syft:metadata:pullDependencies:4",
+          "value": "so:libgssapi.so.3"
+        },
+        {
+          "name": "syft:metadata:pullDependencies:5",
+          "value": "so:libsqlite3.so.0"
+        },
+        {
+          "name": "syft:metadata:size",
+          "value": "239214"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:apk/wolfi/ecpg-18@18.6-r5?arch=aarch64&distro=wolfi-20230201&package-id=0ae4f650f7c94eca&upstream=postgresql-18",
+      "type": "library",
+      "publisher": "wolfi",
+      "name": "ecpg-18",
+      "version": "18.6-r5",
+      "description": "Embedded PostgreSQL SQL preprocessor for C programs",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "cpe": "cpe:2.3:a:ecpg-18:ecpg-18:18.6-r5:*:*:*:*:*:*:*",
+      "purl": "pkg:apk/wolfi/ecpg-18@18.6-r5?arch=aarch64&distro=wolfi-20230201&upstream=postgresql-18",
+      "properties": [
+        {
+          "name": "syft:package:foundBy",
+          "value": "apk-db-cataloger"
+        },
+        {
+          "name": "syft:package:type",
+          "value": "apk"
+        },
+        {
+          "name": "syft:package:metadataType",
+          "value": "apk-db-entry"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:ecpg-18:ecpg_18:18.6-r5:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:ecpg_18:ecpg-18:18.6-r5:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:ecpg_18:ecpg_18:18.6-r5:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:ecpg-18:ecpg:18.6-r5:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:ecpg:ecpg-18:18.6-r5:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:ecpg:ecpg_18:18.6-r5:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:ecpg_18:ecpg:18.6-r5:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:ecpg:ecpg:18.6-r5:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:location:0:layerID",
+          "value": "sha256:f4145fe0246d4dcda63a01970abdb57a68c4cd6f0bea6b75d91425d5c0528a4c"
+        },
+        {
+          "name": "syft:location:0:path",
+          "value": "/usr/lib/apk/db/installed"
+        },
+        {
+          "name": "syft:metadata:gitCommitOfApkPort",
+          "value": "6d1d0d7fa3839dd4fa1c4537f1f452a50d6637fc"
+        },
+        {
+          "name": "syft:metadata:installedSize",
+          "value": "975940"
+        },
+        {
+          "name": "syft:metadata:originPackage",
+          "value": "postgresql-18"
+        },
+        {
+          "name": "syft:metadata:provides:0",
+          "value": "cmd:ecpg=18.6-r5"
+        },
+        {
+          "name": "syft:metadata:provides:1",
+          "value": "ecpg=18.6-r5"
+        },
+        {
+          "name": "syft:metadata:pullChecksum",
+          "value": "Q1NDZVieXPVHrJPVYrOfMU48Q2Mno="
+        },
+        {
+          "name": "syft:metadata:pullDependencies:0",
+          "value": "so:ld-linux-aarch64.so.1"
+        },
+        {
+          "name": "syft:metadata:pullDependencies:1",
+          "value": "so:libc.so.6"
+        },
+        {
+          "name": "syft:metadata:size",
+          "value": "196614"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:apk/wolfi/apk-tools@2.14.10-r16?arch=aarch64&distro=wolfi-20230201&package-id=bb8200af5ed698a3",
+      "type": "library",
+      "publisher": "wolfi",
+      "name": "apk-tools",
+      "version": "2.14.10-r16",
+      "description": "apk-tools (Wolfi package manager)",
+      "licenses": [
+        {
+          "license": {
+            "id": "GPL-2.0-only"
+          }
+        }
+      ],
+      "cpe": "cpe:2.3:a:apk-tools:apk-tools:2.14.10-r16:*:*:*:*:*:*:*",
+      "purl": "pkg:apk/wolfi/apk-tools@2.14.10-r16?arch=aarch64&distro=wolfi-20230201",
+      "properties": [
+        {
+          "name": "syft:package:foundBy",
+          "value": "apk-db-cataloger"
+        },
+        {
+          "name": "syft:package:type",
+          "value": "apk"
+        },
+        {
+          "name": "syft:package:metadataType",
+          "value": "apk-db-entry"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:apk-tools:apk_tools:2.14.10-r16:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:apk_tools:apk-tools:2.14.10-r16:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:apk_tools:apk_tools:2.14.10-r16:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:apk:apk-tools:2.14.10-r16:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:apk:apk_tools:2.14.10-r16:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:location:0:layerID",
+          "value": "sha256:f4145fe0246d4dcda63a01970abdb57a68c4cd6f0bea6b75d91425d5c0528a4c"
+        },
+        {
+          "name": "syft:location:0:path",
+          "value": "/usr/lib/apk/db/installed"
+        },
+        {
+          "name": "syft:metadata:gitCommitOfApkPort",
+          "value": "ecc58ee4fc1a3a0734bbd164bc518a4ac0ed371c"
+        },
+        {
+          "name": "syft:metadata:installedSize",
+          "value": "533401"
+        },
+        {
+          "name": "syft:metadata:originPackage",
+          "value": "apk-tools"
+        },
+        {
+          "name": "syft:metadata:provides:0",
+          "value": "cmd:apk=2.14.10-r16"
+        },
+        {
+          "name": "syft:metadata:provides:1",
+          "value": "so-ver:libapk.so.2.14.10=2.14.10-r16"
+        },
+        {
+          "name": "syft:metadata:provides:2",
+          "value": "so:libapk.so.2.14.10=2.14.10"
+        },
+        {
+          "name": "syft:metadata:pullChecksum",
+          "value": "Q17A6YTHqtvKqvkt7nNHb+g8g4rGs="
+        },
+        {
+          "name": "syft:metadata:pullDependencies:0",
+          "value": "ca-certificates-bundle"
+        },
+        {
+          "name": "syft:metadata:pullDependencies:1",
+          "value": "merged-sbin"
+        },
+        {
+          "name": "syft:metadata:pullDependencies:2",
+          "value": "so:ld-linux-aarch64.so.1"
+        },
+        {
+          "name": "syft:metadata:pullDependencies:3",
+          "value": "so:libc.so.6"
+        },
+        {
+          "name": "syft:metadata:pullDependencies:4",
+          "value": "so:libcrypto.so.3"
+        },
+        {
+          "name": "syft:metadata:pullDependencies:5",
+          "value": "so:libssl.so.3"
+        },
+        {
+          "name": "syft:metadata:pullDependencies:6",
+          "value": "so:libz.so.1"
+        },
+        {
+          "name": "syft:metadata:pullDependencies:7",
+          "value": "wolfi-baselayout"
+        },
+        {
+          "name": "syft:metadata:size",
+          "value": "180511"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:apk/wolfi/bash@5.3-r14?arch=aarch64&distro=wolfi-20230201&package-id=8a378f09ef2df951",
+      "type": "library",
+      "publisher": "wolfi",
+      "name": "bash",
+      "version": "5.3-r14",
+      "description": "GNU bourne again shell",
+      "licenses": [
+        {
+          "license": {
+            "id": "GPL-3.0-or-later"
+          }
+        }
+      ],
+      "cpe": "cpe:2.3:a:bash:bash:5.3-r14:*:*:*:*:*:*:*",
+      "purl": "pkg:apk/wolfi/bash@5.3-r14?arch=aarch64&distro=wolfi-20230201",
+      "properties": [
+        {
+          "name": "syft:package:foundBy",
+          "value": "apk-db-cataloger"
+        },
+        {
+          "name": "syft:package:type",
+          "value": "apk"
+        },
+        {
+          "name": "syft:package:metadataType",
+          "value": "apk-db-entry"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:gnu:bash:5.3-r14:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:location:0:layerID",
+          "value": "sha256:f4145fe0246d4dcda63a01970abdb57a68c4cd6f0bea6b75d91425d5c0528a4c"
+        },
+        {
+          "name": "syft:location:0:path",
+          "value": "/usr/lib/apk/db/installed"
+        },
+        {
+          "name": "syft:metadata:gitCommitOfApkPort",
+          "value": "ac7b15dc2695924986372a27cd7d6c4e029c5efa"
+        },
+        {
+          "name": "syft:metadata:installedSize",
+          "value": "1697318"
+        },
+        {
+          "name": "syft:metadata:originPackage",
+          "value": "bash"
+        },
+        {
+          "name": "syft:metadata:provides:0",
+          "value": "cmd:bash=5.3-r14"
+        },
+        {
+          "name": "syft:metadata:pullChecksum",
+          "value": "Q1eVGY7hnkHKtE7sQvWTZ8VAsVojA="
+        },
+        {
+          "name": "syft:metadata:pullDependencies:0",
+          "value": "merged-bin"
+        },
+        {
+          "name": "syft:metadata:pullDependencies:1",
+          "value": "so:ld-linux-aarch64.so.1"
+        },
+        {
+          "name": "syft:metadata:pullDependencies:2",
+          "value": "so:libc.so.6"
+        },
+        {
+          "name": "syft:metadata:pullDependencies:3",
+          "value": "so:libtinfo.so.6"
+        },
+        {
+          "name": "syft:metadata:pullDependencies:4",
+          "value": "wolfi-baselayout"
+        },
+        {
+          "name": "syft:metadata:size",
+          "value": "750934"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:apk/wolfi/binutils@2.47-r1?arch=aarch64&distro=wolfi-20230201&package-id=2d27298fb9f4f35a",
+      "type": "library",
+      "publisher": "wolfi",
+      "name": "binutils",
+      "version": "2.47-r1",
+      "description": "GNU binutils",
+      "licenses": [
+        {
+          "license": {
+            "id": "GPL-2.0-only"
+          }
+        }
+      ],
+      "cpe": "cpe:2.3:a:binutils:binutils:2.47-r1:*:*:*:*:*:*:*",
+      "purl": "pkg:apk/wolfi/binutils@2.47-r1?arch=aarch64&distro=wolfi-20230201",
+      "properties": [
+        {
+          "name": "syft:package:foundBy",
+          "value": "apk-db-cataloger"
+        },
+        {
+          "name": "syft:package:type",
+          "value": "apk"
+        },
+        {
+          "name": "syft:package:metadataType",
+          "value": "apk-db-entry"
+        },
+        {
+          "name": "syft:location:0:layerID",
+          "value": "sha256:f4145fe0246d4dcda63a01970abdb57a68c4cd6f0bea6b75d91425d5c0528a4c"
+        },
+        {
+          "name": "syft:location:0:path",
+          "value": "/usr/lib/apk/db/installed"
+        },
+        {
+          "name": "syft:metadata:gitCommitOfApkPort",
+          "value": "4458028f5f4830b9ceae3405e22fff69182acb9b"
+        },
+        {
+          "name": "syft:metadata:installedSize",
+          "value": "74098740"
+        },
+        {
+          "name": "syft:metadata:originPackage",
+          "value": "binutils"
+        },
+        {
+          "name": "syft:metadata:provides:0",
+          "value": "cmd:addr2line=2.47-r1"
+        },
+        {
+          "name": "syft:metadata:provides:1",
+          "value": "cmd:ar=2.47-r1"
+        },
+        {
+          "name": "syft:metadata:provides:10",
+          "value": "cmd:objcopy=2.47-r1"
+        },
+        {
+          "name": "syft:metadata:provides:11",
+          "value": "cmd:objdump=2.47-r1"
+        },
+        {
+          "name": "syft:metadata:provides:12",
+          "value": "cmd:ranlib=2.47-r1"
+        },
+        {
+          "name": "syft:metadata:provides:13",
+          "value": "cmd:readelf=2.47-r1"
+        },
+        {
+          "name": "syft:metadata:provides:14",
+          "value": "cmd:size=2.47-r1"
+        },
+        {
+          "name": "syft:metadata:provides:15",
+          "value": "cmd:strings=2.47-r1"
+        },
+        {
+          "name": "syft:metadata:provides:16",
+          "value": "cmd:strip=2.47-r1"
+        },
+        {
+          "name": "syft:metadata:provides:2",
+          "value": "cmd:as=2.47-r1"
+        },
+        {
+          "name": "syft:metadata:provides:3",
+          "value": "cmd:c++filt=2.47-r1"
+        },
+        {
+          "name": "syft:metadata:provides:4",
+          "value": "cmd:dwp=2.47-r1"
+        },
+        {
+          "name": "syft:metadata:provides:5",
+          "value": "cmd:elfedit=2.47-r1"
+        },
+        {
+          "name": "syft:metadata:provides:6",
+          "value": "cmd:gprof=2.47-r1"
+        },
+        {
+          "name": "syft:metadata:provides:7",
+          "value": "cmd:ld.bfd=2.47-r1"
+        },
+        {
+          "name": "syft:metadata:provides:8",
+          "value": "cmd:ld=2.47-r1"
+        },
+        {
+          "name": "syft:metadata:provides:9",
+          "value": "cmd:nm=2.47-r1"
+        },
+        {
+          "name": "syft:metadata:pullChecksum",
+          "value": "Q11ToNG1dljQqRlOcRxxtjFOynynI="
+        },
+        {
+          "name": "syft:metadata:pullDependencies:0",
+          "value": "so:ld-linux-aarch64.so.1"
+        },
+        {
+          "name": "syft:metadata:pullDependencies:1",
+          "value": "so:libc.so.6"
+        },
+        {
+          "name": "syft:metadata:pullDependencies:2",
+          "value": "so:libgcc_s.so.1"
+        },
+        {
+          "name": "syft:metadata:pullDependencies:3",
+          "value": "so:libstdc++.so.6"
+        },
+        {
+          "name": "syft:metadata:pullDependencies:4",
+          "value": "so:libz.so.1"
+        },
+        {
+          "name": "syft:metadata:pullDependencies:5",
+          "value": "so:libzstd.so.1"
+        },
+        {
+          "name": "syft:metadata:size",
+          "value": "24583750"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:pypi/annotated-types@0.8.0?package-id=271b82b5e06080e5",
+      "type": "library",
+      "name": "annotated-types",
+      "version": "0.8.0",
+      "cpe": "cpe:2.3:a:python-annotated-types:python-annotated-types:0.8.0:*:*:*:*:*:*:*",
+      "purl": "pkg:pypi/annotated-types@0.8.0",
+      "properties": [
+        {
+          "name": "syft:package:foundBy",
+          "value": "python-package-cataloger"
+        },
+        {
+          "name": "syft:package:language",
+          "value": "python"
+        },
+        {
+          "name": "syft:package:type",
+          "value": "python"
+        },
+        {
+          "name": "syft:package:metadataType",
+          "value": "python-uv-lock-entry"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python-annotated-types:python_annotated_types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python_annotated_types:python-annotated-types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python_annotated_types:python_annotated_types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python-annotated:python-annotated-types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python-annotated:python_annotated_types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python_annotated:python-annotated-types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python_annotated:python_annotated_types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:annotated-types:python-annotated-types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:annotated-types:python_annotated_types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:annotated_types:python-annotated-types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:annotated_types:python_annotated_types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python-annotated-types:annotated-types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python-annotated-types:annotated_types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python_annotated_types:annotated-types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python_annotated_types:annotated_types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:annotated:python-annotated-types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:annotated:python_annotated_types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python-annotated:annotated-types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python-annotated:annotated_types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python_annotated:annotated-types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python_annotated:annotated_types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:annotated-types:annotated-types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:annotated-types:annotated_types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:annotated_types:annotated-types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:annotated_types:annotated_types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python:python-annotated-types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python:python_annotated_types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:annotated:annotated-types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:annotated:annotated_types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python:annotated-types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python:annotated_types:0.8.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:location:0:layerID",
+          "value": "sha256:eaafb00b1035dd07fc2b224f0eda39969789e7e07dde6f9d369783397b43cb80"
+        },
+        {
+          "name": "syft:location:0:path",
+          "value": "/app/uv.lock"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:pypi/asgiref@3.12.1?package-id=0c62b6ee9281dce9",
+      "type": "library",
+      "name": "asgiref",
+      "version": "3.12.1",
+      "cpe": "cpe:2.3:a:python-asgiref:python-asgiref:3.12.1:*:*:*:*:*:*:*",
+      "purl": "pkg:pypi/asgiref@3.12.1",
+      "properties": [
+        {
+          "name": "syft:package:foundBy",
+          "value": "python-package-cataloger"
+        },
+        {
+          "name": "syft:package:language",
+          "value": "python"
+        },
+        {
+          "name": "syft:package:type",
+          "value": "python"
+        },
+        {
+          "name": "syft:package:metadataType",
+          "value": "python-uv-lock-entry"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python-asgiref:python_asgiref:3.12.1:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python_asgiref:python-asgiref:3.12.1:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python_asgiref:python_asgiref:3.12.1:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:asgiref:python-asgiref:3.12.1:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:asgiref:python_asgiref:3.12.1:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python-asgiref:asgiref:3.12.1:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python_asgiref:asgiref:3.12.1:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python:python-asgiref:3.12.1:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python:python_asgiref:3.12.1:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:asgiref:asgiref:3.12.1:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python:asgiref:3.12.1:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:location:0:layerID",
+          "value": "sha256:eaafb00b1035dd07fc2b224f0eda39969789e7e07dde6f9d369783397b43cb80"
+        },
+        {
+          "name": "syft:location:0:path",
+          "value": "/app/uv.lock"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/cytoscape@3.34.3?package-id=9d88460d4436ee4c",
+      "type": "library",
+      "name": "cytoscape",
+      "version": "3.34.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "cpe": "cpe:2.3:a:cytoscape:cytoscape:3.34.3:*:*:*:*:*:*:*",
+      "purl": "pkg:npm/cytoscape@3.34.3",
+      "properties": [
+        {
+          "name": "syft:package:foundBy",
+          "value": "javascript-lock-cataloger"
+        },
+        {
+          "name": "syft:package:language",
+          "value": "javascript"
+        },
+        {
+          "name": "syft:package:type",
+          "value": "npm"
+        },
+        {
+          "name": "syft:package:metadataType",
+          "value": "javascript-npm-package-lock-entry"
+        },
+        {
+          "name": "syft:location:0:layerID",
+          "value": "sha256:98732ba576dd11e5069606c26903c76749c8abd03195b2d4aea2f20195639d83"
+        },
+        {
+          "name": "syft:location:0:path",
+          "value": "/app/package-lock.json"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/cytoscape@3.34.3?package-id=e7b78c0e4b2f6ca4",
+      "type": "library",
+      "name": "cytoscape",
+      "version": "3.34.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "cpe": "cpe:2.3:a:cytoscape:cytoscape:3.34.3:*:*:*:*:*:*:*",
+      "purl": "pkg:npm/cytoscape@3.34.3",
+      "properties": [
+        {
+          "name": "syft:package:foundBy",
+          "value": "javascript-lock-cataloger"
+        },
+        {
+          "name": "syft:package:language",
+          "value": "javascript"
+        },
+        {
+          "name": "syft:package:type",
+          "value": "npm"
+        },
+        {
+          "name": "syft:package:metadataType",
+          "value": "javascript-npm-package-lock-entry"
+        },
+        {
+          "name": "syft:location:0:layerID",
+          "value": "sha256:73e1ceeedf948f545c6e7dc766248b83dae30d9045d5f8ed68e202995d180469"
+        },
+        {
+          "name": "syft:location:0:path",
+          "value": "/opt/tap-static-vendor/package-lock.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "tap-supplemental:openssl-fips-provider@3.5.8",
+      "name": "openssl-fips-provider",
+      "version": "3.5.8",
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "73087b234b26f32cdccd7b2294d290a49789e026593bcbafd9b2503490b8a9e3"
+        }
+      ],
+      "properties": [
+        {
+          "name": "tap:supplemental",
+          "value": "true"
+        },
+        {
+          "name": "tap:source",
+          "value": "https://github.com/openssl/openssl/releases/download/openssl-3.5.8/openssl-3.5.8.tar.gz"
+        },
+        {
+          "name": "tap:source_kind",
+          "value": "self-built"
+        },
+        {
+          "name": "tap:path",
+          "value": "/usr/lib/ossl-modules/fips.so"
+        },
+        {
+          "name": "tap:fips-validation",
+          "value": "OpenSSL 3.5.8 FIPS provider, not CMVP-validated as shipped (security-driven build of the FIPS code line, decision D17; validated versions: 3.0.8/#4282, 3.0.9/#4282, 3.1.2/#4985)"
+        }
+      ],
+      "purl": "pkg:generic/openssl-fips-provider@3.5.8?download_url=https%3A%2F%2Fgithub.com%2Fopenssl%2Fopenssl%2Freleases%2Fdownload%2Fopenssl-3.5.8%2Fopenssl-3.5.8.tar.gz",
+      "cpe": "cpe:2.3:a:openssl:openssl:3.5.8:*:*:*:*:*:*:*"
+    },
+    {
+      "type": "application",
+      "bom-ref": "tap-supplemental:uv@0.12.20",
+      "name": "uv",
+      "version": "0.12.20",
+      "licenses": [
+        {
+          "expression": "MIT OR Apache-2.0"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "f5495a2302fe5a008caa9476de3055e4c496a2459625ba4c4390e542e58c0eb6"
+        }
+      ],
+      "properties": [
+        {
+          "name": "tap:supplemental",
+          "value": "true"
+        },
+        {
+          "name": "tap:source",
+          "value": "ghcr.io/astral-sh/uv:0.12.20@sha256:100047e74f30778ab704942321a09750d6158739573ff58bf3924085cc6cd2d8"
+        },
+        {
+          "name": "tap:source_kind",
+          "value": "copied-image"
+        },
+        {
+          "name": "tap:path",
+          "value": "/bin/uv"
+        }
+      ],
+      "purl": "pkg:github/astral-sh/uv@0.12.20"
+    },
+    {
+      "type": "application",
+      "bom-ref": "tap-supplemental:uvx@0.12.20",
+      "name": "uvx",
+      "version": "0.12.20",
+      "licenses": [
+        {
+          "expression": "MIT OR Apache-2.0"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "670be65a0d42161619487b6518c658a82f4d04391f9596d1018ee222f825415e"
+        }
+      ],
+      "properties": [
+        {
+          "name": "tap:supplemental",
+          "value": "true"
+        },
+        {
+          "name": "tap:source",
+          "value": "ghcr.io/astral-sh/uv:0.12.20@sha256:100047e74f30778ab704942321a09750d6158739573ff58bf3924085cc6cd2d8"
+        },
+        {
+          "name": "tap:source_kind",
+          "value": "copied-image"
+        },
+        {
+          "name": "tap:path",
+          "value": "/bin/uvx"
+        }
+      ],
+      "purl": "pkg:github/astral-sh/uv@0.12.20"
+    }
+  ]
+}
