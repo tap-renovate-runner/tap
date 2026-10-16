@@ -165,10 +165,11 @@ the procedure. These are the guard rails around it.
   for `mock`.
 - **Build the page with `add-page`, `add-panel` and `design-page`.** A panel type used by more than one project
   belongs in `tap_web`, through a reviewed PR (AGENTS.md item 2).
-- **Charts and stat cards are a platform capability first.** The chart panel loads ECharts and draws nothing in v0;
-  the Stat Cards panel (`stat-cards`) is in `tap_web`, configured from a Search. When a view needs a shared piece
-  that does not exist, build it in `tap_web` before a page depends on it. *observed 2026-10-14; the stat-card
-  panel landed after that (`req-web-stdpanel-statcards`).*
+- **Charts and stat cards are a platform capability first.** The chart panel (`chart`) and the Stat Cards panel
+  (`stat-cards`) are in `tap_web`, configured as JSON from a Search; a chart is an ECharts option on the Panel
+  node, with `series_by`, `hierarchy`, `types` and `color_map` for what a plain dataset cannot do. When a view
+  needs a shared piece that does not exist, build it in `tap_web` before a page depends on it. *observed
+  2026-10-14; `req-web-stdpanel-statcards`, `req-web-panels-chart-config`.*
 
 ---
 
