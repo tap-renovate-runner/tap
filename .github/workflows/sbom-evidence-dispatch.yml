@@ -1,0 +1,44 @@
+# Manual caller of the vulnerability-evidence workflow (req-cicd-sbom-17).
+#
+# A reusable workflow cannot be started by hand, and `workflow_dispatch` only works from a workflow file on the default
+# branch, so this is the smallest caller: it passes an image path and a digest to the reusable workflow, pinned to
+# the commit that holds it (PR# 1060 - tap, merge commit 5736329d). Pinning by commit is what makes the signer's
+# Build Signer Digest a fixed value that the trust list can pin (req-cicd-sbom-22-3).
+#
+# `attest` defaults to false: a dry run signs and publishes nothing. Set it true only to publish a signed revision.
+# This workflow does not schedule itself and nothing else calls it.
+name: sbom-evidence-dispatch
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "Image path under ghcr.io, lowercase: owner/name (for example unified-systems-com/tap-web)."
+        required: true
+        type: string
+      digest:
+        description: "The image digest, sha256:<64 hex>. Never a tag."
+        required: true
+        type: string
+      attest:
+        description: "True signs and publishes the new revision; false is a dry run."
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    # The called workflow's jobs ask for these; a caller must grant at least what they request.
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    uses: unified-systems-com/tap/.github/workflows/sbom-vulnerability-evidence.yml@5736329dff506c952b5567260dd82c51adab5d74
+    with:
+      image: ${{ inputs.image }}
+      digest: ${{ inputs.digest }}
+      attest: ${{ inputs.attest }}
