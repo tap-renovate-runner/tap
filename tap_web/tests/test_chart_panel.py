@@ -338,6 +338,58 @@ class TestData:
         assert notices == ["2 more rows not drawn."]
 
 
+class TestLabelsAndTemplates:
+    EX: list[dict[str, Any]] = [{"ex": None, "c": 3}, {"ex": "", "c": 2}, {"ex": "poc", "c": None}]
+    OPT = {
+        "xAxis": {"type": "category"},
+        "yAxis": {"type": "value"},
+        "series": [{"type": "bar", "encode": {"x": "ex", "y": "c"}}],
+    }
+
+    @pytest.mark.spec("req-web-panels-chart-data-6")
+    def test_null_and_blank_labels_are_named_and_numeric_gaps_kept(self):
+        src = build_option(self.EX, _cfg(option=self.OPT)).option["dataset"]["source"]
+        assert [r["ex"] for r in src] == ["not observed", "(empty)", "poc"]
+        assert src[2]["c"] is None
+        custom = build_option(self.EX, _cfg(option=self.OPT, null_text="unscanned")).option
+        assert custom["dataset"]["source"][0]["ex"] == "unscanned"
+
+    @pytest.mark.spec("req-web-panels-chart-data-6")
+    def test_a_pie_item_name_is_a_label_field(self):
+        pie = {"series": [{"type": "pie", "encode": {"itemName": "ex", "value": "c"}}]}
+        assert build_option(self.EX, _cfg(option=pie)).option["dataset"]["source"][0]["ex"] == "not observed"
+
+    @pytest.mark.spec("req-web-panels-chart-data-7")
+    def test_few_categories_show_every_label_unless_configured(self):
+        assert build_option(self.EX, _cfg(option=self.OPT)).option["xAxis"]["axisLabel"]["interval"] == 0
+        many = [{"ex": f"v{i}", "c": i} for i in range(13)]
+        assert "axisLabel" not in build_option(many, _cfg(option=self.OPT)).option["xAxis"]
+        own = {**self.OPT, "xAxis": {"type": "category", "axisLabel": {"interval": 2}}}
+        assert build_option(self.EX, _cfg(option=own)).option["xAxis"]["axisLabel"]["interval"] == 2
+
+    @pytest.mark.spec("req-web-panels-chart-data-7")
+    def test_a_pivoted_chart_shows_every_label_too(self):
+        sb = {"category": "sev", "series": "tool", "value": "c"}
+        assert build_option(_SEV, _cfg(series_by=sb)).option["xAxis"]["axisLabel"]["interval"] == 0
+
+    @pytest.mark.spec("req-web-panels-chart-safety-7")
+    def test_bare_c_is_rejected_for_encoded_series_and_the_field_form_is_named(self):
+        bad = {**self.OPT, "tooltip": {"formatter": "{b}: {c}"}}
+        with pytest.raises(ValidationError) as err:
+            validate_config({"option": bad})
+        assert "{@field}" in " ".join(err.value.messages)
+        with pytest.raises(ValidationError):
+            validate_config(
+                {
+                    "option": {**BAR, "series": [{"type": "bar", "label": {"formatter": "{c0}"}}]},
+                    "series_by": {"category": "a", "series": "b", "value": "c"},
+                }
+            )
+        validate_config({"option": {**self.OPT, "tooltip": {"formatter": "{b}: {@c} ({d}%)"}}})
+        validate_config({"option": {"series": [{"type": "treemap", "label": {"formatter": "{b}: {c}"}}]}})
+        validate_config({"option": {"series": [{"type": "bar", "data": [1]}], "tooltip": {"formatter": "{c}"}}})
+
+
 # ---------------------------------------------------------------------------
 # series_by / hierarchy
 # ---------------------------------------------------------------------------

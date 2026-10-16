@@ -157,6 +157,7 @@ The `option` is data, never code. `validate_config` rejects anything that could 
 #### Implementation
 - Any string anywhere in the option that looks like code (`function (...)`, `=>`, `eval(`, `new Function`, `javascript:`, `<script`, `url(`) is rejected. JSON cannot carry a function, so a function in an option is always a string and always caught.
 - Any key ending in `formatter` must be a string template (`{b}: {c}`) with no `<` or `>`; objects and numbers are rejected. ECharts HTML-encodes the values substituted into a string template and into its default tooltip, so row values that reach tooltips and labels are escaped.
+- With a series that reads the dataset through `encode` (or with `series_by`), `{c}` in a formatter is rejected: it is the whole row and prints `[object Object]`. Use `{@field}` (the row field named by the RETURN alias); `{b}` (the item name) and `{d}` (a pie's percent) work as usual.
 - Strings naming an external or embedded resource (`http:`, `https:`, `//`, `data:`, `file:`, `image://`) are rejected: the panel makes no fetch. The keys `link`, `sublink`, `extraCssText` and `className` (navigation, CSS injection) are rejected.
 - Series types are a closed list: bar, line, pie, scatter, treemap, sunburst, heatmap, funnel, gauge, radar. `custom` (needs a render function), `map`, `lines` and `graph` are outside it.
 - `dataset` is rejected in the option: the panel owns it.
@@ -171,6 +172,7 @@ The `option` is data, never code. `validate_config` rejects anything that could 
 | req-web-panels-chart-safety-3 | No External References | Implemented | External or embedded resource strings and the navigating / CSS-injecting keys are rejected. | |
 | req-web-panels-chart-safety-4 | Size Caps | Implemented | The option's byte size and nesting depth are capped. | Like Stat Cards `max_cards` |
 | req-web-panels-chart-safety-5 | Closed Series Types | Implemented | Only the listed series types are accepted. | |
+| req-web-panels-chart-safety-7 | Row Value Templates | Implemented | `{c}` in a formatter is rejected when a series uses `encode` or `series_by`, with the `{@field}` form named in the error; `{@field}` is accepted. | |
 | req-web-panels-chart-safety-6 | Panel Owns The Dataset | Implemented | `option.dataset` in the config is rejected. | |
 
 ### Rows To Dataset
@@ -185,6 +187,8 @@ The panel reads the bound Search's `rows` through `fetch_panel_rows` (the Stat C
 - The Gryphon data lane returns some numbers and datetimes as text (`"8.2"`, `"2026-09-29 15:32:23.605000+00:00"`). `types` declares each field: `number` reads numeric text as a number, `time` reads any ISO-8601 text or datetime as a UTC instant (`...Z`; a naive value is UTC), `category` is text. Untyped values pass through JSON-safe (datetimes as UTC ISO text, decimals as numbers).
 - A typed value that does not parse becomes null (a gap in the chart) and is counted in a notice under the chart. It is never drawn as 0. Null and empty-string stay as the grid's unobserved / observed-empty; zero is a value.
 - `sort` orders rows (numbers by value, else text; nulls last) and `limit` keeps the first N, which makes a top-N chart. `max_rows` caps what is drawn. Every cut is counted in a notice.
+- A null or empty-string value in a field drawn as a label (declared `category`, a series' `encode.itemName`, or the field on a category axis) is replaced by `null_text` ("not observed") / `blank_text` ("(empty)"), so an axis, legend and tooltip name the bucket instead of drawing it nameless. Numeric and time fields keep their gaps. `color_map` keys such a bucket by that label.
+- A category axis of at most 12 categories gets `axisLabel.interval: 0` (every label shown) unless the config sets an interval.
 - Without `series_by` or `hierarchy`, the rows become `option.dataset = {dimensions: <row keys>, source: <rows>}`. The config's own option is never mutated.
 
 #### Acceptance Criteria
@@ -196,6 +200,8 @@ The panel reads the bound Search's `rows` through `fetch_panel_rows` (the Stat C
 | req-web-panels-chart-data-3 | Gaps Are Stated | Implemented | An unparseable typed value is null and counted in a notice; null, empty and zero are preserved. | |
 | req-web-panels-chart-data-4 | Sort Then Limit | Implemented | `sort` then `limit` give a top-N, direction by `order`, nulls last, and the cut rows are counted. | |
 | req-web-panels-chart-data-5 | Row Cap | Implemented | More rows than `max_rows` draw `max_rows` and a notice counts the rest. | |
+| req-web-panels-chart-data-6 | Unobserved Labels | Implemented | A null or empty label value is replaced by `null_text` / `blank_text`; numeric fields keep their gaps. | |
+| req-web-panels-chart-data-7 | Every Label Shown | Implemented | A category axis of up to 12 categories gets `axisLabel.interval: 0`, unless configured. | |
 
 ### Series Pivot
 ----
@@ -279,7 +285,7 @@ Status: `Implemented`
 
 #### Implementation
 - Colours are read from the `--tap-chart-*` custom properties on the panel root into an ECharts theme (text, axis, grid, tooltip, series palette `accent-1..8`), so a chart follows the page's light or dark tokens.
-- `color_map` resolves tokens to colours and colours series named by a mapped value and data items whose `field` (or name) is a mapped value; `series_by` defaults `field` to its `series` field. A series with its own `itemStyle.color` is left alone.
+- `color_map` resolves tokens to colours and colours series named by a mapped value and, for bar, pie, scatter, funnel, treemap and sunburst series driven by `encode`, each data item by the row's `field` value (or its name); `series_by` defaults `field` to its `series` field. A series with its own `itemStyle.color` is left alone.
 - `aria` is switched on, with the server's label as its description (ECharts' generated text misreads dataset-encoded series).
 - The chart is redrawn when the viewer's colour scheme changes or `data-theme` / `class` on `<html>` change, and resized by a `ResizeObserver` on the mount and on window resize. It is initialised after an HTMX settle, and disposed once its element leaves the page.
 - A failure (library missing, bad JSON) shows `This chart could not be drawn: ...` in the frame and sets `data-tap-chart-ready="error"`.

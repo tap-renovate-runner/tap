@@ -18,6 +18,7 @@ from tap_web.panels.chart.config import HIERARCHICAL_TYPES, _series_list
 
 DEFAULT_NULL_TEXT = "not observed"
 DEFAULT_BLANK_TEXT = "(empty)"
+MAX_FULL_LABELS = 12
 
 
 @dataclass
@@ -145,6 +146,48 @@ def _axis_type(option: dict[str, Any], key: str) -> str | None:
     return axis.get("type") if isinstance(axis, dict) else None
 
 
+def category_fields(option: dict[str, Any], config: dict[str, Any]) -> list[str]:
+    """Row fields drawn as labels: declared `category`, a series' `itemName`, or the field on a category axis."""
+    found = [f for f, kind in (config.get("types") or {}).items() if kind == "category"]
+    for series in _series_list(option):
+        enc = series.get("encode")
+        if not isinstance(enc, dict):
+            continue
+        for axis in ("x", "y"):
+            if _axis_type(option, f"{axis}Axis") == "category" and isinstance(enc.get(axis), str):
+                found.append(enc[axis])
+        if isinstance(enc.get("itemName"), str):
+            found.append(enc["itemName"])
+    return list(dict.fromkeys(found))
+
+
+def label_category_fields(
+    rows: list[dict[str, Any]], option: dict[str, Any], config: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Rows with null / empty label fields replaced by `null_text` / `blank_text`, so an axis, legend or tooltip
+    names the unobserved bucket instead of drawing it nameless. Numeric fields keep their gaps."""
+    fields = category_fields(option, config)
+    if not fields:
+        return rows
+    return [{**r, **{f: _label(r[f], config) for f in fields if f in r and r[f] in (None, "")}} for r in rows]
+
+
+def set_label_interval(option: dict[str, Any], counts: dict[str, int]) -> None:
+    """Show every label on a category axis of up to 12 categories unless the config sets an interval."""
+    for key, axis_name in (("xAxis", "x"), ("yAxis", "y")):
+        axis = option.get(key)
+        if not isinstance(axis, dict) or axis.get("type") != "category" or "data" in axis:
+            continue
+        for series in _series_list(option):
+            enc = series.get("encode")
+            field = enc.get(axis_name) if isinstance(enc, dict) else None
+            if isinstance(field, str) and field in counts and counts[field] <= MAX_FULL_LABELS:
+                label = axis.setdefault("axisLabel", {})
+                if isinstance(label, dict):
+                    label.setdefault("interval", 0)
+                break
+
+
 def pivot(rows: list[dict[str, Any]], option: dict[str, Any], config: dict[str, Any]) -> Built:
     """``series_by``: one series per distinct ``series`` value over a shared ``category`` axis."""
     spec = config["series_by"]
@@ -202,6 +245,7 @@ def pivot(rows: list[dict[str, Any]], option: dict[str, Any], config: dict[str, 
         for dim, name in zip(dims[1:], names, strict=True)
     ]
     out["dataset"] = {"dimensions": dims, "source": source}
+    set_label_interval(out, {cat_f: len(cats)})
     notices = []
     if unusable:
         notices.append(
@@ -256,8 +300,10 @@ def build_option(rows: list[dict[str, Any]], config: dict[str, Any]) -> Built:
                 f"{unusable} row{'s' if unusable != 1 else ''} had no numeric value and {'are' if unusable != 1 else 'is'} not drawn."
             )
         return Built(option, notices)
+    labelled = label_category_fields(rows, option, config)
     dims: list[str] = []
     for row in rows:
         dims.extend(k for k in row if k not in dims)
-    option["dataset"] = {"dimensions": dims, "source": rows}
+    option["dataset"] = {"dimensions": dims, "source": labelled}
+    set_label_interval(option, {f: len({r.get(f) for r in labelled}) for f in category_fields(option, config)})
     return Built(option)

@@ -92,7 +92,7 @@
         return v || colors.dflt || (p && p.color);
       };
       var perItem = s.type === "pie" || s.type === "scatter" || s.type === "funnel" ||
-        s.type === "treemap" || s.type === "sunburst" || (s.type === "bar" && s.colorBy === "data");
+        s.type === "treemap" || s.type === "sunburst" || (s.type === "bar" && (s.colorBy === "data" || colors.field));
       if (perItem) s.itemStyle = Object.assign({}, s.itemStyle, { color: pick });
     });
   }

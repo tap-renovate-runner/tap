@@ -266,6 +266,24 @@ def _walk(node: Any, path: str, depth: int, errors: list[str]) -> None:
         errors.append(f"{path}: not JSON data")
 
 
+_BARE_VALUE = re.compile(r"\{c\d*\}")
+
+
+def _formatters(node: Any, path: str = "option") -> list[tuple[str, str]]:
+    found: list[tuple[str, str]] = []
+    if isinstance(node, dict):
+        for key, value in node.items():
+            here = f"{path}.{key}"
+            if key.lower().endswith("formatter") and isinstance(value, str):
+                found.append((here, value))
+            else:
+                found.extend(_formatters(value, here))
+    elif isinstance(node, list):
+        for i, value in enumerate(node):
+            found.extend(_formatters(value, f"{path}[{i}]"))
+    return found
+
+
 def _series_list(option: dict[str, Any]) -> list[dict[str, Any]]:
     series = option.get("series")
     if isinstance(series, dict):
@@ -303,6 +321,13 @@ def validate_config(config: dict[str, Any]) -> None:
     if config.get("series_by"):
         if len(series) != 1 or kinds[0] not in PIVOTABLE_TYPES:
             errors.append("series_by needs exactly one template series, of type bar or line, in option.series")
+    if any(isinstance(s.get("encode"), dict) for s in series) or config.get("series_by"):
+        for where, text in _formatters(option):
+            if _BARE_VALUE.search(text):
+                errors.append(
+                    f"{where}: `{{c}}` is the whole row when a series reads the dataset through `encode` "
+                    "(it prints [object Object]); name the field instead: `{@field}`"
+                )
     if config.get("hierarchy") and not any(k in HIERARCHICAL_TYPES for k in kinds):
         errors.append("hierarchy needs a treemap or sunburst series in option.series")
     if errors:
