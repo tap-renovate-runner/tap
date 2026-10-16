@@ -1,0 +1,227 @@
+{
+  "CVE-2021-44228": {
+    "dataType": "CVE_RECORD",
+    "dataVersion": "5.1",
+    "cveMetadata": {
+      "state": "PUBLISHED",
+      "cveId": "CVE-2021-44228",
+      "assignerOrgId": "f0158376-9dc2-43b6-827c-5f631a4d8d09",
+      "assignerShortName": "apache",
+      "dateUpdated": "2025-10-21T23:25:23.121Z",
+      "dateReserved": "2021-11-26T00:00:00.000Z",
+      "datePublished": "2021-12-10T00:00:00.000Z"
+    },
+    "containers": {
+      "cna": {
+        "providerMetadata": {
+          "orgId": "f0158376-9dc2-43b6-827c-5f631a4d8d09",
+          "shortName": "apache",
+          "dateUpdated": "2023-04-03T00:00:00.000Z"
+        },
+        "metrics": [
+          {
+            "other": {
+              "type": "unknown",
+              "content": {
+                "other": "critical"
+              }
+            }
+          }
+        ],
+        "problemTypes": [
+          {
+            "descriptions": [
+              {
+                "type": "CWE",
+                "lang": "en",
+                "description": "CWE-502 Deserialization of Untrusted Data",
+                "cweId": "CWE-502"
+              }
+            ]
+          },
+          {
+            "descriptions": [
+              {
+                "type": "CWE",
+                "lang": "en",
+                "description": "CWE-400 Uncontrolled Resource Consumption",
+                "cweId": "CWE-400"
+              }
+            ]
+          },
+          {
+            "descriptions": [
+              {
+                "type": "CWE",
+                "lang": "en",
+                "description": "CWE-20 Improper Input Validation",
+                "cweId": "CWE-20"
+              }
+            ]
+          }
+        ]
+      },
+      "adp": [
+        {
+          "providerMetadata": {
+            "orgId": "134c704f-9b21-4f2e-91b3-4a467353bcc0",
+            "shortName": "CISA-ADP",
+            "dateUpdated": "2025-10-21T23:25:23.121Z"
+          },
+          "metrics": [
+            {
+              "cvssV3_1": {
+                "scope": "CHANGED",
+                "version": "3.1",
+                "baseScore": 10,
+                "attackVector": "NETWORK",
+                "baseSeverity": "CRITICAL",
+                "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H",
+                "integrityImpact": "HIGH",
+                "userInteraction": "NONE",
+                "attackComplexity": "LOW",
+                "availabilityImpact": "HIGH",
+                "privilegesRequired": "NONE",
+                "confidentialityImpact": "HIGH"
+              }
+            },
+            {
+              "other": {
+                "type": "ssvc",
+                "content": {
+                  "id": "CVE-2021-44228",
+                  "role": "CISA Coordinator",
+                  "options": [
+                    {
+                      "Exploitation": "active"
+                    },
+                    {
+                      "Automatable": "yes"
+                    },
+                    {
+                      "Technical Impact": "total"
+                    }
+                  ],
+                  "version": "2.0.3",
+                  "timestamp": "2025-02-04T14:25:34.416117Z"
+                }
+              }
+            },
+            {
+              "other": {
+                "type": "kev",
+                "content": {
+                  "dateAdded": "2021-12-10",
+                  "reference": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog?field_cve=CVE-2021-44228"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "CVE-2021-45105": {
+    "dataType": "CVE_RECORD",
+    "dataVersion": "5.2",
+    "cveMetadata": {
+      "assignerOrgId": "f0158376-9dc2-43b6-827c-5f631a4d8d09",
+      "assignerShortName": "apache",
+      "cveId": "CVE-2021-45105",
+      "datePublished": "2021-12-18T11:55:08.000Z",
+      "dateReserved": "2021-12-16T00:00:00.000Z",
+      "dateUpdated": "2026-05-29T11:45:26.064Z",
+      "state": "PUBLISHED"
+    },
+    "containers": {
+      "cna": {
+        "providerMetadata": {
+          "dateUpdated": "2022-07-25T16:41:57.000Z",
+          "orgId": "f0158376-9dc2-43b6-827c-5f631a4d8d09",
+          "shortName": "apache"
+        },
+        "metrics": [
+          {
+            "other": {
+              "content": {
+                "other": "high"
+              },
+              "type": "unknown"
+            }
+          }
+        ],
+        "problemTypes": [
+          {
+            "descriptions": [
+              {
+                "cweId": "CWE-20",
+                "description": "CWE-20 Improper Input Validation",
+                "lang": "en",
+                "type": "CWE"
+              }
+            ]
+          },
+          {
+            "descriptions": [
+              {
+                "cweId": "CWE-674",
+                "description": "CWE-674: Uncontrolled Recursion",
+                "lang": "en",
+                "type": "CWE"
+              }
+            ]
+          }
+        ]
+      },
+      "adp": [
+        {
+          "providerMetadata": {
+            "orgId": "134c704f-9b21-4f2e-91b3-4a467353bcc0",
+            "shortName": "CISA-ADP",
+            "dateUpdated": "2026-05-29T11:45:26.064Z"
+          },
+          "metrics": [
+            {
+              "cvssV3_1": {
+                "scope": "UNCHANGED",
+                "version": "3.1",
+                "baseScore": 5.9,
+                "attackVector": "NETWORK",
+                "baseSeverity": "MEDIUM",
+                "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H",
+                "integrityImpact": "NONE",
+                "userInteraction": "NONE",
+                "attackComplexity": "HIGH",
+                "availabilityImpact": "HIGH",
+                "privilegesRequired": "NONE",
+                "confidentialityImpact": "NONE"
+              }
+            },
+            {
+              "other": {
+                "type": "ssvc",
+                "content": {
+                  "timestamp": "2026-05-29T11:45:21.048570Z",
+                  "id": "CVE-2021-45105",
+                  "options": [
+                    {
+                      "Exploitation": "none"
+                    },
+                    {
+                      "Automatable": "no"
+                    },
+                    {
+                      "Technical Impact": "partial"
+                    }
+                  ],
+                  "role": "CISA Coordinator",
+                  "version": "2.0.3"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
