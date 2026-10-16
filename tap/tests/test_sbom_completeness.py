@@ -12,6 +12,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -28,12 +29,14 @@ FIXTURE = Path(__file__).resolve().parent / "fixtures" / "sbom" / "tap-web-trimm
 
 @pytest.fixture(name="doc")
 def _doc() -> dict[str, Any]:
-    return json.loads(FIXTURE.read_text(encoding="utf-8"))
+    loaded: dict[str, Any] = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    return loaded
 
 
 @pytest.fixture(name="rules")
 def _rules() -> dict[str, Any]:
-    return comp.load_rules()
+    loaded: dict[str, Any] = comp.load_rules()
+    return loaded
 
 
 def _first(doc: dict[str, Any], prefix: str, *, with_upstream: bool | None = None) -> dict[str, Any]:
@@ -43,7 +46,8 @@ def _first(doc: dict[str, Any], prefix: str, *, with_upstream: bool | None = Non
             continue
         if with_upstream is not None and ("upstream=" in purl) != with_upstream:
             continue
-        return component
+        found: dict[str, Any] = component
+        return found
     raise AssertionError(f"no component with prefix {prefix}")
 
 
@@ -56,7 +60,7 @@ def _drop_qualifier(component: dict[str, Any], key: str) -> None:
 def _property(doc: dict[str, Any], name: str) -> str | None:
     for prop in doc["metadata"].get("properties", []):
         if prop["name"] == name:
-            return prop["value"]
+            return str(prop["value"])
     return None
 
 
@@ -67,7 +71,7 @@ def test_the_real_shape_document_is_complete(doc, rules):
     assert result["components"] == 14
 
 
-DEFECTS = {
+DEFECTS: dict[str, Callable[[dict[str, Any]], object]] = {
     "purl": lambda d: _first(d, "pkg:pypi").pop("purl"),
     "purl-qualifier:arch": lambda d: _drop_qualifier(_first(d, "pkg:apk"), "arch"),
     "purl-qualifier:distro": lambda d: _drop_qualifier(_first(d, "pkg:apk"), "distro"),
@@ -163,8 +167,8 @@ def test_no_components_is_thin(rules):
 def test_the_verdict_and_the_coverage_limit_are_in_every_annotated_document(doc, rules):
     annotated = comp.annotate(copy.deepcopy(doc), comp.check_completeness(doc, rules))
     assert _property(annotated, "tap:completeness") == "complete"
-    assert "Does not cover whether every package in the image is listed" in _property(
-        annotated, "tap:completeness:coverage"
+    assert "Does not cover whether every package in the image is listed" in (
+        _property(annotated, "tap:completeness:coverage") or ""
     )
     # Re-annotating replaces, never duplicates.
     again = comp.annotate(annotated, {"verdict": "not-observable", "reason": "test"})
