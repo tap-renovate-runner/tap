@@ -1,10 +1,131 @@
-/* tap_web Chart Panel — minimal v0 styling.
+/* Chart panel (req-web-panels-chart-style). Tokens live on the panel root; dark values follow the viewer's
+   scheme exactly as stat-cards.css does, and chart-panel.js reads them, so a chart is never coloured by
+   a literal in its config. good / warn / bad / neutral / muted are the Stat Cards tone colours. */
 
-   v0 reserves a vertical footprint on the mount div so the load-bearing-stub
-   panel isn't invisible on a page. No chart is drawn yet; sizing semantics
-   for the chart-spec layer land in a future revision. */
-
-.tap-panel--chart .tap-chart-mount {
-  min-height: 240px;
-  width: 100%;
+.tap-panel--chart {
+  --tap-chart-bg: #ffffff;
+  --tap-chart-border: #e2e8f0;
+  --tap-chart-text: #0f172a;
+  --tap-chart-text-muted: #475569;
+  --tap-chart-grid: #e2e8f0;
+  --tap-chart-axis: #64748b;
+  --tap-chart-good: #15803d;
+  --tap-chart-warn: #b45309;
+  --tap-chart-bad: #b91c1c;
+  --tap-chart-neutral: #78879b;
+  --tap-chart-muted: #64748b;
+  --tap-chart-critical: #b91c1c;
+  --tap-chart-high: #c2410c;
+  --tap-chart-medium: #a16207;
+  --tap-chart-low: #1d4ed8;
+  --tap-chart-info: #64748b;
+  --tap-chart-accent-1: #0072b2;
+  --tap-chart-accent-2: #d55e00;
+  --tap-chart-accent-3: #007a5a;
+  --tap-chart-accent-4: #aa4499;
+  --tap-chart-accent-5: #8a6d00;
+  --tap-chart-accent-6: #4b5fc4;
+  --tap-chart-accent-7: #b3365a;
+  --tap-chart-accent-8: #3f7d20;
 }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .tap-panel--chart {
+    --tap-chart-bg: #1e293b;
+    --tap-chart-border: #334155;
+    --tap-chart-text: #f1f5f9;
+    --tap-chart-text-muted: #cbd5e1;
+    --tap-chart-grid: #334155;
+    --tap-chart-axis: #94a3b8;
+    --tap-chart-good: #4ade80;
+    --tap-chart-warn: #fbbf24;
+    --tap-chart-bad: #f87171;
+    --tap-chart-neutral: #64748b;
+    --tap-chart-muted: #94a3b8;
+    --tap-chart-critical: #f87171;
+    --tap-chart-high: #fb923c;
+    --tap-chart-medium: #facc15;
+    --tap-chart-low: #60a5fa;
+    --tap-chart-info: #94a3b8;
+    --tap-chart-accent-1: #56b4e9;
+    --tap-chart-accent-2: #f08a3c;
+    --tap-chart-accent-3: #2fc99a;
+    --tap-chart-accent-4: #d68bc5;
+    --tap-chart-accent-5: #e6c23a;
+    --tap-chart-accent-6: #8c9cf0;
+    --tap-chart-accent-7: #f0839f;
+    --tap-chart-accent-8: #8bd05a;
+  }
+}
+
+:root[data-theme="dark"] .tap-panel--chart {
+  --tap-chart-bg: #1e293b;
+  --tap-chart-border: #334155;
+  --tap-chart-text: #f1f5f9;
+  --tap-chart-text-muted: #cbd5e1;
+  --tap-chart-grid: #334155;
+  --tap-chart-axis: #94a3b8;
+  --tap-chart-good: #4ade80;
+  --tap-chart-warn: #fbbf24;
+  --tap-chart-bad: #f87171;
+  --tap-chart-neutral: #64748b;
+  --tap-chart-muted: #94a3b8;
+  --tap-chart-critical: #f87171;
+  --tap-chart-high: #fb923c;
+  --tap-chart-medium: #facc15;
+  --tap-chart-low: #60a5fa;
+  --tap-chart-info: #94a3b8;
+  --tap-chart-accent-1: #56b4e9;
+  --tap-chart-accent-2: #f08a3c;
+  --tap-chart-accent-3: #2fc99a;
+  --tap-chart-accent-4: #d68bc5;
+  --tap-chart-accent-5: #e6c23a;
+  --tap-chart-accent-6: #8c9cf0;
+  --tap-chart-accent-7: #f0839f;
+  --tap-chart-accent-8: #8bd05a;
+}
+
+.tap-panel--chart { min-width: 0; height: 100%; display: flex; flex-direction: column; }
+
+.tap-chart {
+  --tap-chart-height: 320px;
+  margin: 0;
+  min-width: 0;
+  padding: 0.5rem;
+  background: var(--tap-chart-bg);
+  color: var(--tap-chart-text);
+  border: 1px solid var(--tap-chart-border);
+  border-radius: 8px;
+}
+
+.tap-chart--slot { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 240px; }
+.tap-chart--slot .tap-chart__mount { flex: 1 1 auto; height: auto; min-height: 240px; }
+
+.tap-chart__mount { width: 100%; height: var(--tap-chart-height); }
+
+.tap-chart__error { margin: 0.25rem 0 0; padding: 0.5rem 0.75rem; font-size: 0.85rem; color: var(--tap-chart-bad); border: 1px solid var(--tap-chart-bad); border-radius: 6px; }
+
+.tap-chart__notice { margin: 0.25rem 0.25rem 0; font-size: 0.85rem; color: var(--tap-chart-text-muted); }
+.tap-panel--chart .tap-chart__empty {
+  margin: 0;
+  padding: 1rem;
+  font-size: 0.9rem;
+  color: var(--tap-chart-text-muted);
+  background: var(--tap-chart-bg);
+  border: 1px dashed var(--tap-chart-border);
+  border-radius: 8px;
+}
+
+/* The data table is for assistive technology: present in the accessibility tree, not on screen. */
+.tap-chart__data {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.tap-chart__data table { border-collapse: collapse; }

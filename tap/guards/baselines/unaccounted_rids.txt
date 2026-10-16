@@ -214,9 +214,6 @@ req-web-panel-registry
 req-web-panel-render-content.sec
 req-web-panel-static
 req-web-panels-chart-asset-vendor
-req-web-panels-chart-config
-req-web-panels-chart-panel-type
-req-web-panels-chart-rendering
 req-web-seqnav-config
 req-web-seqnav-edges
 req-web-seqnav-links
