@@ -4,9 +4,11 @@ For an image digest this verifies the image's CycloneDX attestations against the
 (`trusted-signers.json`), takes the predicate of the highest `version` among those that verify, and stages it as
 `scan-inputs/sbom.cdx.json` for `merge_enrich.py`, with the facts about it in `scan-inputs/meta.json`.
 
-Verification is delegated: each trusted signer is checked by `gh attestation verify` with `--cert-identity` (the exact
-signer workflow and ref) and, where the entry pins one, `--signer-digest`. This code never reimplements a certificate
-check (req-cicd-sbom-22-8); it reads what a successful verification returned.
+Verification is delegated and done by the workflow's shell, not by this code: `plan` prints the validated trust list,
+the workflow runs `gh attestation verify` for each signer with `--cert-identity` (the exact signer workflow and ref) and,
+where the entry pins one, `--signer-digest`, writing each result to `scan-inputs/verified/<signer id>.json`. This code
+never starts a process and never reimplements a certificate check (req-cicd-sbom-22-8); it reads what a successful
+verification returned.
 
 The image and digest arrive in the IMAGE and DIGEST environment variables and are matched against strict patterns
 before use; no file path comes from the environment, the command line or the documents.
@@ -22,7 +24,6 @@ import hashlib
 import json
 import os
 import re
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,7 @@ _HERE = Path(__file__).resolve().parent
 TRUSTED_SIGNERS = _HERE / "trusted-signers.json"
 SIGNERS_SCHEMA = _HERE / "trusted-signers.schema.json"
 OUTPUT_DIR = Path("scan-inputs")
+VERIFIED_DIR = OUTPUT_DIR / "verified"
 
 PREDICATE_TYPE = "https://cyclonedx.org/bom"
 OIDC_ISSUER = "https://token.actions.githubusercontent.com"
@@ -61,30 +63,6 @@ def load_signers() -> list[dict[str, Any]]:
         raise SelectionError(f"the trust list does not validate: {exc.message} at {list(exc.absolute_path)}") from exc
     signers: list[dict[str, Any]] = signers_doc["signers"]
     return signers
-
-
-def verify_command(image: str, digest: str, signer: dict[str, Any]) -> list[str]:
-    """The `gh attestation verify` argv for one trusted signer. Pure; no shell is involved."""
-    identity = f"https://github.com/{signer['repository']}/{signer['workflow_path']}@{signer['ref']}"
-    command = [
-        "gh",
-        "attestation",
-        "verify",
-        f"oci://{REGISTRY}/{image}@{digest}",
-        "--owner",
-        image.split("/", 1)[0],
-        "--predicate-type",
-        PREDICATE_TYPE,
-        "--cert-identity",
-        identity,
-        "--cert-oidc-issuer",
-        OIDC_ISSUER,
-        "--format",
-        "json",
-    ]
-    if signer.get("signer_digest"):
-        command += ["--signer-digest", signer["signer_digest"]]
-    return command
 
 
 def canonical(value: Any) -> bytes:
@@ -164,17 +142,49 @@ def choose(candidates: list[dict[str, Any]]) -> dict[str, Any]:
     return max(candidates, key=lambda c: (c["version"], c["integrated_time"], c["content_digest"]))
 
 
-def run_verify(command: list[str]) -> list[Any]:
-    """Run one verification. A non-zero exit means nothing verified for this signer, which is not an error by itself."""
-    completed = subprocess.run(command, capture_output=True, text=True, check=False)  # noqa: S603 - argv list, no shell
-    if completed.returncode != 0:
-        sys.stderr.write(f"no attestation verified for this signer (exit {completed.returncode})\n")
+def read_verified(signer_id: str) -> list[Any]:
+    """What the workflow's `gh attestation verify` wrote for one signer, or [] when nothing verified for it.
+
+    The file name is the signer id, which the trust list's schema restricts to lowercase letters, digits and
+    hyphens; nothing else reaches the path.
+    """
+    path = VERIFIED_DIR / f"{signer_id}.json"
+    if not path.is_file():
+        sys.stderr.write(f"no verified attestation for signer {signer_id}\n")
         return []
-    parsed = json.loads(completed.stdout)
+    parsed = json.loads(path.read_text(encoding="utf-8"))
     return parsed if isinstance(parsed, list) else []
 
 
-def main() -> int:
+def plan() -> int:
+    """Print the validated trust list, one tab-separated line per signer, for the workflow to verify against.
+
+    The fields were matched against the schema's patterns, so none can hold a tab, a newline or a shell
+    metacharacter. `-` stands for "no digest pin".
+    """
+    try:
+        for signer in load_signers():
+            sys.stdout.write(
+                "\t".join(
+                    [
+                        signer["id"],
+                        signer["repository"],
+                        signer["workflow_path"],
+                        signer["ref"],
+                        signer["signer_digest"] or "-",
+                    ]
+                )
+                + "\n"
+            )
+    except SelectionError as exc:
+        sys.stderr.write(f"selection failed: {exc}\n")
+        return 2
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    if argv == ["plan"]:
+        return plan()
     image = os.environ.get("IMAGE", "")
     digest = os.environ.get("DIGEST", "")
     try:
@@ -184,8 +194,7 @@ def main() -> int:
             raise SelectionError("DIGEST is not sha256:<64 hex>")
         candidates: list[dict[str, Any]] = []
         for signer in load_signers():
-            sys.stderr.write(f"verifying against signer {signer['id']}\n")
-            candidates += candidates_from(run_verify(verify_command(image, digest, signer)), digest, signer["id"])
+            candidates += candidates_from(read_verified(signer["id"]), digest, signer["id"])
         chosen = choose(candidates)
         OUTPUT_DIR.mkdir(exist_ok=True)
         (OUTPUT_DIR / "sbom.cdx.json").write_bytes(chosen["predicate_bytes"])
@@ -209,4 +218,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

@@ -54,36 +54,39 @@ def _item(version: int, *, serial: str | None = None, time: int = 1000, digest: 
     }
 
 
-def _signer(**overrides: Any) -> dict[str, Any]:
-    signer = {
-        "id": "s1",
-        "repository": "unified-systems-com/tap",
-        "workflow_path": ".github/workflows/sbom-vulnerability-evidence.yml",
-        "ref": "refs/heads/main",
-        "signer_digest": "b" * 40,
-    }
-    signer.update(overrides)
-    return signer
+WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "sbom-vulnerability-evidence.yml"
 
 
 @pytest.mark.spec("req-cicd-sbom-22-8")
-def test_verification_is_delegated_with_the_entrys_exact_identity_and_pin():
-    command = sel.verify_command(IMAGE, DIGEST, _signer())
-    assert command[:4] == ["gh", "attestation", "verify", f"oci://ghcr.io/{IMAGE}@{DIGEST}"]
-    identity = (
-        "https://github.com/unified-systems-com/tap/.github/workflows/sbom-vulnerability-evidence.yml@refs/heads/main"
-    )
-    assert command[command.index("--cert-identity") + 1] == identity
-    assert command[command.index("--signer-digest") + 1] == "b" * 40
-    assert command[command.index("--predicate-type") + 1] == "https://cyclonedx.org/bom"
-    assert command[command.index("--owner") + 1] == "unified-systems-com"
+def test_the_workflow_verifies_each_signer_with_the_entrys_exact_identity_and_pin():
+    text = WORKFLOW.read_text()
+    assert 'gh attestation verify "oci://ghcr.io/${IMAGE}@${DIGEST}"' in text
+    assert '--cert-identity "https://github.com/${repository}/${workflow_path}@${ref}"' in text
+    assert "--predicate-type https://cyclonedx.org/bom" in text
+    assert '--signer-digest "$signer_digest"' in text
+    assert '[ "$signer_digest" = "-" ] ||' in text  # a transitional entry has no digest pin
 
 
 @pytest.mark.spec("req-cicd-sbom-22-8")
-def test_a_transitional_entry_has_no_digest_pin():
-    command = sel.verify_command(IMAGE, DIGEST, _signer(signer_digest=None))
-    assert "--signer-digest" not in command
-    assert "--cert-identity" in command  # the identity is still matched exactly
+def test_this_module_never_starts_a_process():
+    source = (_REPO_ROOT / "scripts" / "sbom" / "select_input.py").read_text()
+    assert "import subprocess" not in source and "os.system" not in source
+
+
+@pytest.mark.spec("req-cicd-sbom-22-7")
+def test_plan_prints_the_validated_list_as_tab_separated_lines(capsys):
+    assert sel.main(["plan"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines == [
+        "tap-publish-images-transitional\tunified-systems-com/tap\t.github/workflows/publish-images.yml\trefs/heads/main\t-"
+    ]
+
+
+@pytest.mark.spec("req-cicd-sbom-22-1")
+def test_plan_fails_closed_on_a_bad_trust_list(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(sel, "TRUSTED_SIGNERS", tmp_path / "absent.json")
+    assert sel.main(["plan"]) == 2
+    assert capsys.readouterr().out == ""
 
 
 @pytest.mark.spec("req-cicd-sbom-20-10")
@@ -171,7 +174,7 @@ def test_main_stages_the_highest_verified_revision_and_its_facts(tmp_path, monke
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("IMAGE", IMAGE)
     monkeypatch.setenv("DIGEST", DIGEST)
-    monkeypatch.setattr(sel, "run_verify", lambda command: [_item(1), _item(2)])
+    monkeypatch.setattr(sel, "read_verified", lambda signer_id: [_item(1), _item(2)])
     assert sel.main() == 0
     staged = (tmp_path / "scan-inputs" / "sbom.cdx.json").read_bytes()
     meta = json.loads((tmp_path / "scan-inputs" / "meta.json").read_text())
@@ -189,7 +192,7 @@ def test_main_fails_closed_when_nothing_verifies(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("IMAGE", IMAGE)
     monkeypatch.setenv("DIGEST", DIGEST)
-    monkeypatch.setattr(sel, "run_verify", lambda command: [])
+    monkeypatch.setattr(sel, "read_verified", lambda signer_id: [])
     assert sel.main() == 2
     assert not (tmp_path / "scan-inputs" / "sbom.cdx.json").exists()
 
@@ -211,7 +214,7 @@ def test_an_image_or_digest_that_is_not_the_expected_shape_is_refused(tmp_path, 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("IMAGE", image)
     monkeypatch.setenv("DIGEST", digest)
-    monkeypatch.setattr(sel, "run_verify", lambda command: pytest.fail("verification must not start"))
+    monkeypatch.setattr(sel, "read_verified", lambda signer_id: pytest.fail("nothing may be read for a bad image"))
     assert sel.main() == 2
 
 
