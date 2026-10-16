@@ -4647,3 +4647,61 @@ class TestGryphonNodeOnlyAggregates(_MinMaxFixture):
         )
         assert "MAX(" in sql and "COUNT(" in sql and "GROUP BY" in sql
 
+
+
+    # -- JSON group key: a stored JSON null and an absent key are one group (nodeonly-agg-9) --
+
+    def _tag_alerts(self) -> None:
+        """a1 stores the key as JSON null, a2 omits it, a3/a4 hold 'x', a5 holds 2, a6 omits it."""
+        from tap_plugin.grid_fixtures.models import PgNode as _PgNode
+
+        PgNode: Any = _PgNode
+        self._build()
+        values: dict[str, Any] = {
+            "a1": {"k": None},
+            "a2": {},
+            "a3": {"k": "x"},
+            "a4": {"k": "x"},
+            "a5": {"k": 2},
+            "a6": {"other": 1},
+        }
+        for name, tags in values.items():
+            PgNode.objects.filter(name=name).update(tags=tags)
+
+    @pytest.mark.spec("req-grid-gryphon-nodeonly-agg-9")
+    def test_json_null_and_absent_key_are_one_group(self):
+        self._tag_alerts()
+        rows = self._rows(self.SCAN + "RETURN a.data.tags.k AS k, COUNT(a) AS n ORDER BY n DESC")
+        assert sorted(rows, key=lambda r: (r["k"] is None, str(r["k"]))) == [
+            {"k": 2, "n": 1},
+            {"k": "x", "n": 2},
+            {"k": None, "n": 3},
+        ]
+
+    @pytest.mark.spec("req-grid-gryphon-nodeonly-agg-9")
+    def test_json_group_key_keeps_its_type_and_order_by_works(self):
+        """The rewrite must not turn a number into text, and ORDER BY / LIMIT still apply to the group."""
+        self._tag_alerts()
+        rows = self._rows(self.SCAN + "RETURN a.data.tags.k AS k, COUNT(a) AS n ORDER BY k LIMIT 1")
+        assert len(rows) == 1 and rows[0]["n"] in (1, 2)
+        assert isinstance(rows[0]["k"], int) or rows[0]["k"] == "x"
+        two = [r for r in self._rows(self.SCAN + "RETURN a.data.tags.k AS k, COUNT(a) AS n") if r["k"] == 2]
+        assert two == [{"k": 2, "n": 1}] and isinstance(two[0]["k"], int)
+
+    @pytest.mark.spec("req-grid-gryphon-nodeonly-agg-9")
+    def test_a_column_group_key_is_grouped_as_before(self):
+        self._tag_alerts()
+        assert self._rows(self.SCAN + "RETURN a.data.kind AS k, COUNT(a) AS n ORDER BY k") == [
+            {"k": "scanner-x", "n": 3},
+            {"k": "scanner-y", "n": 3},
+        ]
+
+    @pytest.mark.spec("req-grid-gryphon-nodeonly-agg-9")
+    def test_the_traversal_path_collapses_it_too(self):
+        self._tag_alerts()
+        rows = self._rows(self.ONE_HOP + "RETURN a.data.tags.k AS k, COUNT(a) AS n")
+        assert sorted(((r["k"] is None, str(r["k"]), r["n"]) for r in rows)) == [
+            (False, "2", 1),
+            (False, "x", 2),
+            (True, "None", 3),
+        ]

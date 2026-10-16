@@ -642,6 +642,7 @@ Status: `Implemented`
 - Dispatch: an aggregate `RETURN` is routed to the chain (advanced) executor only when some pattern has an edge (or a `NOT EXISTS` block is present). A node-only aggregate falls through to the type-scan executor, which hands the aggregate items to `_typescan_aggregate_rows`.
 - Lowering, rung 1 and the same mechanism as the traversal path: non-aggregate `RETURN` items are the `GROUP BY` keys, `COUNT` / `MIN` / `MAX` are `Count` / `Min` / `Max` over annotated columns, and the shared row backend (`materialize_rows`) runs them; a group-less `RETURN` is one group and one row (`.aggregate()`). `MIN` / `MAX` typing, nulls and result formatting are `_extremum_aggregate`'s, unchanged (`req-grid-gryphon-minmax`); the type scan only supplies its own ORM-path resolver, which applies the same data-lane allowlist.
 - `COUNT(a)` counts the matching rows; `COUNT(a.<spine field>)` counts non-null values; the argument is a bare variable or one dot-step, as on the traversal path.
+- **A JSON group key's null is one group** (`req-grid-gryphon-nodeonly-agg-9`). A group column that is the extracted sub-key of a JSON column would otherwise group on the jsonb value, where a stored JSON `null` is the value `null` and an absent key is SQL `NULL`: two groups that both render as `null`. `materialize_rows` rewrites such a group column, on every aggregate path, to `NULLIF(value, 'null'::jsonb)`, so the two fall together. Other group columns are untouched, and the value keeps its JSON type (a number stays a number; a text cast was rejected because it would turn every JSON group key into a string).
 - **Grouped node-only aggregation is supported**: `MATCH (a:T) RETURN a.data.kind AS k, COUNT(a) AS n ORDER BY n DESC`. ORDER BY names RETURN outputs by alias and the group keys are the deterministic tiebreak; a per-row tiebreaker such as `entity_id` is never added to a grouped query, because it would split the groups.
 - **Apply or reject** (`GRY-ARCH-3`): the following are refused with `SearchExecutionError` and a message naming the remedy, never skipped: a labelless `MATCH (a)` (it scans every registered type); more than one `MATCH` clause (each clause would be aggregated on its own); a `RETURN` item or `WHERE` term on a variable other than the scanned one (a `WHERE` term is never scoped away on this path: the count would be too high); a bare scanned variable as a group key; a `COUNT` argument deeper than one dot-step; and every `MIN` / `MAX` argument `req-grid-gryphon-minmax-4` refuses. `NOT EXISTS` with a node-only pattern and `OPTIONAL MATCH` are unchanged.
 
@@ -661,12 +662,12 @@ The demand is the dashboard tile that counts or bounds one type ("alerts", "late
 | req-grid-gryphon-nodeonly-agg-6 | One MATCH Clause | Implemented | An aggregate over several `MATCH` clauses raises `SearchExecutionError`. | |
 | req-grid-gryphon-nodeonly-agg-7 | Foreign Variables And Bare Group Keys Rejected | Implemented | An aggregate, group item or `WHERE` term on a variable other than the scanned one, a bare scanned variable as a group key, and a `COUNT` argument deeper than one dot-step each raise `SearchExecutionError`. | |
 | req-grid-gryphon-nodeonly-agg-8 | Traversal Aggregation Unchanged | Implemented | Aggregates over a pattern with an edge, `NOT EXISTS`, and `OPTIONAL MATCH` behave as before. | |
+| req-grid-gryphon-nodeonly-agg-9 | JSON Group Key Null Is One Group | Implemented | When a group key is a JSON sub-key (`RETURN a.data.tags.k AS k, COUNT(a)`), a stored JSON `null` and an absent key fall in one group whose key is `null`; a group key that is not a JSON value is grouped exactly as before. Holds on every aggregate path, because the rewrite is in the shared row backend (`materialize_rows`). | Was recorded as a Future gap; ruled "fix it now" by the maintainer 2026-10-15. |
 
 #### Future
 
 - `COUNT` of a deeper path (`COUNT(a.data.f)`) on either path; the argument stays a bare variable or one dot-step.
 - `COUNT(DISTINCT)`, `SUM`, `AVG`.
-- A JSON sub-key as a group key (`RETURN a.data.tags.k AS k, COUNT(a)`) groups on the JSON value, so a stored JSON `null` and an absent key can form two groups that both render as `null`; the traversal path behaves the same. Group on a column, or pull this in with a text-cast group key when a query needs it.
 
 ---
 
