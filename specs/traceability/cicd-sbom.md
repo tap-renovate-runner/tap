@@ -4,9 +4,9 @@
 
 | Bucket | Count |
 | --- | ---: |
-| mapped | 6 |
+| mapped | 7 |
 | excluded | 5 |
-| unbuilt | 20 |
+| unbuilt | 19 |
 | 0-ACID (payable) | 0 |
 
 ## Exclusions
@@ -30,4 +30,5 @@ Reasons verbatim from each `Trace:` line; ⚠ marks zero-ACID exempt.
 | `req-cicd-sbom-12` | Implemented | Tested | — | `req-cicd-sbom-12-1`, `req-cicd-sbom-12-2`, `req-cicd-sbom-12-3`, `req-cicd-sbom-12-4`, `req-cicd-sbom-12-5`, `req-cicd-sbom-12-6` |
 | `req-cicd-sbom-13` | Implemented | Tested | — | `req-cicd-sbom-13-1`, `req-cicd-sbom-13-2` |
 | `req-cicd-sbom-3` | Implemented | Tested | — | `req-cicd-sbom-3-1`, `req-cicd-sbom-3-2`, `req-cicd-sbom-3-3`, `req-cicd-sbom-3-4`, `req-cicd-sbom-3-5`, `req-cicd-sbom-3-6` |
+| `req-cicd-sbom-32` | Proposed | Tested | — | `req-cicd-sbom-32-10`, `req-cicd-sbom-32-11`, `req-cicd-sbom-32-2`, `req-cicd-sbom-32-3`, `req-cicd-sbom-32-4`, `req-cicd-sbom-32-5`, `req-cicd-sbom-32-6`, `req-cicd-sbom-32-7`, `req-cicd-sbom-32-8`, `req-cicd-sbom-32-9` |
 | `req-cicd-sbom-7` | Implemented | Tested | — | `req-cicd-sbom-7-1`, `req-cicd-sbom-7-2`, `req-cicd-sbom-7-3`, `req-cicd-sbom-7-4` |
