@@ -66,6 +66,10 @@ class MalformedDocument(Exception):
     """
 
 
+#: Named once so no formatter target can rewrite it into the unparenthesized form, which only Python 3.14 accepts.
+_CANNOT_ANNOTATE = (MalformedDocument, AttributeError, TypeError)
+
+
 def _walk_components(raw: Any, path: str = "components") -> list[dict[str, Any]]:
     """Every component, nested ones included (CycloneDX allows `components` under a component).
 
@@ -313,7 +317,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.annotate and doc is not None:
         try:
             sys.stdout.write(json.dumps(annotate(doc, result), indent=2) + "\n")
-        except MalformedDocument, AttributeError, TypeError:
+        except _CANNOT_ANNOTATE:
             # A document too malformed to carry the property cannot be written back; the verdict still stands
             # as not-observable and the run still fails.
             result = {"verdict": "not-observable", "reason": "the document is too malformed to annotate"}
