@@ -1100,7 +1100,7 @@ def _typescan_aggregate_rows(
 ) -> list[dict[str, Any]]:
     """Aggregate a node-only type scan: ``MATCH (a:T) RETURN MAX(a.data.x) AS m, COUNT(a) AS n``.
 
-    TAP-IMPLEMENTS: req-grid-gryphon-nodeonly-agg@320545ff12d2/4155db03c7f9 (derivation) — COUNT / MIN / MAX over a node-only scan lower here
+    TAP-IMPLEMENTS: req-grid-gryphon-nodeonly-agg@ba484de43853/4155db03c7f9 (derivation) — COUNT / MIN / MAX over a node-only scan lower here
 
     Rung 1, the same mechanism the edge-chain path uses: non-aggregate RETURN items are the
     GROUP BY keys, the aggregates are ``Count`` / ``Min`` / ``Max`` over annotated columns, and
@@ -3335,10 +3335,40 @@ def _has_extremum(plan: MaterializationPlan) -> bool:
     return any(isinstance(agg, (Min, Max)) for agg in plan.aggregate_annotations.values())
 
 
+def _json_null_collapsed(annotations: dict[str, Any], group_internals: list[str], qs: Any) -> dict[str, Any]:
+    """Make a JSON group key treat a stored JSON ``null`` and an absent key as one group.
+
+    Specified by ``req-grid-gryphon-nodeonly-agg-9`` (the rule holds on every aggregate path).
+
+    Grouping by a JSON sub-key (``a.data.tags.k``) groups on the extracted JSON value. A key
+    stored as JSON ``null`` is the jsonb value ``null``; an absent key is SQL ``NULL``. They are
+    different values to ``GROUP BY`` but both read as ``null`` in a row, so a table showed two
+    look-alike rows. Only a group column whose value is JSON (the extracted sub-key of a JSON
+    column) is rewritten, to ``NULLIF(value, 'null'::jsonb)``; every other group column is
+    untouched, so non-JSON keys keep their type and their grouping.
+    """
+    from django.db.models import F, JSONField, Value
+    from django.db.models.functions import Cast, NullIf
+
+    json_null = Cast(Value("null"), output_field=JSONField())
+    out = dict(annotations)
+    for internal in group_internals:
+        expr = out.get(internal)
+        if not isinstance(expr, F):
+            continue
+        try:
+            resolved = expr.resolve_expression(qs.query, allow_joins=True)
+        except Exception:  # noqa: BLE001 - an unresolvable group key is reported by the query itself
+            continue
+        if isinstance(getattr(resolved, "output_field", None), JSONField):
+            out[internal] = NullIf(expr, json_null)
+    return out
+
+
 def materialize_rows(plan: MaterializationPlan) -> list[dict[str, Any]]:
     """The shared Layer-B row backend: a resolved plan -> the ``rows`` list.
 
-    TAP-IMPLEMENTS: req-grid-traversal-exec-row-materialization@edbd98db287d/de54a88dd468 (derivation) —
+    TAP-IMPLEMENTS: req-grid-traversal-exec-row-materialization@edbd98db287d/3243b67421f3 (derivation) —
         the requirement exists to forbid per-dispatch row tails; this function is the one
         backend every shape reaches, so a fifth row tail is a defect by construction.
 
@@ -3369,8 +3399,11 @@ def materialize_rows(plan: MaterializationPlan) -> list[dict[str, Any]]:
         raise SearchExecutionError("DISTINCT is not implemented yet (req-grid-gryphon-distinct).")
 
     qs = plan.queryset
-    if plan.pre_annotations:
-        qs = qs.annotate(**plan.pre_annotations)
+    pre_annotations = plan.pre_annotations
+    if plan.aggregate_annotations and plan.group_pairs:
+        pre_annotations = _json_null_collapsed(pre_annotations, [internal for internal, _ in plan.group_pairs], qs)
+    if pre_annotations:
+        qs = qs.annotate(**pre_annotations)
 
     group_internals = [internal for internal, _ in plan.group_pairs]
     if plan.aggregate_annotations and not group_internals:
