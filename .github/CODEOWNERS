@@ -90,6 +90,9 @@
 /scripts/gate-lean                       @notgeorge @criticalsec
 /scripts/promote-to-main.sh              @notgeorge @criticalsec
 /scripts/promote-all-sessions.sh         @notgeorge @criticalsec
+/scripts/sbom/trusted-signers.json       @notgeorge @criticalsec
+/scripts/sbom/trusted-signers.schema.json @notgeorge @criticalsec
+/scripts/sbom/select_input.py            @notgeorge @criticalsec
 # The contribution gates and the ONE exemption they share. These decide whether an
 # unsigned or unlinked change may land, so widening them — a new approved bot identity,
 # a looser exemption, a check that stops checking — is a weakening move and wants the
