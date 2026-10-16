@@ -27,6 +27,8 @@ from typing import TYPE_CHECKING, Any
 import jsonschema
 from django.core.exceptions import ValidationError
 
+from tap_web.panels.search_rows import fetch_panel_rows
+
 if TYPE_CHECKING:
     from django.http import HttpRequest
 
@@ -296,8 +298,6 @@ class StatCardPanelType:
     @classmethod
     def get_view_context(cls, panel: Panel, request: HttpRequest) -> dict[str, Any]:
         """Execute the bound Search and return the cards (or the reason there are none)."""
-        from tap_web.panel import get_panel_search
-
         config = {**cls.config_defaults, **(panel.config or {})}
         base: dict[str, Any] = {"cards": [], "cards_error": None, "cards_empty_text": None, "cards_omitted": 0}
 
@@ -306,27 +306,11 @@ class StatCardPanelType:
         except ValidationError as exc:
             return {**base, "cards_error": f"Invalid stat-card config: {'; '.join(exc.messages)}"}
 
-        search = get_panel_search(panel)
-        if search is None:
-            return {**base, "cards_error": "No search linked to this panel."}
-
-        try:
-            from tap_grid.search import execute_search, inputs_from_query
-
-            inputs = inputs_from_query(search, request.GET)
-            result = execute_search(search, inputs or None, layer="extended")
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("[3c5e] Stat cards search execution failed for panel %s", panel.entity_id)
-            return {**base, "cards_error": f"Search execution failed: {exc}"}
-
-        envelope = result["results"] if "results" in result else result
-        rows = [r for r in (envelope.get("rows") or []) if isinstance(r, dict)]
+        fetched = fetch_panel_rows(panel, request, label="Stat cards")
+        if fetched.error:
+            return {**base, "cards_error": fetched.error}
+        rows = fetched.rows
         if not rows:
-            if envelope.get("nodes"):
-                return {
-                    **base,
-                    "cards_error": "The search returned nodes, not rows: RETURN aliases (for example COUNT(x) AS n).",
-                }
             return {**base, "cards_empty_text": config.get("empty_text", "No results.")}
 
         limit = config["max_cards"]

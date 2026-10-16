@@ -10,7 +10,7 @@ TAP needs a way to render charts on dashboard pages. There are three reasonable 
 
 This spec describes (3). The panel type is owned by `tap_web` so any plugin can drop a chart on any page without taking a dependency on a domain plugin. The renderer is **Apache ECharts** (Apache 2.0 licensed, vendored locally per the same pattern as Tabulator).
 
-v0 ships **intentionally bare**: the panel type registers, the template renders an empty mount div, the ECharts JS bundle is loaded as a panel asset. No chart definition language, no GRIFT instances, no example pages. The point of v0 is to land the engine and the slot — actual chart-rendering behavior lands in subsequent revisions when the first real consumer is scoped.
+The panel is **declarative and config-only**. A Panel's `config` carries an Apache ECharts `option` (JSON, never code) and a few small data-shaping keys; a `USES_SEARCH` edge binds it to ONE Search, exactly as the Stat Cards panel is bound (`req-web-stdpanel-statcards`). The panel runs the Search, injects the rows as the chart's dataset and draws. A project builds a chart page from data alone: a Search, a Panel node and an edge. No per-chart Python and no per-chart JavaScript.
 
 ### Why ECharts
 
@@ -34,17 +34,25 @@ Reviewers may push back on the bundle size (ECharts full build is ~1MB minified)
 | 1. | tap_web-Owned       | The panel type lives in `tap_web` so any plugin can use it without taking a domain dependency |
 | 2. | ECharts-Backed      | Renders via Apache ECharts (Apache 2.0); JS bundle vendored locally |
 | 3. | Pinned Version      | ECharts version is pinned in vendoring; bundle swap is an explicit, coordinated change |
-| 4. | Bare v0             | v0 lands the engine and a slot only; no chart definition language, no instances, no GRIFT seeds |
-| 5. | Forward-Compatible  | The shape (panel type + asset wiring) is the natural place for a future declarative chart-spec field, without rework |
+| 4. | Config-Only         | A chart is JSON on a Panel node plus a Search; no per-chart Python or JavaScript |
+| 5. | Data, Not Code      | The option is data: anything that could run, fetch or inject is rejected before a chart is drawn |
+| 6. | Honest Gaps         | No rows, a bad config, an unparseable value and a cut row each say so on the page; nothing is drawn as 0 or left blank |
+| 7. | Themed, Accessible  | Colours come from design tokens (light and dark); the chart is labelled and its data is in a table for assistive technology |
 
 ## Requirements
 
 | RID | Name | Status | Notes |
 | --- | --- | :---: | --- |
-| req-web-panels-chart-panel-type | [Chart Panel Type](#chart-panel-type) | Implemented | `ChartPanelType` registered under slug `chart`; loads ECharts JS as a panel asset |
-| req-web-panels-chart-asset-vendor | [Vendored ECharts Asset](#vendored-echarts-asset) | Implemented | `echarts.min.js` vendored at `tap_web/static/tap_web/js/lib/echarts.min.js`, version pinned |
-| req-web-panels-chart-rendering | [Empty-Mount Rendering](#empty-mount-rendering) | Implemented | v0 template renders an empty mount `<div>` with no chart; future revisions add the chart-spec layer |
-| req-web-panels-chart-config | [Empty Config Shape](#empty-config-shape) | Implemented | `config_defaults = {}`; the chart-spec config field is reserved for a future revision |
+| req-web-panels-chart-panel-type | [Chart Panel Type](#chart-panel-type) | Implemented | `ChartPanelType` registered under slug `chart`; ECharts then `chart-panel.js` as panel assets |
+| req-web-panels-chart-asset-vendor | [Vendored ECharts Asset](#vendored-echarts-asset) | Implemented | ECharts 6.0.0 from the npm lockfile into the image, version pinned |
+| req-web-panels-chart-config | [Chart Config](#chart-config) | Implemented | `CHART_CONFIG_SCHEMA`: `option` plus `series_by`, `hierarchy`, `types`, `sort`, `limit`, `color_map`, sizing and texts; every entry described |
+| req-web-panels-chart-safety | [Option Safety](#option-safety) | Implemented | The option is data: no code-like strings, plain-template formatters, no external references, closed series types, size caps |
+| req-web-panels-chart-data | [Rows To Dataset](#rows-to-dataset) | Implemented | Search rows injected as `option.dataset`; per-field coercion; unparseable values are stated gaps; `sort`, `limit`, `max_rows` |
+| req-web-panels-chart-series-by | [Series Pivot](#series-pivot) | Implemented | `series_by`: one series per distinct value, for stacked / grouped bars and multi-line |
+| req-web-panels-chart-hierarchy | [Hierarchy](#hierarchy) | Implemented | `hierarchy`: rows with a path of fields become a tree for treemap / sunburst |
+| req-web-panels-chart-render | [Chart Rendering](#chart-rendering) | Implemented | Server-rendered frame with data in attributes; empty, error and notice states; hidden data table; labelled mount |
+| req-web-panels-chart-theme | [Drawing, Theme And Resize](#drawing-theme-and-resize) | Implemented | `chart-panel.js`: design tokens into an ECharts theme, `color_map`, `aria`, redraw on theme change and resize |
+| req-web-panels-chart-style | [Chart Styling](#chart-styling) | Implemented | Tokens with light and dark values, shared with the Stat Cards tones; frame, slot height, hidden table |
 
 ---
 
@@ -54,33 +62,22 @@ RID: `req-web-panels-chart-panel-type`
 
 Status: `Implemented`
 
-The chart panel is registered as a tap_web-owned panel type alongside `viewer`, `table`, `flip`, and `history`.
+The chart panel is a tap_web-owned panel type alongside `viewer`, `table`, `flip`, `history` and `stat-cards`.
 
 #### Implementation
-- Class: `ChartPanelType` at `tap_web/panels/chart/__init__.py`.
-- `slug = "chart"`.
-- `label = "Chart"`.
-- `view = "tap_web/panels/chart.html"`.
-- `css: list[str] = ["tap_web/css/panel-chart.css"]`.
-- `js: list[str] = ["tap_web/js/lib/echarts.min.js"]` — vendored ECharts bundle. See `req-web-panels-chart-asset-vendor`.
-- `editor_view = ""` — in-page editing is out of scope for v0.
-- `config_defaults: dict[str, Any] = {}` — see `req-web-panels-chart-config`.
-- `get_view_context(panel, request)` returns `{}` in v0. The template needs no data — only the mount `<div>` and the optional header.
-- Registration happens in `tap_web/apps.py` `AppConfig.ready()` via `panel_type_registry.register("chart", ChartPanelType)`.
-
-#### Development
-- The class deliberately avoids defining any `option` / chart-spec field on `panel.config`. v0 is a stub. The future revision that lands the chart-spec layer will both update this spec (status flip + new requirement) and add the field through normal change-control — no preemptive schema is added here.
-- A second tap_web panel type (the standard `viewer` / `table` / etc.) is the operational model: same registration call, same `view` template path shape, same CSS naming.
+- Class: `ChartPanelType` at `tap_web/panels/chart/__init__.py`; the config schema and safety rules are in `config.py`, the rows-to-option transforms in `transform.py`, the shared Search-rows data path (also used by Stat Cards) in `tap_web/panels/search_rows.py`.
+- `slug = "chart"`, `label = "Chart"`, `view = "tap_web/panels/chart.html"`, `editor_view = ""`.
+- `css = ["tap_web/css/panel-chart.css"]`; `js = ["tap_web/js/lib/echarts.min.js", "tap_web/js/chart-panel.js"]`. The page pipeline emits scripts in list order, so ECharts is present before `chart-panel.js` runs.
+- `config_defaults = {"max_rows": 500, "height": 320}`; the one required key, `option`, has no default.
+- Registered in `TapWebConfig.ready()` via `panel_type_registry.register("chart", ChartPanelType)`.
 
 #### Acceptance Criteria
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | :---: | --- | --- |
-| req-web-panels-chart-panel-type-1 | Type Registration | Implemented | `ChartPanelType` is registered under slug `chart` in `tap_web` `AppConfig.ready()`. | Registry: `panel_type_registry` |
-| req-web-panels-chart-panel-type-2 | Standard Class Members | Implemented | The class declares `slug`, `label`, `view`, `css`, `js`, `editor_view`, `config_defaults`, and a `get_view_context` classmethod per the panel-type contract. | Cross-ref `spec-web-panel.md` |
+| req-web-panels-chart-panel-type-1 | Type Registration | Implemented | `ChartPanelType` is registered under slug `chart`. | Registry: `panel_type_registry` |
+| req-web-panels-chart-panel-type-2 | Assets Declared And Shipped | Implemented | The type declares its stylesheet and its scripts, ECharts first; the in-tree ones exist in `tap_web/static`, and the page pipeline collects them from the type. | `js/lib/*` is vendored into the image |
 | req-web-panels-chart-panel-type-3 | tap_web Owned | Implemented | The panel type lives in `tap_web`, not in a domain plugin. | Goal 1 |
-
----
 
 ### Vendored ECharts Asset
 ----
@@ -116,87 +113,224 @@ The ECharts JS bundle is vendored locally and shipped as a panel asset, the same
 
 ---
 
-### Empty-Mount Rendering
-----
-RID: `req-web-panels-chart-rendering`
-
-Status: `Implemented`
-
-The v0 template renders an empty mount `<div>` and nothing else. No chart is drawn.
-
-#### Implementation
-- Template: `tap_web/templates/tap_web/panels/chart.html`.
-- The template:
-  - Wraps in `<div class="tap-panel tap-panel--chart">`, matching the standard tap_web panel wrapper convention.
-  - Includes `tap_web/panel_header.html` unless `panel.config.hide_header` is set.
-  - Renders a single `<div class="tap-chart-mount" id="tap-chart-{{ panel.entity_id }}"></div>` as the chart container. Stable per-panel ID lets future per-instance JS find its mount.
-- No JS executes per-panel in v0. ECharts is loaded by the panel type's `js` list, but no `echarts.init(...)` call is made — the bundle is present, the mount is present, and that's it.
-
-#### Development
-- The mount `<div>` sets no width / height in v0 — that's a CSS concern for the future chart-spec layer when sizing semantics are scoped. v0's CSS reserves a minimum vertical footprint so the empty mount isn't invisible-but-load-bearing on a page.
-- The empty-state guidance from the add-panel skill ("never produce an empty container") is intentionally relaxed here: this panel is a *load-bearing stub*, not a real renderer. A "no chart configured" empty-state element would imply the panel does something today and is just unconfigured. That would mislead reviewers. The mount div is honest about being a slot.
-
-#### Acceptance Criteria
-
-| ACID | Title | Status | Description | Notes |
-| --- | --- | :---: | --- | --- |
-| req-web-panels-chart-rendering-1 | Mount Div Present | Implemented | The template renders `<div class="tap-chart-mount" id="tap-chart-{entity_id}">` as the chart container. | |
-| req-web-panels-chart-rendering-2 | Standard Wrapper | Implemented | The outer `<div>` carries `tap-panel tap-panel--chart` classes, matching the standard panel wrapper convention. | |
-| req-web-panels-chart-rendering-3 | No v0 Chart Drawing | Implemented | v0 does not draw a chart. ECharts is loaded but never initialised on the mount. | Future revisions land the chart-spec layer |
-
-#### Future
-- Per-instance JS that reads a chart-spec field on `panel.config` and calls `echarts.init(mount).setOption(option)`.
-- HTMX-aware re-init: re-binding the chart on partial-page swaps so dashboard refreshes don't leave dead chart canvases.
-- Theme integration: register a TAP-flavoured ECharts theme so charts inherit the slate palette other panels use.
-
----
-
-### Empty Config Shape
+### Chart Config
 ----
 RID: `req-web-panels-chart-config`
 
 Status: `Implemented`
 
-`panel.config` is empty in v0. The chart-spec field is reserved for a future revision.
+`Panel.config` is JSON that validates against `CHART_CONFIG_SCHEMA`. Fields are named by the RETURN alias of the Search's rows; nothing names a value, node or tool.
 
 #### Implementation
-- `config_defaults: dict[str, Any] = {}` on the panel type.
-- No keys are read off `panel.config` by `get_view_context` or the template (other than the standard `hide_header` flag which is panel-wide, not chart-specific).
-- A future revision will introduce a single `option` key carrying an ECharts-native `option` object (or a TAP-flavoured wrapper that compiles to one). This spec deliberately does not preempt the wrapper-vs-passthrough choice.
+- `option` (required): the ECharts option. Rows arrive as `option.dataset` (`dimensions` = the row keys, `source` = the rows), so series pick fields with `encode`.
+- `series_by`, `hierarchy`: see `req-web-panels-chart-series-by`, `req-web-panels-chart-hierarchy`.
+- `types`: `{field: number | time | category}` coercion, see `req-web-panels-chart-data`. `sort` `{field, order}`, `limit`, `max_rows`.
+- `color_map`: `{field?, map: {value: token}, default?}`. Tokens are design tokens: `critical`, `high`, `medium`, `low`, `info`, the Stat Cards tones `good`, `warn`, `bad`, `neutral`, `muted`, and the categorical `accent-1` to `accent-8`.
+- `height`: pixels (120-1200, default 320) or `slot` (fill the page slot, at least 240px). The width is always the container's.
+- `empty_text`, `null_text`, `blank_text`, `aria_label`, `hide_header`.
 
-#### Development
-- Resist scaffolding a stub `option` field "for future use." Empty placeholders accumulate migration cost and obscure which fields are real, per the same rule applied to the ComplianceContext model. The shape lands when the first real consumer is scoped.
+#### Example (stacked bar, severity by state)
+```json
+{"option": {"tooltip": {"trigger": "axis"}, "legend": {}, "xAxis": {"type": "category"}, "yAxis": {"type": "value"},
+            "series": [{"type": "bar", "stack": "total"}]},
+ "series_by": {"category": "sev", "series": "tool", "value": "c"},
+ "color_map": {"map": {"grype": "accent-1", "trivy": "accent-2"}}, "height": 300}
+```
 
 #### Acceptance Criteria
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | :---: | --- | --- |
-| req-web-panels-chart-config-1 | Empty Defaults | Implemented | `config_defaults` is `{}` in v0. | |
-| req-web-panels-chart-config-2 | No Config Reads | Implemented | The panel reads no chart-specific keys from `panel.config` in v0. | `hide_header` is panel-wide, not chart-specific |
+| req-web-panels-chart-config-1 | Strict Schema | Implemented | `option` is required and any undeclared key is rejected. | |
+| req-web-panels-chart-config-2 | Closed Vocabulary | Implemented | Colour tokens, field types, sort orders and `slot` are the named sets; heights, limits and row caps are bounded; malformed values are rejected. | |
+| req-web-panels-chart-config-3 | Self-Describing | Implemented | The schema and every entry of it, including the nested `series_by`, `hierarchy`, `color_map` and `sort` entries, carry a `description`. | Repo rule: JSON structures require descriptions. |
+| req-web-panels-chart-config-4 | No Domain Values | Implemented | Nothing in the schema enumerates a domain value, node id or tool name; the only enums are the vocabularies above. | |
 
-#### Future
-- `option` field on `panel.config` accepting an ECharts option object — direct passthrough or a TAP-flavoured wrapper.
-- Per-chart data-source field that points at a Search entity so the chart's data is loaded via the standard search dispatch pipeline rather than inlined into the option object.
+### Option Safety
+----
+RID: `req-web-panels-chart-safety`
 
----
+Status: `Implemented`
 
-## Out Of Scope (v0)
+The `option` is data, never code. `validate_config` rejects anything that could run, fetch or inject before a chart is drawn; a rejected config renders a stated error (`req-web-panels-chart-render-3`).
 
-- Any actual chart rendering. The mount div sits empty.
-- A chart-specification language or `option` config field on `panel.config`.
-- GRIFT panel instances mounted on pages. Consuming plugins will seed instances when the chart-spec layer lands.
-- Editor support for in-page chart configuration.
-- Theme registration / TAP-flavoured ECharts colour scheme.
-- HTMX re-init binding for partial-page refresh.
-- Per-chart data sources (Search / gryphon).
+#### Implementation
+- Any string anywhere in the option that looks like code (`function (...)`, `=>`, `eval(`, `new Function`, `javascript:`, `<script`, `url(`) is rejected. JSON cannot carry a function, so a function in an option is always a string and always caught.
+- Any key ending in `formatter` must be a string template (`{b}: {c}`) with no `<` or `>`; objects and numbers are rejected. ECharts HTML-encodes the values substituted into a string template and into its default tooltip, so row values that reach tooltips and labels are escaped.
+- With a series that reads the dataset through `encode` (or with `series_by`), `{c}` in a formatter is rejected: it is the whole row and prints `[object Object]`. Use `{@field}` (the row field named by the RETURN alias); `{b}` (the item name) and `{d}` (a pie's percent) work as usual.
+- Strings naming an external or embedded resource (`http:`, `https:`, `//`, `data:`, `file:`, `image://`) are rejected: the panel makes no fetch. The keys `link`, `sublink`, `extraCssText` and `className` (navigation, CSS injection) are rejected.
+- Series types are a closed list: bar, line, pie, scatter, treemap, sunburst, heatmap, funnel, gauge, radar. `custom` (needs a render function), `map`, `lines` and `graph` are outside it.
+- `dataset` is rejected in the option: the panel owns it.
+- The option is capped at 32768 bytes of JSON and 14 levels of nesting.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-web-panels-chart-safety-1 | No Code-Like Strings | Implemented | A string that looks like a function, an arrow, `eval`, `javascript:`, a script tag or `url(` is rejected wherever it sits; ordinary text containing the word is not. | |
+| req-web-panels-chart-safety-2 | Plain Template Formatters | Implemented | A `formatter` must be a template string without markup. | |
+| req-web-panels-chart-safety-3 | No External References | Implemented | External or embedded resource strings and the navigating / CSS-injecting keys are rejected. | |
+| req-web-panels-chart-safety-4 | Size Caps | Implemented | The option's byte size and nesting depth are capped. | Like Stat Cards `max_cards` |
+| req-web-panels-chart-safety-5 | Closed Series Types | Implemented | Only the listed series types are accepted. | |
+| req-web-panels-chart-safety-7 | Row Value Templates | Implemented | `{c}` in a formatter is rejected when a series uses `encode` or `series_by`, with the `{@field}` form named in the error; `{@field}` is accepted. | |
+| req-web-panels-chart-safety-6 | Panel Owns The Dataset | Implemented | `option.dataset` in the config is rejected. | |
+
+### Rows To Dataset
+----
+RID: `req-web-panels-chart-data`
+
+Status: `Implemented`
+
+The panel reads the bound Search's `rows` through `fetch_panel_rows` (the Stat Cards data path: the earliest `USES_SEARCH` edge, `execute_search`, page inputs from the Search's `input_schema`), then coerces, orders and caps them before ECharts sees them.
+
+#### Implementation
+- The Gryphon data lane returns some numbers and datetimes as text (`"8.2"`, `"2026-09-29 15:32:23.605000+00:00"`). `types` declares each field: `number` reads numeric text as a number, `time` reads any ISO-8601 text or datetime as a UTC instant (`...Z`; a naive value is UTC), `category` is text. Untyped values pass through JSON-safe (datetimes as UTC ISO text, decimals as numbers).
+- A typed value that does not parse becomes null (a gap in the chart) and is counted in a notice under the chart. It is never drawn as 0. Null and empty-string stay as the grid's unobserved / observed-empty; zero is a value.
+- `sort` orders rows (numbers by value, else text; nulls last) and `limit` keeps the first N, which makes a top-N chart. `max_rows` caps what is drawn. Every cut is counted in a notice.
+- A null or empty-string value in a field drawn as a label (declared `category`, a series' `encode.itemName`, or the field on a category axis) is replaced by `null_text` ("not observed") / `blank_text` ("(empty)"), so an axis, legend and tooltip name the bucket instead of drawing it nameless. Numeric and time fields keep their gaps. `color_map` keys such a bucket by that label.
+- A category axis of at most 12 categories gets `axisLabel.interval: 0` (every label shown) unless the config sets an interval.
+- Without `series_by` or `hierarchy`, the rows become `option.dataset = {dimensions: <row keys>, source: <rows>}`. The config's own option is never mutated.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-web-panels-chart-data-1 | Rows Are The Dataset | Implemented | Rows become `option.dataset` with the row keys as dimensions. | |
+| req-web-panels-chart-data-2 | Typed Coercion | Implemented | `number` and `time` fields are coerced from text; `category` is text. | Real Gryphon rows carry text numbers |
+| req-web-panels-chart-data-3 | Gaps Are Stated | Implemented | An unparseable typed value is null and counted in a notice; null, empty and zero are preserved. | |
+| req-web-panels-chart-data-4 | Sort Then Limit | Implemented | `sort` then `limit` give a top-N, direction by `order`, nulls last, and the cut rows are counted. | |
+| req-web-panels-chart-data-5 | Row Cap | Implemented | More rows than `max_rows` draw `max_rows` and a notice counts the rest. | |
+| req-web-panels-chart-data-6 | Unobserved Labels | Implemented | A null or empty label value is replaced by `null_text` / `blank_text`; numeric fields keep their gaps. | |
+| req-web-panels-chart-data-7 | Every Label Shown | Implemented | A category axis of up to 12 categories gets `axisLabel.interval: 0`, unless configured. | |
+
+### Series Pivot
+----
+RID: `req-web-panels-chart-series-by`
+
+Status: `Implemented`
+
+A plain dataset cannot make one series per value of a field, which is what stacked and grouped bars and multi-line charts need. `series_by: {category, series, value, order?, fill?}` pivots the rows.
+
+#### Implementation
+- `option.series` holds exactly one template series (bar or line). One series is made per distinct value of the `series` field, named by the value, copying the template (`stack`, `areaStyle`, ...), with `encode` set from the axes: the category field goes on the axis that is `category` or `time` and the value on the other (a horizontal bar has the category on `y`).
+- The dataset becomes wide: one entry per category with one dimension per series; `value` fields are summed when a pair repeats; a pair with no row is `fill` (default 0; `null` leaves a gap). `order` sets the drawing and stack order; unlisted values follow in first-seen order.
+- Null and empty categories or series names are labelled with `null_text` / `blank_text`, not dropped. On a time axis the categories stay instants and are sorted. Rows with no numeric `value` are counted in a notice.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-web-panels-chart-series-by-1 | One Series Per Value | Implemented | Each distinct `series` value becomes a series copied from the template; duplicates are summed; `order` sets the order. | |
+| req-web-panels-chart-series-by-2 | Fill And Labels | Implemented | A missing pair is `fill`; null categories are labelled; rows with no number are counted, not zeroed. | |
+| req-web-panels-chart-series-by-3 | Orientation | Implemented | The category field goes on whichever axis is the category axis, so horizontal bars work. | |
+| req-web-panels-chart-series-by-4 | Time Axis | Implemented | On a time axis categories are kept as instants and sorted. | |
+| req-web-panels-chart-series-by-5 | Needs A Template | Implemented | `series_by` without exactly one bar or line series is rejected at validation. | |
+
+### Hierarchy
+----
+RID: `req-web-panels-chart-hierarchy`
+
+Status: `Implemented`
+
+`hierarchy: {path, value?}` turns rows into a tree for treemap and sunburst series.
+
+#### Implementation
+- One level per `path` field, outermost first (1 to 6 fields); the last field names the leaf. Each leaf's size is the `value` field, summed over repeated paths; with no `value` each row counts 1.
+- The tree is set as `data` on every treemap or sunburst series that has none. Null and empty levels are labelled; rows with no numeric value are counted in a notice.
+- `hierarchy` needs a treemap or sunburst series and cannot be combined with `series_by`.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-web-panels-chart-hierarchy-1 | Rows Become A Tree | Implemented | Rows nest by the path fields, leaves sized by the value field, and the tree lands on the treemap or sunburst series. | |
+| req-web-panels-chart-hierarchy-2 | Counts And Labels | Implemented | Without `value` each row counts 1; null and empty levels are labelled. | |
+| req-web-panels-chart-hierarchy-3 | Flat Path | Implemented | A one-field path gives flat leaves. | |
+| req-web-panels-chart-hierarchy-4 | Needs A Hierarchical Series | Implemented | `hierarchy` without a treemap or sunburst series, or with `series_by`, is rejected. | |
+
+### Chart Rendering
+----
+RID: `req-web-panels-chart-render`
+
+Status: `Implemented`
+
+Server-rendered frame; `chart-panel.js` draws it (`req-web-panels-chart-theme`). Template `tap_web/panels/chart.html`.
+
+#### Implementation
+- Wrapper `<div class="tap-panel tap-panel--chart">`; the shared panel header unless `hide_header`.
+- A `<figure data-tap-chart>` carries the built option in `data-tap-chart-option` and the colour map in `data-tap-chart-colors`: attributes, auto-escaped, so the fragment emits no inline script. The mount is `<div class="tap-chart__mount" id="tap-chart-{entity_id}" role="img" aria-label="...">`.
+- The accessible name is `<aria_label or panel name>: N rows. The same data is in the table that follows.` The same rows are in a visually hidden table (every column, with a caption) so the data is available to assistive technology.
+- No rows: the `empty_text` (default "No results.") in a bordered box, never a blank frame. An invalid config, no linked search, a failed search or a search that returns nodes each render an alert with the reason. Notices (gaps, cut rows) print under the chart. A drawing failure in the browser shows a visible message in the frame.
+- Height from `height` (pixels via a CSS variable, or `slot`).
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-web-panels-chart-render-1 | Rows Reach The Chart | Implemented | A real Gryphon search over seeded grid rows gives the chart its dataset, in the standard wrapper with the stable mount id. | |
+| req-web-panels-chart-render-2 | Empty Is Stated | Implemented | No rows shows `empty_text` and no chart. | |
+| req-web-panels-chart-render-3 | Errors Are Stated | Implemented | No linked search, an invalid config, or a search returning nodes renders an alert with the reason. | |
+| req-web-panels-chart-render-4 | Escaped | Implemented | Row values are auto-escaped and the fragment emits no inline script. | `req-web-panel-render-content.sec` |
+| req-web-panels-chart-render-5 | Labelled With Its Data | Implemented | The mount is labelled with what it shows and the row count, and the same rows are in a captioned table. | |
+| req-web-panels-chart-render-6 | Header And Height | Implemented | `hide_header` omits the heading; `height` sets pixels or `slot`. | |
+| req-web-panels-chart-render-7 | Notices | Implemented | Gaps and cut rows are stated under the chart. | |
+
+### Drawing, Theme And Resize
+----
+RID: `req-web-panels-chart-theme`
+
+Status: `Implemented`
+
+`tap_web/static/tap_web/js/chart-panel.js` draws every `[data-tap-chart]`. It names no field, panel or chart type and never evaluates anything from the option.
+
+#### Implementation
+- Colours are read from the `--tap-chart-*` custom properties on the panel root into an ECharts theme (text, axis, grid, tooltip, series palette `accent-1..8`), so a chart follows the page's light or dark tokens.
+- `color_map` resolves tokens to colours and colours series named by a mapped value and, for bar, pie, scatter, funnel, treemap and sunburst series driven by `encode`, each data item by the row's `field` value (or its name); `series_by` defaults `field` to its `series` field. A series with its own `itemStyle.color` is left alone.
+- `aria` is switched on, with the server's label as its description (ECharts' generated text misreads dataset-encoded series).
+- The chart is redrawn when the viewer's colour scheme changes or `data-theme` / `class` on `<html>` change, and resized by a `ResizeObserver` on the mount and on window resize. It is initialised after an HTMX settle, and disposed once its element leaves the page.
+- A failure (library missing, bad JSON) shows `This chart could not be drawn: ...` in the frame and sets `data-tap-chart-ready="error"`.
+- Proven in a real browser; the repo has no JS test runner. Test-side, the colour map travels as data (`req-web-panels-chart-theme-1`).
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-web-panels-chart-theme-1 | Colour Map Travels As Data | Implemented | The colour map reaches the browser as data, with `series_by` defaulting its field. | Browser: colours applied |
+| req-web-panels-chart-theme-2 | Tokens Not Literals | Implemented | Chart colours come from the design tokens, not from literals in the script or config. | Proven in a browser |
+| req-web-panels-chart-theme-3 | Follows Theme And Size | Implemented | The chart redraws on a colour-scheme change and resizes with its container. | Proven in a browser |
+| req-web-panels-chart-theme-4 | Visible Failure | Implemented | A drawing failure is shown in the frame, not only in the console. | Proven in a browser |
+
+### Chart Styling
+----
+RID: `req-web-panels-chart-style`
+
+Status: `Implemented`
+
+Trace: `non-python` — tap_web/static/tap_web/css/panel-chart.css
+
+#### Implementation
+`panel-chart.css`: tokens on the panel root with dark values under `prefers-color-scheme: dark` and `[data-theme="dark"]` (guarded by `[data-theme="light"]`), the same mechanism as `stat-cards.css`. `good`, `warn`, `bad`, `muted` are the Stat Cards tone colours (`neutral` is darkened in light mode to reach 3:1 as a graphic); `critical`, `high`, `medium`, `low`, `info` are the severity words. Measured with the WCAG relative-luminance formula against the frame background: every colour token has at least 3:1 and the text tokens at least 4.5:1, in both schemes. The frame is a bordered card; the mount is 100% wide; `tap-chart--slot` fills the slot. The data table is visually hidden but stays in the accessibility tree.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-web-panels-chart-style-1 | Light And Dark Tokens | Implemented | Colours are tokens with light and dark values. | |
+| req-web-panels-chart-style-2 | Fills Its Slot | Implemented | The chart is container-wide and `slot` height fills the page slot. | |
+| req-web-panels-chart-style-3 | Hidden Table Does Not Overflow | Implemented | The data table is hidden inside a clipped wrapper and never widens the page at phone width. | |
+
+## Out Of Scope
+
+- A typed in-page editor (`editor_view` is empty; the generic panel editor edits `config` as JSON).
+- Click-through from a chart element to a page.
+- Series types outside the closed list (`custom`, `map`, `lines`, `graph`).
+- Streaming or auto-refresh of the data.
 
 ## Future Work
 
-- **Chart-spec layer.** The first revision after v0 lands an `option` config key, per-instance JS that calls `echarts.init`, and at least one real consumer (e.g. a KSI violation-trend chart on the FedRAMP KSI dashboard).
-- **TAP theme.** Register a TAP-flavoured ECharts theme so charts visually align with the slate palette used elsewhere.
-- **Subset bundle.** Once the in-use chart types are stable, swap the full ECharts build for a smaller subset to reduce asset weight.
-- **Editor integration.** A panel-editor surface for authoring / previewing chart options without round-tripping through GRIFT.
-- **Search-driven data.** A `search_id` config field so the chart's data flows through the standard search-execute pipeline.
+- **Subset bundle.** Once the in-use chart types are stable, swap the full ECharts build for a smaller subset.
+- **Editor integration.** A panel-editor surface for authoring and previewing chart options.
+- **Other aggregates.** Per-bucket time grouping and `SUM` / `AVG` arrive with Gryphon; today a time series groups on the stored instant.
 
 ## Status Vocabulary
 
