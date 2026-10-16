@@ -1,8 +1,26 @@
-<div class="tap-panel tap-panel--chart">
+{% comment %}
+Chart panel (req-web-panels-chart-render): server-rendered frame, data in attributes (no inline script),
+chart-panel.js draws it. The hidden table carries the same rows for screen readers.
+{% endcomment %}
+<div class="tap-panel tap-panel--chart" data-tap-chart-panel>
     {% if not panel.config.hide_header %}{% include "tap_web/panel_header.html" %}{% endif %}
-
-    {# v0: load-bearing stub. ECharts is loaded as a panel asset; the mount
-       below is reserved for the future chart-spec layer. See
-       spec-web-panels-chart.md req-web-panels-chart-rendering. #}
-    <div class="tap-chart-mount" id="tap-chart-{{ panel.entity_id }}"></div>
+    {% if chart_error %}
+    <div class="tap-panel-error rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">{{ chart_error }}</div>
+    {% elif chart_empty_text %}
+    <p class="tap-chart__empty">{{ chart_empty_text }}</p>
+    {% else %}
+    <figure class="tap-chart{% if chart.slot %} tap-chart--slot{% endif %}" data-tap-chart{% if chart.height %} style="--tap-chart-height: {{ chart.height }}px"{% endif %}
+            data-tap-chart-label="{{ chart.aria_label }}: {{ chart.summary }}. The same data is in the table that follows." data-tap-chart-option="{{ chart.option_json }}"{% if chart.colors_json %} data-tap-chart-colors="{{ chart.colors_json }}"{% endif %}>
+        <div class="tap-chart__mount" id="tap-chart-{{ panel.entity_id }}" role="img" aria-label="{{ chart.aria_label }}: {{ chart.summary }}. The same data is in the table that follows."></div>
+        <p class="tap-chart__error" role="alert" hidden></p>
+        <div class="tap-chart__data">
+        <table>
+            <caption>{{ chart.aria_label }}</caption>
+            <thead><tr>{% for c in chart.columns %}<th scope="col">{{ c }}</th>{% endfor %}</tr></thead>
+            <tbody>{% for r in chart.body %}<tr>{% for v in r %}<td>{{ v }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+        </table>
+        </div>
+        {% for n in chart_notices %}<p class="tap-chart__notice">{{ n }}</p>{% endfor %}
+    </figure>
+    {% endif %}
 </div>
