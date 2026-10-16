@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TAP SBOM trusted signers",
+  "description": "The default-deny list of signer identities whose SBOM attestations TAP accepts (req-cicd-sbom-22-7). Validated at load; an unknown field, a missing pin without the transitional marker, or an empty list is a load failure.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["_description", "format", "signers"],
+  "properties": {
+    "_description": {"type": "string", "minLength": 1, "description": "Human/AI-readable purpose of this list."},
+    "format": {"const": "tap-sbom-trusted-signers/1", "description": "Format discriminator; bump on breaking shape changes."},
+    "signers": {
+      "type": "array",
+      "minItems": 1,
+      "description": "The trusted identities. An empty list is invalid, not 'trust nothing': the loader fails so the run fails.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["_description", "id", "repository", "workflow_path", "ref", "signer_digest", "reason", "added_by"],
+        "properties": {
+          "_description": {"type": "string", "minLength": 1, "description": "What this signer is and why its pin looks the way it does."},
+          "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$", "description": "Short stable name for logs and the SBOM node."},
+          "repository": {"type": "string", "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$", "description": "owner/repo that holds the signing workflow file."},
+          "workflow_path": {"type": "string", "pattern": "^\\.github/workflows/[A-Za-z0-9._-]+\\.ya?ml$", "description": "Path of the signing workflow file in that repository."},
+          "ref": {"type": "string", "pattern": "^refs/(heads|tags)/[A-Za-z0-9._/-]+$", "description": "The ref the certificate's signer identity names. Matched exactly."},
+          "signer_digest": {
+            "type": ["string", "null"],
+            "pattern": "^[0-9a-f]{40}$",
+            "description": "The commit of the signing workflow file (the certificate's Build Signer Digest), checked by `gh attestation verify --signer-digest`. Null is allowed only with transitional true."
+          },
+          "transitional": {"type": "boolean", "description": "True marks an entry that is not digest-pinned and is meant to be removed. Required to be true when signer_digest is null."},
+          "reason": {"type": "string", "minLength": 1, "description": "Why this signer is trusted, and for a transitional entry when it goes away."},
+          "added_by": {"type": "string", "minLength": 1, "description": "Who approved the entry and where."}
+        },
+        "if": {"properties": {"signer_digest": {"type": "null"}}, "required": ["signer_digest"]},
+        "then": {"required": ["transitional"], "properties": {"transitional": {"const": true}}}
+      }
+    }
+  }
+}
