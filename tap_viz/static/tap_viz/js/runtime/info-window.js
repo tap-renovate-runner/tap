@@ -21,6 +21,7 @@
 const WINDOW_CLASS = "tap-info-window";
 const DEFAULT_OFFSET_PX = 12;
 const DEFAULT_WIDTH_PX = 280;
+const WIDE_CLASS = "tap-info-window--wide";
 const DEFAULT_MAX_HEIGHT_RATIO = 0.6;
 
 let _activeWindow = null;
@@ -54,7 +55,11 @@ export function openInfoWindow(cy, panelEl, host, statusBadgesConfig) {
     el.className = WINDOW_CLASS;
     el.setAttribute("role", "dialog");
     el.setAttribute("aria-label", "Finding details");
-    _positionFromHost(el, panelEl, host);
+    // A badge set with a multi-column table (req-viz-info-window-columns-9) widens the window to its
+    // content, between the fixed 280px and a 560px cap; otherwise the width stays fixed.
+    const wide = badgeSets.some((s) => _columnCount(s.info_window) > 1);
+    if (wide) el.classList.add(WIDE_CLASS);
+    _positionFromHost(el, panelEl, host, wide);
     el.innerHTML = _renderShell(host);
     panelEl.appendChild(el);
 
@@ -166,8 +171,9 @@ async function _loadSections(state, host, badgeSets) {
                 }
                 anyRendered = true;
                 countEl.textContent = String(hostRows.length);
-                bodyEl.innerHTML = _renderTable(hostRows, cfg.info_window.row_url_template);
+                bodyEl.innerHTML = renderInfoTable(hostRows, cfg.info_window);
                 _wireRowLinks(bodyEl);
+                if (state.el.classList.contains(WIDE_CLASS)) _fitWithinPanel(state.el, state.panelEl);
             } catch (err) {
                 if (state.destroyed) return;
                 console.warn(`[info-window] section '${cfg.name}' failed:`, err);
@@ -182,6 +188,70 @@ async function _loadSections(state, host, badgeSets) {
         // Stale count — no rows to show. Close silently.
         closeInfoWindow();
     }
+}
+
+/** Number of columns an `info_window` block renders; 1 for the legacy Name column. */
+function _columnCount(infoWindowCfg) {
+    const cols = infoWindowCfg && infoWindowCfg.columns;
+    return Array.isArray(cols) && cols.length > 0 ? cols.length : 1;
+}
+
+/**
+ * Render one section's table (req-viz-info-window-columns).
+ *
+ * Without `info_window.columns` this is the legacy single Name column with no visible header
+ * (req-viz-info-window-columns-3). With it, a real table with a header row of the configured labels.
+ */
+export function renderInfoTable(rows, infoWindowCfg) {
+    const cfg = infoWindowCfg || {};
+    if (Array.isArray(cfg.columns) && cfg.columns.length > 0) {
+        return _renderColumnsTable(rows, cfg.columns, cfg.row_url_template);
+    }
+    return _renderTable(rows, cfg.row_url_template);
+}
+
+function _cellText(value, format) {
+    // Missing is an empty cell, never the string "undefined" (req-viz-info-window-columns-5).
+    if (value === null || value === undefined || value === "") return "";
+    if (format === "number") {
+        // One decimal place (req-viz-info-window-columns-7); a value that is not a number is shown
+        // as given rather than hidden, so bad data stays visible.
+        const n = typeof value === "number" ? value : Number(value);
+        if (Number.isFinite(n)) return n.toFixed(1);
+    }
+    if (typeof value === "object") return JSON.stringify(value);
+    return String(value);
+}
+
+function _renderColumnsTable(rows, columns, rowUrlTemplate) {
+    // The row link goes on the first column marked `link: true`, else on the first column
+    // (req-viz-info-window-columns-6). The finding_id fallback of the legacy Name column does not
+    // apply here: a configured table states its own link, or has none.
+    const flagged = columns.findIndex((c) => c && c.link === true);
+    const linkIdx = flagged >= 0 ? flagged : 0;
+    const cellClass = (c) => (c.align === "right" ? ' class="tap-info-window__cell--right"' : "");
+    const head = columns
+        .map((c) => `<th scope="col"${cellClass(c)}>${_escape(c.label)}</th>`)
+        .join("");
+    const body = rows
+        .map((r) => {
+            const tds = columns
+                .map((c, i) => {
+                    const text = _escape(_cellText(r[c.field], c.format));
+                    const url = i === linkIdx && text !== "" ? _buildRowUrl(rowUrlTemplate, r) : null;
+                    const inner = url ? `<a class="tap-info-window__row-link" href="${url}">${text}</a>` : text;
+                    return `<td${cellClass(c)}>${inner}</td>`;
+                })
+                .join("");
+            return `<tr>${tds}</tr>`;
+        })
+        .join("");
+    return `
+        <table class="tap-info-window__table tap-info-window__table--columns">
+            <thead><tr>${head}</tr></thead>
+            <tbody>${body}</tbody>
+        </table>
+    `;
 }
 
 function _renderTable(rows, rowUrlTemplate) {
@@ -274,7 +344,7 @@ async function _runSearch(infoWindowCfg) {
     return Array.isArray(data.rows) ? data.rows : [];
 }
 
-function _positionFromHost(el, panelEl, host) {
+function _positionFromHost(el, panelEl, host, wide) {
     const rpos = host.renderedPosition();
     const rw = host.renderedWidth();
     const rh = host.renderedHeight();
@@ -299,8 +369,15 @@ function _positionFromHost(el, panelEl, host) {
     el.style.position = "absolute";
     el.style.left = `${clampedLeft}px`;
     el.style.top = `${clampedTop}px`;
-    el.style.width = `${DEFAULT_WIDTH_PX}px`;
+    // Wide windows size to their content in CSS (.tap-info-window--wide); _fitWithinPanel re-clamps
+    // the left edge once the table is in.
+    if (!wide) el.style.width = `${DEFAULT_WIDTH_PX}px`;
     el.style.maxHeight = `${maxHeight}px`;
+}
+
+function _fitWithinPanel(el, panelEl) {
+    const overflow = el.offsetLeft + el.offsetWidth - panelEl.clientWidth;
+    if (overflow > 0) el.style.left = `${Math.max(0, el.offsetLeft - overflow)}px`;
 }
 
 function _readCsrfToken() {
