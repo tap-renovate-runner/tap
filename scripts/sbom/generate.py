@@ -354,6 +354,29 @@ def _fips_pins() -> Any:
     return module
 
 
+@functools.cache
+def _sibling(name: str) -> Any:
+    """Load a module that lives beside this script (`scripts/sbom/<name>.py`) by file, so this script needs no package
+    import. The names are constants at the call sites; nothing from the command line or a document reaches the path."""
+    spec = importlib.util.spec_from_file_location(f"sbom_{name}", Path(__file__).resolve().parent / f"{name}.py")
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load scripts/sbom/{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def read_wheel_seed(subject: str) -> str:
+    """The WHEEL and METADATA headers of every wheel in the image's cache seed (req-cicd-sbom-33), printed by the fixed
+    script `wheel_attributes.SEED_SCRIPT` run inside the image under test."""
+    completed = _run(
+        ["docker", "run", "--rm", "--entrypoint", "sh", subject, "-c", _sibling("wheel_attributes").SEED_SCRIPT],
+        capture=True,
+    )
+    return completed.stdout.decode("utf-8", errors="replace")
+
+
 #: A release version as these fields spell it: 3.0.22, 3.1.2a.
 _VERSION_TOKEN_RE = re.compile(r"\d+\.\d+\.\d+[a-z]*")
 
@@ -726,14 +749,25 @@ def main(argv: list[str] | None = None) -> int:
     coverage = (
         f"Covers the Wolfi apk closure, the uv.lock-declared Python closure, and the "
         f"declared out-of-band components of {subject} ({args.arch}). Deliberately "
-        f"excluded: /opt/uv-cache-seed (wheel cache: available bytes, not running "
-        f"software) and the uv/uvx binaries' embedded cargo-auditable crate metadata "
+        f"excluded as an inventory: /opt/uv-cache-seed (wheel cache: available bytes, not "
+        f"running software; its wheels' license and architecture are joined to the "
+        f"locked closure, req-cicd-sbom-33) and the uv/uvx binaries' embedded cargo-auditable crate metadata "
         f"(the tool's closure, not the artifact's; the executables ARE declared). "
         f"Generated at {datetime.now(UTC).isoformat()}; supplemental manifest "
         f"format {supplemental['format']}; document id {uuid.uuid4()}."
     )
     cdx = inject_cdx(json.loads(out_cdx.read_text()), supplemental, hashes, coverage=coverage)
     spdx = inject_spdx(json.loads(out_spdx.read_text()), supplemental, hashes)
+
+    if args.image == "tap-web":
+        # License and architecture of the locked Python closure, read from the cache seed's wheels and joined by name and
+        # version (req-cicd-sbom-33). The seed adds, removes and re-versions nothing; unmatched components are declared
+        # unknown with a reason, and the completeness gate below fails loudly if the seed has vanished.
+        wheels = _sibling("wheel_attributes")
+        attributes = wheels.attributes_by_component(wheels.parse_seed_records(read_wheel_seed(subject)))
+        counts = wheels.apply_to_cyclonedx(cdx, attributes)
+        wheels.apply_to_spdx(spdx, attributes)
+        print(f"sbom-generate: wheel attributes: {counts}")
 
     if args.image == "tap-web":
         # Source-built derivation inputs (req-cicd-sbom-12) are CONSTANTS at the
@@ -756,6 +790,17 @@ def main(argv: list[str] | None = None) -> int:
     problems = check_canaries(cdx, args.image, supplemental)
     if problems:
         fail(problems, "canary")
+
+    # Field completeness (req-cicd-sbom-32), with the license and architecture attributes ENFORCED at generation: a thin
+    # document is not published, and the verdict is written into the document so every later revision carries it.
+    completeness = _sibling("completeness")
+    try:
+        verdict = completeness.check_completeness(cdx, completeness.load_rules(), enforce_attributes=True)
+    except (completeness.RulesError, completeness.MalformedDocument) as exc:
+        fail([f"the completeness check could not run: {exc}"], "completeness")
+    completeness.annotate(cdx, verdict)
+    if verdict["verdict"] != "complete":
+        fail([f"{k}: {n} ({'; '.join(verdict['examples'][k])})" for k, n in verdict["counts"].items()], "completeness")
 
     out_cdx.write_text(json.dumps(cdx, indent=1) + "\n", encoding="utf-8")
     out_spdx.write_text(json.dumps(spdx, indent=1) + "\n", encoding="utf-8")

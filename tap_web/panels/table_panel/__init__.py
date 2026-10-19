@@ -23,15 +23,14 @@ Config schema:
 from __future__ import annotations
 
 import logging
-import re
 from typing import TYPE_CHECKING, Any
-from urllib.parse import quote
 
 import jsonschema  # type: ignore[import-untyped]
 from django import forms
 from django.core.exceptions import ValidationError
 
 from tap_web.panel import TABULATOR_CSS, TABULATOR_JS
+from tap_web.panels.row_url import ROW_URL_TEMPLATE_PATTERN, fill_row_url, is_same_origin_template
 
 if TYPE_CHECKING:
     from django.http import HttpRequest
@@ -88,7 +87,7 @@ TABLE_CONFIG_SCHEMA: dict[str, Any] = {
         # a backslash as `/` when it parses a URL, so `/<TAB>/host` becomes `//host`.
         # `(?![\s\S])` is a true end of string (`$` also matches before a final
         # newline), in both Python's and ECMAScript's regex dialects.
-        "row_url_template": {"type": "string", "minLength": 2, "pattern": r"^/(?![/\\])[^\\\x00-\x20\x7f]*(?![\s\S])"},
+        "row_url_template": {"type": "string", "minLength": 2, "pattern": ROW_URL_TEMPLATE_PATTERN},
         # Optional custom column specs — overrides column_mode in the JS.
         # Each spec maps to a Tabulator column; `formatter` selects one of the
         # JS preset formatters (panel-table.js) so column logic is declarable.
@@ -187,6 +186,7 @@ TABLE_CONFIG_SCHEMA: dict[str, Any] = {
                         "tailSegment",
                         "painBadge",
                         "arrayCount",
+                        "linkList",
                     ],
                 },
                 # Per-formatter parameters, handed to the JS formatter as
@@ -571,35 +571,27 @@ def _alias_columns(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [{"field": alias, "title": alias, "headerSort": True} for alias in rows[0]] if rows else []
 
 
-_PLACEHOLDER = re.compile(r"\{([A-Za-z0-9_]+)\}")
-
-
 def _with_row_urls(rows: list[dict[str, Any]], template: str | None) -> list[dict[str, Any]]:
     """Set each projection row's ``_url`` from ``row_url_template``, and from nothing else.
 
     ``_url`` is the key the client's raw mode navigates by, so in projection
     mode only the panel's own template may set it: a search that RETURNs
     ``… AS _url`` has that alias dropped, on every row, template or not.
-    Each ``{alias}`` placeholder takes the row's value, URL-encoded as one
-    path segment or query value (nothing it contains can change the URL's
-    shape). A placeholder whose value is absent or empty leaves the row with
-    no link — a half-built URL is worse than none. Rows are copied, never
-    mutated: the envelope belongs to the search layer.
+    The fill and the same-origin rule are the shared ``fill_row_url``
+    (``tap_web.panels.row_url``, also the Chart panel's ``click``): a
+    placeholder whose value is absent or empty leaves the row with no link.
+    Rows are copied, never mutated: the envelope belongs to the search layer.
     """
     # The schema is enforced only by the editor's save; a grift-seeded config
     # reaches here unvalidated, so the same-origin rule is applied again at use.
-    if template and not re.search(TABLE_CONFIG_SCHEMA["properties"]["row_url_template"]["pattern"], template):
+    if template and not is_same_origin_template(template):
         logger.warning("[5b1e] Table panel row_url_template is not a same-origin path; rows get no link.")
         template = None
-    aliases = _PLACEHOLDER.findall(template) if template else []
     out: list[dict[str, Any]] = []
     for row in rows:
         row = {k: v for k, v in row.items() if k != "_url"}
-        values = {alias: row.get(alias) for alias in aliases}
-        if template and all(v is not None and v != "" for v in values.values()):
-            url = template
-            for alias, value in values.items():
-                url = url.replace("{" + alias + "}", quote(str(value), safe=""))
+        url = fill_row_url(template, row)
+        if url is not None:
             row["_url"] = url
         out.append(row)
     return out

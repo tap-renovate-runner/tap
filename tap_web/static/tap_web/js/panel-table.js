@@ -122,6 +122,28 @@
   }
 
 
+  // The items of a list-of-structured-items cell, as {item, object, label}; items with no label are
+  // dropped (nothing to show), a non-list value is no items. label_field defaults to "name".
+  function _linkListItems(value, params) {
+    if (!Array.isArray(value)) return [];
+    var labelField = (params && params.label_field) || "name";
+    var out = [];
+    value.forEach(function (item) {
+      var isObj = item !== null && typeof item === "object" && !Array.isArray(item);
+      var label = _safeStr(isObj ? _getPath(item, labelField) : item);
+      if (label) out.push({ item: item, object: isObj, label: label });
+    });
+    return out;
+  }
+  // The text a cell value is searched by (quick filter): a list of items searches by its labels, so
+  // "[object Object]" never matches; any other value is its text.
+  function _filterText(value, params) {
+    if (Array.isArray(value)) {
+      return _linkListItems(value, params).map(function (it) { return it.label; }).join(" ");
+    }
+    return _safeStr(value);
+  }
+
   // A href is safe when it is absolute http(s) or a same-origin path. "//host"
   // (protocol-relative) and every other scheme are rejected, so a hostile
   // value never becomes a javascript: or data: href.
@@ -144,12 +166,14 @@
   // Fill "{data.x}" placeholders from a row. Each value is URI-encoded per
   // segment ("/" survives, so a branch like docs/foo keeps its slashes); an
   // empty value voids the whole link (returns ""), never a half-built URL.
-  function _fillTemplate(template, row) {
+  // `oneComponent` encodes "/" too (a value that is one query value or path segment, never a path).
+  function _fillTemplate(template, row, oneComponent) {
     var missing = false;
     var out = _safeStr(template).replace(/\{([A-Za-z0-9_.]+)\}/g, function (_m, p) {
       var v = _safeStr(_getPath(row, p));
       if (!v) { missing = true; return ""; }
-      return encodeURIComponent(v).replace(/%2F/gi, "/");
+      var enc = encodeURIComponent(v);
+      return oneComponent ? enc : enc.replace(/%2F/gi, "/");
     });
     return missing ? "" : out;
   }
@@ -450,6 +474,31 @@
       return '<span style="background:' + pair[0] + ';color:' + pair[1] +
         ';padding:2px 8px;border-radius:4px;font-weight:600;font-size:11px">' + v + '</span>';
     },
+    linkList: function (cell, params) {
+      // A row field that is a LIST of structured items ({id, name}, ...): each item is its own link on
+      // its own line. params.href_template fills from the ITEM (`{id}` placeholders, each URL-encoded as one
+      // component; the `link` formatter's same-origin/http(s) rule); params.label_field (default "name") is the
+      // link text; params.external:false keeps links in-tab (the default opens a new tab, as `link`).
+      // An item whose placeholder is empty, or whose href is unsafe, renders as plain text; a bare string
+      // item is text. An empty or absent list is the dash. params.max_items shows the first N and
+      // "+N more" (the rest in its title).
+      params = params || {};
+      var items = _linkListItems(cell.getValue(), params);
+      if (!items.length) return '<span class="tap-cell-null" style="color:#9ca3af">—</span>';
+      var max = params.max_items > 0 ? params.max_items : items.length;
+      var target = params.external === false ? "" : ' target="_blank" rel="noopener noreferrer"';
+      var out = items.slice(0, max).map(function (it) {
+        var href = it.object ? _fillTemplate(params.href_template, it.item, true) : "";
+        if (!href || !_safeHref(href)) return '<div class="tap-linklist__item">' + _escapeHtml(it.label) + '</div>';
+        return '<div class="tap-linklist__item"><a href="' + _escapeHtml(href) + '"' + target +
+          ' class="tap-cell-link" title="' + _escapeHtml(href) + '">' + _escapeHtml(it.label) + '</a></div>';
+      });
+      if (items.length > max) {
+        var rest = items.slice(max).map(function (it) { return it.label; }).join(", ");
+        out.push('<div class="tap-linklist__more" title="' + _escapeHtml(rest) + '">+' + (items.length - max) + ' more</div>');
+      }
+      return '<div class="tap-linklist">' + out.join("") + '</div>';
+    },
     arrayCount: function (cell) {
       var v = cell.getValue();
       if (!Array.isArray(v) || v.length === 0) return '<span style="color:#9ca3af">—</span>';
@@ -544,6 +593,16 @@
         col.sorter = function (a, b, aRow, bRow) {
           var x = _elapsedSeconds(aRow.getData(), ep), y = _elapsedSeconds(bRow.getData(), ep);
           return (x == null ? -1 : x) - (y == null ? -1 : y);
+        };
+      }
+      if (spec.formatter === "linkList") {
+        // A list column sorts by its first label (case-insensitive), then by item count; an empty list last.
+        var lp = spec.formatter_params || {};
+        col.sorter = function (a, b) {
+          var x = _linkListItems(a, lp), y = _linkListItems(b, lp);
+          if (!x.length || !y.length) return (x.length ? 0 : 1) - (y.length ? 0 : 1);
+          var xl = x[0].label.toLowerCase(), yl = y[0].label.toLowerCase();
+          return xl < yl ? -1 : xl > yl ? 1 : x.length - y.length;
         };
       }
       if (spec.sorter === "severityRank") {
@@ -774,13 +833,18 @@
       var filterFields = (customColumns && customColumns.length > 0)
         ? customColumns.map(function (c) { return c.field; })
         : ["name", "entity_type"];
+      // A list column is searched by its item labels, using that column's own label_field.
+      var filterParams = {};
+      (customColumns || []).forEach(function (c) {
+        if (c.field) filterParams[c.field] = c.formatter_params;
+      });
       var applyFilter = function () {
         var term = filterInput.value.trim().toLowerCase();
         if (!term) { table.clearFilter(); return; }
         table.setFilter(function (data) {
           for (var i = 0; i < filterFields.length; i++) {
             var v = _getPath(data, filterFields[i]);
-            if (v != null && String(v).toLowerCase().indexOf(term) !== -1) return true;
+            if (v != null && _filterText(v, filterParams[filterFields[i]]).toLowerCase().indexOf(term) !== -1) return true;
           }
           return false;
         });

@@ -32,6 +32,7 @@ Future:
 | req-web-page-sanitize.sec | [Page Object Sanitization](#page-object-sanitization) | Implemented | Schema-first input hardening plus safe HTML output escaping |
 | req-web-page-plink | [Page to Panel Links](#page-to-panel-links) | Implemented | `USES_PANEL` links bind `panel-id` slots to panel nodes |
 | req-web-page-row-heights | [Row Heights](#page-layout-sanitization) | Implemented | A row's `height` drives its flex basis: `auto` intrinsic, `vh` definite everywhere, `Nfr` a share of the remaining height — which exists only on a `full_bleed` page, so elsewhere an `fr` row falls back to intrinsic height and does not clip. A row never both lacks a height and clips to it. | tap#416; `tap_web/tests/test_page_row_heights.py`. |
+| req-web-page-bands | [Layout Bands](#page-layout-bands) | Implemented | An optional integer `band` (>= 1, default 1) on a column groups columns into horizontal bands: each band is its own grid, bands stack top to bottom, so full-width content can sit under side-by-side columns. A page with no `band` renders exactly as before. | `tap_web/tests/test_page_bands.py` |
 | req-web-page-landing | [Landing Pages](#landing-pages) | Implemented | The root is the operator's decision: `web.landing_entity_id` (identity) + `web.landing_slug` (verified assertion) in the boot profile, carried by settings, verified fail-closed at boot; one resolver feeds the 302 redirect, the placeholder and a structured `web.landing` probe; the `LandingPage` node + `USES_LANDING_PAGE` edge are DROPPED with row cleanup (tap#340) |
 | req-web-page-synthetic | [Synthetic Pages](#synthetic-pages) | Implemented | GRIFT-subgraph-driven page rendering without persisting Page or Panel objects |
 | req-web-page-params | [Page Variables](#page-variables) | Proposed | URL-backed `tap_page_vars` provide canonical shared page state |
@@ -221,6 +222,7 @@ Layout validation and output-safety requirements extracted from `req-web-page-ob
     - `col-<n>-<kebab-name>`
   - Each column contains:
     - `width` (required)
+    - `band` (optional integer >= 1, default 1) — see `req-web-page-bands`
     - `tags` (optional object map with kebab-case keys/values)
     - `rows` (required object)
   - `rows` keys:
@@ -245,7 +247,7 @@ Layout validation and output-safety requirements extracted from `req-web-page-ob
 #### Development
 Use schema validation as the first gate for structural and value constraints. Runtime rendering behavior is defined in `spec-web-rendering.md`.
 
-Layout rendering uses **CSS Grid** for column placement. Column and row key numeric prefixes (`col-1`, `row-2`) drive `order`. `col_span` and `row_span` map to `grid-column: span N` and `grid-row: span N`.
+Layout rendering uses **CSS Grid** for column placement. Column and row key numeric prefixes (`col-1`, `row-2`) drive `order`; columns sharing a `band` form one grid and bands stack top to bottom (`req-web-page-bands`). `col_span` and `row_span` map to `grid-column: span N` and `grid-row: span N`.
 
 Within each column, rows render as vertical flex items. The row `height` field drives the flex-basis of each slot:
 - `auto` (or omitted) → `flex: 0 0 auto` — intrinsic content height (legacy default).
@@ -279,6 +281,11 @@ Pages without any `Nfr` rows render identically to the legacy layout.
           "width": {
             "type": "string",
             "enum": ["auto", "1fr", "2fr", "3fr", "4fr", "5fr", "6fr", "7fr", "8fr", "9fr", "10fr", "11fr", "12fr"]
+          },
+          "band": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 1
           },
           "tags": {
             "type": "object",
@@ -351,6 +358,28 @@ Pages without any `Nfr` rows render identically to the legacy layout.
 | req-web-page-layout-sanitize.sec-6 | Width Allowlist Enforced | Implemented | `width` is constrained to schema allowlist values only. | |
 | req-web-page-layout-sanitize.sec-7 | Tag Pattern Enforcement | Implemented | `tags` keys and values are constrained to kebab-case strings. | |
 | req-web-page-layout-sanitize.sec-8 | panel-id Format Delegated | Implemented | `panel-id` values in layout must comply with `req-web-page-panel-id`. | |
+
+
+### Page Layout Bands
+----
+RID: `req-web-page-bands`
+
+Status: `Implemented`
+
+A layout's columns all sit in one grid row, so a page cannot put full-width content (a table, a wide chart) beneath a set of side-by-side columns. A column may declare an integer `band`; columns sharing a band render side by side exactly as before, and bands render one under another. `col_span` and `row_span` remain no-ops across bands: a band is the only vertical structure at page level.
+
+#### Status Details
+Implemented for both the persisted and the synthetic page road.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-web-page-bands-1 | Band Is An Optional Positive Integer | Implemented | A column's `band` is optional, an integer >= 1, defaulting to 1; a string, float, zero, negative, boolean or null is rejected with `PageLayoutValidationError`. | `test_page_bands.py::TestValidation` |
+| req-web-page-bands-2 | One Grid Per Band | Implemented | Each band renders as its own grid with its own `grid-template-columns` (from that band's column widths) and the same gap; bands stack top to bottom. | `test_page_bands.py::TestRender::test_two_bands_render_two_grids_in_order` |
+| req-web-page-bands-3 | Band Then Column Order | Implemented | Columns order by band ascending, then by the numeric `col-<n>` prefix within a band. | `test_page_bands.py::TestProcessLayout::test_columns_order_by_band_then_number` |
+| req-web-page-bands-4 | No Band Renders As Before | Implemented | A layout with no `band` (a single band) renders one grid, markup unchanged (`h-full` included). | `test_page_bands.py::TestRender::test_a_page_without_band_renders_one_grid_as_before` |
+| req-web-page-bands-5 | Several Bands Scroll Normally | Implemented | With more than one band the grids do not take `h-full` and an `Nfr` row falls back to its intrinsic height (the page has no definite height to divide), so the page scrolls with the document, `full_bleed` or not; `auto` and `vh` row heights are unchanged. | `test_page_bands.py::TestProcessLayout`, `::TestRender::test_a_multi_band_page_does_not_force_full_height` |
 
 
 ### Page Object Sanitization
