@@ -14,8 +14,9 @@ import pytest
 
 from tap.pytest_harness import make_admin_client
 from tap_grid.models import Edge
+from tap_web.exceptions import PageLayoutValidationError
 from tap_web.models import Page, Panel
-from tap_web.validation import PageLayoutValidationError, validate_page_layout
+from tap_web.validation import validate_page_layout
 from tap_web.views import _process_layout
 
 
@@ -146,4 +147,4 @@ class TestRender:
         _make_page(_banded(), "/banded2")
         grids = _grids(make_admin_client().get("/banded2").content.decode())
         assert all("h-full" not in g for g in grids)
-        assert [re.search(r'data-band="(\d+)"', g).group(1) for g in grids] == ["1", "2"]
+        assert re.findall(r'data-band="(\d+)"', "".join(grids)) == ["1", "2"]
