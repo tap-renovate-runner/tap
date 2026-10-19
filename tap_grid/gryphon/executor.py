@@ -31,12 +31,16 @@ deduplication — advanced-path queries (NOT EXISTS, COUNT, multi-hop) require a
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from dataclasses import field as dc_field
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from django.db import DataError
+from django.db import DataError, ProgrammingError
+from django.utils import timezone
 
 from tap.db_aliases import SEARCH_READONLY
 from tap_auth.capabilities import READ_CAPABILITY
@@ -67,10 +71,12 @@ from tap_grid.gryphon.ast_nodes import (
     InComparison,
     IsNullComparison,
     KeyStep,
+    LookupClause,
     MatchClause,
     NodePattern,
     NotExistsClause,
     NotPred,
+    NowRef,
     ObservationComparison,
     OrPred,
     ParamNullTest,
@@ -79,6 +85,7 @@ from tap_grid.gryphon.ast_nodes import (
     Predicate,
     ReturnClause,
     ReturnItem,
+    TemporalComparison,
     WhereClause,
 )
 from tap_grid.gryphon.capture import capture_sql, gryphon_stage
@@ -102,6 +109,7 @@ def execute_gryphon(
     *,
     db_alias: str = READONLY_DB_ALIAS,
     layer: SubgraphLayer = "full",
+    clock: Callable[[], datetime] = timezone.now,
 ) -> dict[str, Any]:
     """Execute a gryphon-type Search and return the canonical graph envelope.
 
@@ -111,6 +119,7 @@ def execute_gryphon(
         db_alias: Database alias for all queries. Defaults to the read-only search alias
             (`READONLY_DB_ALIAS`); pass a writable alias only for a deliberate, reviewed reason.
         layer: GRIFT subgraph return layer (lite, full, extended).
+        clock: Supplies ``now()`` for a temporal comparison; read once per execution.
 
     Returns:
         ``{"nodes": [...], "edges": [...]}`` canonical envelope.
@@ -122,7 +131,7 @@ def execute_gryphon(
     if not query:
         raise SearchExecutionError("Gryphon search definition is missing 'query'.")
 
-    return execute_gryphon_raw(query, inputs, db_alias=db_alias, layer=layer)
+    return execute_gryphon_raw(query, inputs, db_alias=db_alias, layer=layer, clock=clock)
 
 
 @requires_capability(READ_CAPABILITY, operation="execute_gryphon_raw")
@@ -133,6 +142,7 @@ def execute_gryphon_raw(
     db_alias: str = READONLY_DB_ALIAS,
     layer: SubgraphLayer = "full",
     scope: ReadScope = DEFAULT_SCOPE,
+    clock: Callable[[], datetime] = timezone.now,
 ) -> dict[str, Any]:
     """Execute a raw gryphon query string and return the canonical graph envelope.
 
@@ -159,6 +169,9 @@ def execute_gryphon_raw(
         layer: GRIFT subgraph return layer (lite, full, extended).
         scope: What the read may see (req-grid-traversal-exec-read-scope). Defaults to
             ``LiveNow``; only the caller chooses it — no query text can widen it.
+        clock: Supplies ``now()`` for a temporal comparison (``req-grid-traversal-lang-temporal-offset``).
+            Read once per execution, must return an aware datetime; a fixed clock makes captured SQL
+            and Gridkin past / future rows stable.
 
     Returns:
         ``{"nodes": [...], "edges": [...]}`` canonical envelope.
@@ -166,7 +179,7 @@ def execute_gryphon_raw(
     Raises:
         SearchExecutionError: If the query is malformed, unsupported, or execution fails.
     """
-    return _execute_gryphon_raw_impl(query, inputs, db_alias=db_alias, layer=layer, scope=scope)
+    return _execute_gryphon_raw_impl(query, inputs, db_alias=db_alias, layer=layer, scope=scope, clock=clock)
 
 
 def _execute_gryphon_raw_impl(
@@ -176,6 +189,7 @@ def _execute_gryphon_raw_impl(
     db_alias: str = READONLY_DB_ALIAS,
     layer: SubgraphLayer = "full",
     scope: ReadScope = DEFAULT_SCOPE,
+    clock: Callable[[], datetime] = timezone.now,
 ) -> dict[str, Any]:
     """Raw-query execution body, without the read gate.
 
@@ -275,15 +289,24 @@ def _execute_gryphon_raw_impl(
     # correlation) and are not mandatory clauses, so they are outside this walk.
     _reject_variables_bound_in_multiple_match_clauses(ast.match_clauses)
 
-    if ast.optional_match_clauses:
-        with gryphon_stage("optional-match"):
-            return _execute_optional_match(ast, inputs, db_alias=db_alias, layer=layer, scope=scope)
+    # A temporal offset comparison (and its LOOKUPs) is validated and resolved HERE, above the
+    # dispatch fork and after folding: shapes it cannot apply to are refused before any path
+    # that does not know the leaf can see it, then each lookup is checked by a counting read.
+    # The resolved context rides a context variable for the rest of the execution.
+    temporal_ctx = _prepare_temporal(ast, inputs, db_alias=db_alias, scope=scope, clock=clock)
+    token = _TEMPORAL_CTX.set(temporal_ctx)
+    try:
+        if ast.optional_match_clauses:
+            with gryphon_stage("optional-match"):
+                return _execute_optional_match(ast, inputs, db_alias=db_alias, layer=layer, scope=scope)
 
-    if _has_advanced_features(ast):
-        with gryphon_stage("advanced"):
-            return _execute_advanced(ast, inputs, db_alias=db_alias, layer=layer, scope=scope)
+        if _has_advanced_features(ast):
+            with gryphon_stage("advanced"):
+                return _execute_advanced(ast, inputs, db_alias=db_alias, layer=layer, scope=scope)
 
-    return _execute_ast(ast, inputs, db_alias=db_alias, layer=layer, scope=scope)
+        return _execute_ast(ast, inputs, db_alias=db_alias, layer=layer, scope=scope)
+    finally:
+        _TEMPORAL_CTX.reset(token)
 
 
 @requires_capability(READ_CAPABILITY, operation="explain_gryphon_raw")
@@ -294,10 +317,11 @@ def explain_gryphon_raw(
     db_alias: str = READONLY_DB_ALIAS,
     layer: SubgraphLayer = "full",
     scope: ReadScope = DEFAULT_SCOPE,
+    clock: Callable[[], datetime] = timezone.now,
 ) -> dict[str, Any]:
     """Execute a raw gryphon query and return both the envelope and the SQL it ran.
 
-    TAP-IMPLEMENTS: req-grid-traversal-exec-sql-capture@6f701679bd50/cd5080a5afef (surface) — the
+    TAP-IMPLEMENTS: req-grid-traversal-exec-sql-capture@6f701679bd50/d05d384dc51c (surface) — the
         read-only seam that records issued SQL; snapshot tests and `gryphon explain` read it.
 
     Returns ``{"envelope": <canonical envelope>, "sql": <SqlCapture>}``. The
@@ -318,6 +342,7 @@ def explain_gryphon_raw(
         db_alias: Database alias for all queries.
         layer: GRIFT subgraph return layer (lite, full, extended).
         scope: What the read may see; see ``execute_gryphon_raw``.
+        clock: Supplies ``now()``; see ``execute_gryphon_raw``.
 
     Returns:
         ``{"envelope": {...}, "sql": SqlCapture}``.
@@ -340,7 +365,9 @@ def explain_gryphon_raw(
     # directly — routing through the gated execute_gryphon_raw would record a
     # second, redundant authz query inside the capture.
     with capture_sql() as capture:
-        envelope = _execute_gryphon_raw_impl(query, inputs, db_alias=db_alias, layer=layer, scope=scope)
+        envelope = _execute_gryphon_raw_impl(
+            query, inputs, db_alias=db_alias, layer=layer, scope=scope, clock=clock
+        )
     return {"envelope": envelope, "sql": capture}
 
 
@@ -1087,6 +1114,12 @@ def _reject_where_on_other_variables(predicate: Predicate | None, var: str) -> N
                 f"WHERE names variable '{predicate.field_path.variable}', which this MATCH does not bind; "
                 f"an aggregate over the scan of '{var}' cannot ignore it. Constrain '{var}' only."
             )
+    elif isinstance(predicate, TemporalComparison):
+        if predicate.offset.base.variable != var:
+            raise SearchExecutionError(
+                f"WHERE names variable '{predicate.offset.base.variable}', which this MATCH does not bind; "
+                f"an aggregate over the scan of '{var}' cannot ignore it. Constrain '{var}' only."
+            )
 
 
 def _typescan_aggregate_rows(
@@ -1640,6 +1673,9 @@ def _predicate_field_paths(predicate: Any) -> list[FieldPath]:
         return []
     if isinstance(predicate, (Comparison, InComparison, IsNullComparison, ObservationComparison)):
         return [predicate.field_path]
+    if isinstance(predicate, TemporalComparison):
+        # The base is the only graph field the leaf reads; the lookup path is a scalar source.
+        return [predicate.offset.base]
     if isinstance(predicate, (AndPred, OrPred)):
         return _predicate_field_paths(predicate.left) + _predicate_field_paths(predicate.right)
     if isinstance(predicate, NotPred):
@@ -2607,6 +2643,17 @@ def _guard_negated_far_predicate(
         return
     if isinstance(predicate, (IsNullComparison, ObservationComparison)):
         return
+    if isinstance(predicate, TemporalComparison):
+        # The leaf's base path crosses the same relation a Comparison's does, so a negated
+        # temporal leaf on a far node is refused for the same reason. v0 applies the leaf to a
+        # single hop, where both ends are forward foreign keys, so this is expected not to fire.
+        binding = bindings.get(predicate.offset.base.variable)
+        if negated and binding is not None and _binding_is_multivalued_hop(binding):
+            raise SearchExecutionError(
+                "A negated temporal comparison on a node beyond the root edge of a multi-hop pattern "
+                f"(here on variable '{predicate.offset.base.variable}') is not supported."
+            )
+        return
     if isinstance(predicate, AndPred):
         _guard_negated_far_predicate(predicate.left, bindings, negated=negated)
         _guard_negated_far_predicate(predicate.right, bindings, negated=negated)
@@ -2658,7 +2705,9 @@ def _chain_predicate_q(
             return None
         return _declared_data_types(get_model_class(binding["label"]), field_path)
 
-    return _predicate_to_q(predicate, inputs, _resolve, _declared)
+    return _predicate_to_q(
+        predicate, inputs, _resolve, _declared, lambda leaf: _temporal_to_q(leaf, bindings, inputs)
+    )
 
 
 def _apply_predicate_to_qs(
@@ -2718,13 +2767,24 @@ def _flatten_conjunction(
         return [predicate]
     if isinstance(predicate, AndPred):
         return _flatten_conjunction(predicate.left) + _flatten_conjunction(predicate.right)
+    if isinstance(predicate, TemporalComparison):
+        raise SearchExecutionError(
+            "A temporal offset comparison is not supported with OPTIONAL MATCH "
+            "(req-grid-traversal-lang-temporal-offset)."
+        )
     raise SearchExecutionError(
         "This WHERE clause supports only AND-joined comparisons; OR and NOT are not "
         "supported here (OPTIONAL MATCH v0 keeps an AND-only WHERE)."
     )
 
 
-def _predicate_to_q(predicate: Predicate, inputs: dict[str, Any], resolve: Any, declared_types: Any = None):
+def _predicate_to_q(
+    predicate: Predicate,
+    inputs: dict[str, Any],
+    resolve: Any,
+    declared_types: Any = None,
+    temporal: Callable[[TemporalComparison], Any] | None = None,
+):
     """Compile a WHERE predicate tree into a single Django ``Q`` expression.
 
     ``AND`` / ``OR`` / ``NOT`` and parenthesized grouping lower to ``Q`` ``&`` /
@@ -2733,10 +2793,19 @@ def _predicate_to_q(predicate: Predicate, inputs: dict[str, Any], resolve: Any, 
     a ``__isnull`` lookup (``Q(path__isnull=True/False)``). ``resolve`` maps a
     leaf's ``FieldPath`` to its ORM lookup path — the type-scan and chain
     executors pass different resolvers because their querysets are rooted
-    differently.
+    differently. ``temporal`` lowers a `TemporalComparison` leaf; only the single-hop chain
+    path supplies it (it holds the bindings the leaf's base is typed against), so on every
+    other path the leaf is refused here rather than dropped.
     """
     from django.db.models import Q
 
+    if isinstance(predicate, TemporalComparison):
+        if temporal is None:
+            raise SearchExecutionError(
+                "A temporal offset comparison is not supported on this path: v0 applies it to a single-hop "
+                "pattern only (req-grid-traversal-lang-temporal-offset)."
+            )
+        return temporal(predicate)
     if isinstance(predicate, (Comparison, InComparison)):
         return _comparison_to_q(predicate, resolve(predicate.field_path), inputs, declared_types)
     if isinstance(predicate, IsNullComparison):
@@ -2748,15 +2817,15 @@ def _predicate_to_q(predicate: Predicate, inputs: dict[str, Any], resolve: Any, 
         path = resolve(predicate.field_path)
         return Q(**{f"{path}__isnull": predicate.kind == "unknown"})
     if isinstance(predicate, AndPred):
-        return _predicate_to_q(predicate.left, inputs, resolve, declared_types) & _predicate_to_q(
-            predicate.right, inputs, resolve, declared_types
+        return _predicate_to_q(predicate.left, inputs, resolve, declared_types, temporal) & _predicate_to_q(
+            predicate.right, inputs, resolve, declared_types, temporal
         )
     if isinstance(predicate, OrPred):
-        return _predicate_to_q(predicate.left, inputs, resolve, declared_types) | _predicate_to_q(
-            predicate.right, inputs, resolve, declared_types
+        return _predicate_to_q(predicate.left, inputs, resolve, declared_types, temporal) | _predicate_to_q(
+            predicate.right, inputs, resolve, declared_types, temporal
         )
     if isinstance(predicate, NotPred):
-        return ~_predicate_to_q(predicate.operand, inputs, resolve, declared_types)
+        return ~_predicate_to_q(predicate.operand, inputs, resolve, declared_types, temporal)
     raise SearchExecutionError(f"Unsupported WHERE predicate node: {type(predicate).__name__}")
 
 
@@ -2980,15 +3049,18 @@ def _collect_graph_envelope(
     edge_entity_ids: set[str] = set()
     node_count = len(node_columns)
 
-    for row in rows:
-        for i, val in enumerate(row):
-            if val is None:
-                continue
-            pk = str(val)
-            if i < node_count:
-                node_pks.add(pk)
-            else:
-                edge_entity_ids.add(pk)
+    # The main query runs when `rows` is iterated, so a stored value a temporal cast cannot hold
+    # (or a second lookup row appearing after the counting read) surfaces HERE.
+    with _temporal_read_errors():
+        for row in rows:
+            for i, val in enumerate(row):
+                if val is None:
+                    continue
+                pk = str(val)
+                if i < node_count:
+                    node_pks.add(pk)
+                else:
+                    edge_entity_ids.add(pk)
 
     # Bulk re-fetch under the same scope as the chain, so the envelope can never
     # re-hydrate an element the rows did not match (req-grid-traversal-exec-read-scope-6).
@@ -3016,6 +3088,11 @@ def _filter_predicate_for_bindings(
         return None
     if isinstance(predicate, (Comparison, InComparison, IsNullComparison, ObservationComparison)):
         if predicate.field_path.variable in bindings:
+            return predicate
+        return None
+    if isinstance(predicate, TemporalComparison):
+        # Scoped by the BASE field's variable: the lookup variable is not a binding.
+        if predicate.offset.base.variable in bindings:
             return predicate
         return None
     if isinstance(predicate, AndPred):
@@ -3335,6 +3412,378 @@ def _has_extremum(plan: MaterializationPlan) -> bool:
     return any(isinstance(agg, (Min, Max)) for agg in plan.aggregate_annotations.values())
 
 
+# ---------------------------------------------------------------------------
+# Temporal offset comparison (req-grid-traversal-lang-temporal-offset)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _LookupSource:
+    """One resolved ``LOOKUP``: the scoped, filtered relation and the typed expressions it serves.
+
+    ``relation`` is the SAME queryset object the counting read and the embedded scalar
+    subquery are both built from, so the two cannot drift (`...-temporal-offset-25`).
+    """
+
+    clause: LookupClause
+    model_cls: type
+    relation: Any
+
+
+@dataclass(frozen=True)
+class _TemporalContext:
+    """Per-execution state a temporal leaf needs: the clock and the resolved lookups.
+
+    Set in a context variable for the duration of one execution (the same mechanism the
+    SQL-capture stage label uses), so no inputs dict is polluted and no walker signature
+    grows a hidden parameter. ``now`` is read once.
+    """
+
+    now: datetime
+    lookups: dict[str, _LookupSource]
+
+
+_TEMPORAL_CTX: ContextVar[_TemporalContext | None] = ContextVar("gryphon_temporal_ctx", default=None)
+
+_TEMPORAL_ACCEPTED = "date-time (a string with format date-time)"
+_HOURS_ACCEPTED = "integer"
+
+
+def _temporal_leaves(predicate: Any) -> list[TemporalComparison]:
+    """Every temporal leaf in a predicate tree (empty for ``None``)."""
+    if predicate is None:
+        return []
+    if isinstance(predicate, TemporalComparison):
+        return [predicate]
+    if isinstance(predicate, (AndPred, OrPred)):
+        return _temporal_leaves(predicate.left) + _temporal_leaves(predicate.right)
+    if isinstance(predicate, NotPred):
+        return _temporal_leaves(predicate.operand)
+    return []
+
+
+def _temporal_stored_value_error() -> SearchExecutionError:
+    """A stored value the temporal cast cannot hold, or a result outside the timestamp range.
+
+    Constant on purpose, like :func:`_stored_value_error`: the driver text can quote a stored
+    value, so it stays on ``__cause__`` and never reaches the caller.
+    """
+    return SearchExecutionError(
+        "A stored value could not be used in a temporal offset comparison (the date-time or hours "
+        "field is cast to its declared type, and the shifted result must be a valid timestamp). "
+        "Fix or remove the malformed stored value."
+    )
+
+
+def _temporal_cardinality_error() -> SearchExecutionError:
+    return SearchExecutionError(
+        "A LOOKUP matched more than one row when the query ran (a row appeared after the lookup "
+        "was checked). A lookup must select exactly one row; narrow its properties."
+    )
+
+
+def _mapped_read_error(plan: MaterializationPlan | None, exc: Exception) -> SearchExecutionError | None:
+    """Map a database error from a Gryphon read to a refusal, or ``None`` to re-raise it.
+
+    A stored value the declared type cannot hold fails MIN / MAX or a temporal cast inside
+    Postgres (``DataError``); a second lookup row appearing after the counting read raises
+    sqlstate 21000 (``CardinalityViolation``, wrapped by Django as ``ProgrammingError``).
+    Anything else is not this module's to reinterpret.
+    """
+    cause = getattr(exc, "__cause__", None)
+    if isinstance(exc, ProgrammingError):
+        if _TEMPORAL_CTX.get() is not None and getattr(cause, "sqlstate", None) == "21000":
+            return _temporal_cardinality_error()
+        return None
+    if isinstance(exc, DataError):
+        if _TEMPORAL_CTX.get() is not None:
+            return _temporal_stored_value_error()
+        if plan is not None and _has_extremum(plan):
+            return _stored_value_error()
+    return None
+
+
+@contextmanager
+def _temporal_read_errors() -> Iterator[None]:
+    """Map the temporal database errors raised inside the block (envelope path and lookup reads)."""
+    try:
+        yield
+    except (DataError, ProgrammingError) as exc:
+        mapped = _mapped_read_error(None, exc)
+        if mapped is None:
+            raise
+        raise mapped from exc
+
+
+def _require_aware(value: datetime, what: str) -> datetime:
+    if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+        raise SearchExecutionError(
+            f"{what} is a naive date-time. A temporal comparison needs an instant that carries a UTC offset "
+            "(e.g. 2026-01-02T00:00:00Z); Gryphon does not guess a time zone."
+        )
+    return value
+
+
+def _validate_temporal_shape(ast: GryphonAST, temporal: list[TemporalComparison]) -> None:
+    """Refuse every query shape a temporal leaf cannot be applied to (GRY-ARCH-3).
+
+    v0 applies the leaf on exactly one shape: ONE `MATCH` clause with ONE directed single-hop
+    pattern, whatever RETURN form the one-hop machinery supports. Every other shape is refused
+    here, ABOVE the dispatch fork, so no walker on a path that does not know the leaf can drop
+    it silently (`req-grid-traversal-lang-temporal-offset-16/-23/-24`).
+    """
+
+    def refuse(what: str) -> SearchExecutionError:
+        return SearchExecutionError(
+            f"A temporal offset comparison is not supported with {what}. v0 applies it to ONE single-hop "
+            "pattern in ONE MATCH clause, e.g. MATCH (a:x)-[:E]->(b:y) WHERE b.data.opened_at + hours(12) "
+            "< now() (req-grid-traversal-lang-temporal-offset)."
+        )
+
+    if len(ast.match_clauses) != 1:
+        raise refuse("more than one MATCH clause")
+    if ast.optional_match_clauses:
+        raise refuse("OPTIONAL MATCH")
+    if ast.not_exists_clauses:
+        raise refuse("NOT EXISTS")
+    patterns = ast.match_clauses[0].patterns
+    if len(patterns) != 1:
+        raise refuse("more than one pattern in the MATCH clause")
+    pattern = patterns[0]
+    if not pattern.edges:
+        raise refuse("a node-only scan")
+    if len(pattern.edges) != 1:
+        raise refuse("a multi-hop pattern")
+    edge = pattern.edges[0]
+    if edge.direction == "any":
+        raise refuse("an undirected hop")
+    if edge.min_hops != 1 or edge.max_hops != 1:
+        raise refuse("a variable-length hop")
+    if ast.order_by is not None or ast.limit is not None:
+        # The single-hop path refuses these already; say so before the lookup runs.
+        raise refuse("ORDER BY / LIMIT")
+
+
+def _prepare_temporal(
+    ast: GryphonAST,
+    inputs: dict[str, Any],
+    *,
+    db_alias: str,
+    scope: ReadScope,
+    clock: Callable[[], datetime],
+) -> _TemporalContext | None:
+    """Validate a temporal query, read the clock once and resolve every ``LOOKUP``; ``None`` if there is none.
+
+    Runs after parameter folding (so a lookup whose only use folded away is seen as unused) and
+    after the dispatch shape is validated, and BEFORE the main query: each lookup is checked by
+    a counting read built from the very relation the main query embeds as a scalar subquery.
+    Zero rows, more than one, or a null selected field raise, because a scalar subquery would
+    yield a silent NULL for none and a null offset lowered to FALSE becomes TRUE under NOT
+    (`...-temporal-offset-3/-10/-25`).
+    """
+    from tap_grid.registry import get_model_class
+
+    temporal = _temporal_leaves(ast.where_clause.predicate if ast.where_clause else None)
+    if not temporal:
+        if ast.lookup_clauses:
+            raise SearchExecutionError(
+                f"LOOKUP variable '{ast.lookup_clauses[0].variable}' is not used by any temporal comparison "
+                "(its only use was removed by an input-null predicate). An unused LOOKUP would silently "
+                "select nothing; remove it or keep the comparison it serves."
+            )
+        return None
+    _validate_temporal_shape(ast, temporal)
+
+    used_by_var: dict[str, list[FieldPath]] = {}
+    for leaf in temporal:
+        if isinstance(leaf.offset.hours, FieldPath):
+            used_by_var.setdefault(leaf.offset.hours.variable, []).append(leaf.offset.hours)
+    for lc in ast.lookup_clauses:
+        if lc.variable not in used_by_var:
+            raise SearchExecutionError(
+                f"LOOKUP variable '{lc.variable}' is not used by any temporal comparison (its only use was "
+                "removed by an input-null predicate). An unused LOOKUP would silently select nothing."
+            )
+
+    tick = clock()
+    if not isinstance(tick, datetime):
+        raise SearchExecutionError(
+            f"The query clock returned {type(tick).__name__}, not a date-time. A clock must return an aware datetime."
+        )
+    now = _require_aware(tick, "The query clock")
+    lookups: dict[str, _LookupSource] = {}
+    for lc in ast.lookup_clauses:
+        try:
+            model_cls = get_model_class(lc.label)
+        except KeyError:
+            raise SearchExecutionError(f"LOOKUP {lc.variable}: unknown entity type '{lc.label}'.") from None
+        for key, raw in lc.props.items():
+            if _resolve_value(raw, inputs) is None:
+                raise SearchExecutionError(
+                    f"LOOKUP {lc.variable} = (:{lc.label} ...): property '{key}' is null. A null key would match "
+                    "nothing and silently turn the deadline test into 'everything' under NOT; supply a value."
+                )
+        node = NodePattern(variable=lc.variable, label=lc.label, inline_props=lc.props)
+        resolve_path, declared = _model_path_helpers(model_cls)
+        relation = read_scope.node_relation(scope, model_cls, db_alias=db_alias).filter(
+            **_node_inline_prop_filters(node, inputs, resolve_path, declared)
+        )
+        lookups[lc.variable] = _LookupSource(clause=lc, model_cls=model_cls, relation=relation)
+
+    ctx = _TemporalContext(now=now, lookups=lookups)
+    with gryphon_stage("lookup"):
+        for var, paths in used_by_var.items():
+            source = lookups[var]
+            exprs = {
+                f"_lk{i}": _lookup_value_expr(source, path)
+                for i, path in enumerate(dict.fromkeys(paths))
+            }
+            token = _TEMPORAL_CTX.set(ctx)
+            try:
+                with _temporal_read_errors():
+                    rows = list(source.relation.annotate(**exprs).values_list(*exprs.keys())[:2])
+            finally:
+                _TEMPORAL_CTX.reset(token)
+            keys = ", ".join(f"{k}={_resolve_value(v, inputs)!r}" for k, v in source.clause.props.items())
+            where = f"LOOKUP {var} = (:{source.clause.label} {{{keys}}})"
+            if not rows:
+                raise SearchExecutionError(f"{where} matched no row. A lookup must select exactly one row.")
+            if len(rows) > 1:
+                raise SearchExecutionError(
+                    f"{where} matched more than one row. A lookup must select exactly one row; narrow its properties."
+                )
+            if any(value is None for value in rows[0]):
+                raise SearchExecutionError(
+                    f"{where} selected a row whose hours field is null. A null offset is refused, not treated "
+                    "as zero or as no match."
+                )
+    return ctx
+
+
+def _model_path_helpers(
+    model_cls: type,
+) -> tuple[Callable[[FieldPath], str], Callable[[FieldPath], set[str] | None]]:
+    """The type-scan path resolver and declared-type lookup for one model (typed, not lambdas)."""
+
+    def resolve_path(fp: FieldPath) -> str:
+        return _typescan_orm_path(fp, model_cls)
+
+    def declared(fp: FieldPath) -> set[str] | None:
+        return _declared_data_types(model_cls, fp)
+
+    return resolve_path, declared
+
+
+def _lookup_value_expr(source: _LookupSource, path: FieldPath) -> Any:
+    """The typed (integer) expression for one lookup field, over the lookup model."""
+    resolve_path, _declared = _model_path_helpers(source.model_cls)
+
+    def resolve(_binding: dict[str, Any], fp: FieldPath) -> str:
+        return resolve_path(fp)
+
+    expr, _kind = _typed_data_lane_source(
+        f"hours({_format_field_path(path)})",
+        "hours() reads",
+        "hours(p.data.<field>) on LOOKUP p = (:<type> {...})",
+        f"hours() takes only an {_HOURS_ACCEPTED} field",
+        _HOURS_ACCEPTED,
+        frozenset({"integer"}),
+        {"role": "node", "label": source.clause.label},
+        path,
+        resolve,
+    )
+    return expr
+
+
+def _temporal_to_q(leaf: TemporalComparison, bindings: dict[str, dict[str, Any]], inputs: dict[str, Any]) -> Any:
+    """Lower a temporal leaf to a ``Q``: the comparison conjoined with a not-null guard on the base.
+
+    TAP-IMPLEMENTS: req-grid-traversal-lang-temporal-offset@ce4e1aaa8a9d/14ab1f5ce631 (derivation) — the offset comparison
+        lowers here: base shifted by whole hours, compared with the clock or a supplied instant.
+
+    Rung 1: ``F``/``Cast`` of the base, plus-or-minus an ``ExpressionWrapper`` of the integer
+    hours times ``Value(timedelta(hours=1))`` (Django has no integer-times-duration rule without
+    the wrapper), compared through Django's own ``LessThan`` family and composed through ``Q``.
+    The guard is ``IsNull(base_expr, False)`` on the CAST expression itself: a conditional
+    expression gets no null guard from Django, and a JSON key holding ``null`` is SQL NULL only
+    after the cast, so a guard on the key path would let it through. Without the guard ``NOT`` of
+    a null-based row would be UNKNOWN and dropped, which disagrees with every sibling comparison.
+    """
+    from django.db.models import DateTimeField, DurationField, ExpressionWrapper, Q, Subquery, Value
+    from django.db.models.lookups import GreaterThan, GreaterThanOrEqual, IsNull, LessThan, LessThanOrEqual
+
+    ctx = _TEMPORAL_CTX.get()
+    if ctx is None:
+        raise SearchExecutionError("Internal: a temporal comparison reached lowering without an execution context.")
+
+    base_path = leaf.offset.base
+    binding = bindings.get(base_path.variable)
+    if binding is None:
+        raise SearchExecutionError(f"Unknown variable '{base_path.variable}' in WHERE predicate.")
+    base_expr, _ = _typed_data_lane_source(
+        f"{_format_field_path(base_path)} + hours(...)",
+        "a temporal offset shifts",
+        "t.data.<field> + hours(...) on (t:<type>)",
+        f"A temporal offset takes only a {_TEMPORAL_ACCEPTED} base",
+        _TEMPORAL_ACCEPTED,
+        frozenset({"date-time"}),
+        binding,
+        base_path,
+    )
+
+    hours = leaf.offset.hours
+    one_hour = Value(timedelta(hours=1), output_field=DurationField())
+    if isinstance(hours, FieldPath):
+        source = ctx.lookups[hours.variable]
+        field_expr = _lookup_value_expr(source, hours)
+        sub = source.relation.annotate(_lk=field_expr).values("_lk")
+        offset: Any = ExpressionWrapper(Subquery(sub) * one_hour, output_field=DurationField())
+    else:
+        count = _resolve_value(hours, inputs)
+        if count is None:
+            raise SearchExecutionError(
+                "hours(...) received a null value. A null offset is refused, not treated as zero."
+            )
+        if isinstance(count, bool) or not isinstance(count, int):
+            raise SearchExecutionError(
+                f"hours(...) takes a whole number; got {type(count).__name__} ({count!r}). Gryphon does not coerce."
+            )
+        try:
+            offset = Value(timedelta(hours=count), output_field=DurationField())
+        except OverflowError:
+            raise SearchExecutionError(f"hours({count}) is outside the range an offset can hold.") from None
+
+    operand = leaf.operand
+    if isinstance(operand, NowRef):
+        instant = ctx.now
+    else:
+        raw = _resolve_value(operand, inputs)
+        if raw is None:
+            raise SearchExecutionError(
+                f"Input '{operand.name}' is null. A null instant is refused: a comparison with NULL would turn "
+                "into 'everything' under NOT. Supply an ISO-8601 date-time with a UTC offset."
+            )
+        if isinstance(raw, datetime):
+            instant = raw
+        elif isinstance(raw, str):
+            try:
+                instant = datetime.fromisoformat(raw)
+            except ValueError:
+                raise SearchExecutionError(
+                    f"Input '{operand.name}' ({raw!r}) is not an ISO-8601 date-time. Gryphon does not coerce."
+                ) from None
+        else:
+            raise SearchExecutionError(
+                f"Input '{operand.name}' must be an ISO-8601 date-time string; got {type(raw).__name__}."
+            )
+        instant = _require_aware(instant, f"Input '{operand.name}'")
+
+    shifted = base_expr + offset if leaf.offset.sign == "+" else base_expr - offset
+    lookup_cls = {"<": LessThan, "<=": LessThanOrEqual, ">": GreaterThan, ">=": GreaterThanOrEqual}[leaf.op]
+    comparison = lookup_cls(shifted, Value(instant, output_field=DateTimeField()))
+    return Q(comparison) & Q(IsNull(base_expr, False))
+
+
 def _json_null_collapsed(annotations: dict[str, Any], group_internals: list[str], qs: Any) -> dict[str, Any]:
     """Make a JSON group key treat a stored JSON ``null`` and an absent key as one group.
 
@@ -3368,7 +3817,7 @@ def _json_null_collapsed(annotations: dict[str, Any], group_internals: list[str]
 def materialize_rows(plan: MaterializationPlan) -> list[dict[str, Any]]:
     """The shared Layer-B row backend: a resolved plan -> the ``rows`` list.
 
-    TAP-IMPLEMENTS: req-grid-traversal-exec-row-materialization@edbd98db287d/3243b67421f3 (derivation) —
+    TAP-IMPLEMENTS: req-grid-traversal-exec-row-materialization@edbd98db287d/9a9d8ae12e2b (derivation) —
         the requirement exists to forbid per-dispatch row tails; this function is the one
         backend every shape reaches, so a fifth row tail is a defect by construction.
 
@@ -3417,10 +3866,8 @@ def materialize_rows(plan: MaterializationPlan) -> list[dict[str, Any]]:
             return []
         try:
             totals = qs.order_by().aggregate(**plan.aggregate_annotations)
-        except DataError as exc:
-            if not _has_extremum(plan):
-                raise
-            raise _stored_value_error() from exc
+        except (DataError, ProgrammingError) as exc:
+            raise _mapped_read_error(plan, exc) or exc
         return _rows_from_values([totals], plan.group_pairs, plan.aggregate_pairs, plan.aggregate_postprocess)
     qs = qs.values(*group_internals)
     if plan.aggregate_annotations:
@@ -3432,10 +3879,8 @@ def materialize_rows(plan: MaterializationPlan) -> list[dict[str, Any]]:
 
     try:
         raw_rows = list(qs)
-    except DataError as exc:
-        if not _has_extremum(plan):
-            raise
-        raise _stored_value_error() from exc
+    except (DataError, ProgrammingError) as exc:
+        raise _mapped_read_error(plan, exc) or exc
     return _rows_from_values(raw_rows, plan.group_pairs, plan.aggregate_pairs, plan.aggregate_postprocess)
 
 
@@ -3459,6 +3904,107 @@ def _format_temporal(value: Any) -> str:
     return str(value.isoformat())
 
 
+def _typed_data_lane_source(
+    subject: str,
+    usage: str,
+    example: str,
+    only: str,
+    accepted: str,
+    kinds: frozenset[str],
+    binding: dict[str, Any],
+    arg: FieldPath,
+    resolve: Callable[[dict[str, Any], FieldPath], str] | None = None,
+) -> tuple[Any, str]:
+    """Resolve a typed data-lane field to an ORM expression cast to its declared type.
+
+    The one derivation of "what is this field's declared scalar type and how is it read as
+    that type", shared by MIN / MAX (``_extremum_aggregate``) and the temporal offset
+    (``_temporal_to_q``). Returns ``(expression, kind)`` where ``kind`` is ``integer``,
+    ``number``, ``date-time`` or ``date``. A JSON sub-key (``->>`` text) or a text column is
+    cast to the declared type unless the stored column already has it, so it never compares as
+    text. ``kinds`` narrows what the caller accepts. Anything undeclared, open, a spine field
+    or an edge field is rejected, naming ``accepted``.
+    """
+    from django.db import models as dj_models
+    from django.db.models import F
+    from django.db.models.fields.json import KeyTextTransform, KeyTransform
+    from django.db.models.functions import Cast
+
+    from tap_grid.registry import get_model_class
+
+    rendered = _format_field_path(arg)
+    steps = arg.steps
+    if (
+        binding.get("role") != "node"
+        or not binding.get("label")
+        or not steps
+        or not isinstance(steps[0], DotStep)
+        or steps[0].name != _DATA_LANE_PREFIX
+    ):
+        raise SearchExecutionError(
+            f"{subject} is not supported: {usage} a typed data-lane field of a labelled "
+            f"node, e.g. {example}. Accepted types: {accepted}."
+        )
+    model_cls = get_model_class(binding["label"])
+    leaf = _data_lane_leaf_schema(model_cls, arg)
+    declared = _schema_type_set(leaf) if leaf is not None else None
+    scalar = (declared or set()) - {"null"}
+    if leaf is None or not scalar:
+        raise SearchExecutionError(
+            f"{subject} is not supported: {rendered} has no declared scalar type "
+            f"(an undeclared field, or an open or opaque blob). Accepted types: {accepted}."
+        )
+    shown = ", ".join(sorted(scalar))
+    fmt = leaf.get("format")
+    if scalar <= {"integer"}:
+        target: Any = dj_models.BigIntegerField()
+        kind = "integer"
+    elif scalar <= {"integer", "number"}:
+        target = dj_models.FloatField()
+        kind = "number"
+    elif scalar == {"string"} and fmt == "date-time":
+        target = dj_models.DateTimeField()
+        kind = "date-time"
+    elif scalar == {"string"} and fmt == "date":
+        target = dj_models.DateField()
+        kind = "date"
+    else:
+        kind = ""
+    if kind not in kinds:
+        raise SearchExecutionError(
+            f"{subject} is not supported: {rendered} is declared {{{shown}}}"
+            f"{' (format ' + str(fmt) + ')' if fmt else ''}. {only}."
+        )
+
+    # The shared resolver (and its data-lane allowlist) produces the ORM path; a JSON
+    # sub-key is treated exactly as a column is, then cast to the declared type.
+    # `resolve` lets the node-only type scan supply its own resolver (the queryset there is on
+    # the per-model class, not the Edge chain); both run the same data-lane allowlist.
+    orm_path = (resolve or _resolve_orm_path)(binding, arg)
+    key_steps = len(steps) - 2  # steps after `data.<column>`
+    if key_steps > 0:
+        parts = orm_path.split("__")
+        expr: Any = F("__".join(parts[:-key_steps]))
+        keys = parts[-key_steps:]
+        for key in keys[:-1]:
+            expr = KeyTransform(key, expr)
+        source: Any = Cast(KeyTextTransform(keys[-1], expr), target)
+    else:
+        column_step = steps[1]
+        assert isinstance(column_step, DotStep)  # _data_lane_leaf_schema only resolves a dot-step column
+        column = model_cls._meta.get_field(column_step.name)  # type: ignore[attr-defined]
+        if kind in ("integer", "number"):
+            native = isinstance(column, dj_models.IntegerField) or (
+                kind == "number" and isinstance(column, dj_models.FloatField)
+            )
+        elif kind == "date-time":
+            native = isinstance(column, dj_models.DateTimeField)
+        else:
+            native = isinstance(column, dj_models.DateField) and not isinstance(column, dj_models.DateTimeField)
+        source = F(orm_path) if native else Cast(F(orm_path), target)
+    return source, kind
+
+
 def _extremum_aggregate(
     function: str,
     binding: dict[str, Any],
@@ -3467,7 +4013,7 @@ def _extremum_aggregate(
 ) -> tuple[Any, Callable[[str], Any], Callable[[Any], Any] | None]:
     """Lower ``MIN(<field path>)`` / ``MAX(<field path>)`` to an ORM aggregate.
 
-    TAP-IMPLEMENTS: req-grid-gryphon-minmax@191d335b158b/47c4c3503018 (derivation) — MIN / MAX lower here: typed
+    TAP-IMPLEMENTS: req-grid-gryphon-minmax@191d335b158b/adcc5458701f (derivation) — MIN / MAX lower here: typed
         comparison, nulls ignored, the shared field-path resolver, ISO-string results.
 
     Returns ``(source_expression, aggregate_factory, postprocess)``: the expression
@@ -3501,83 +4047,21 @@ def _extremum_aggregate(
           MATCH (v:grid_fixtures__hub)-[:PG_LINKS__grid_fixtures]->(f:grid_fixtures__leaf)-[:PG_LINKS__grid_fixtures]->(a:grid_fixtures__node)
           RETURN v.name AS vulnerability, MIN(a.data.observed_at) AS first_seen, MAX(a.data.severity_score) AS highest
     """
-    from django.db import models as dj_models
-    from django.db.models import F, Max, Min
-    from django.db.models.fields.json import KeyTextTransform, KeyTransform
-    from django.db.models.functions import Cast
-
-    from tap_grid.registry import get_model_class
+    from django.db.models import Max, Min
 
     name = function.upper()
-    rendered = _format_field_path(arg)
-    steps = arg.steps
-    if (
-        binding.get("role") != "node"
-        or not binding.get("label")
-        or not steps
-        or not isinstance(steps[0], DotStep)
-        or steps[0].name != _DATA_LANE_PREFIX
-    ):
-        raise SearchExecutionError(
-            f"{name}({rendered}) is not supported: {name} compares a typed data-lane field of a labelled "
-            f"node, e.g. {name}(n.data.<field>) on (n:<type>). Accepted types: {_EXTREMUM_ACCEPTED}."
-        )
-    model_cls = get_model_class(binding["label"])
-    leaf = _data_lane_leaf_schema(model_cls, arg)
-    declared = _schema_type_set(leaf) if leaf is not None else None
-    scalar = (declared or set()) - {"null"}
-    if leaf is None or not scalar:
-        raise SearchExecutionError(
-            f"{name}({rendered}) is not supported: {rendered} has no declared scalar type "
-            f"(an undeclared field, or an open or opaque blob). Accepted types: {_EXTREMUM_ACCEPTED}."
-        )
-    shown = ", ".join(sorted(scalar))
-    fmt = leaf.get("format")
-    if scalar <= {"integer"}:
-        target: Any = dj_models.BigIntegerField()
-        kind = "integer"
-    elif scalar <= {"integer", "number"}:
-        target = dj_models.FloatField()
-        kind = "number"
-    elif scalar == {"string"} and fmt == "date-time":
-        target = dj_models.DateTimeField()
-        kind = "date-time"
-    elif scalar == {"string"} and fmt == "date":
-        target = dj_models.DateField()
-        kind = "date"
-    else:
-        raise SearchExecutionError(
-            f"{name}({rendered}) is not supported: {rendered} is declared {{{shown}}}"
-            f"{' (format ' + str(fmt) + ')' if fmt else ''}. {name} compares only {_EXTREMUM_ACCEPTED}."
-        )
-
-    # The shared resolver (and its data-lane allowlist) produces the ORM path; a JSON
-    # sub-key is treated exactly as a column is, then cast to the declared type.
-    # `resolve` lets the node-only type scan supply its own resolver (the queryset there is on
-    # the per-model class, not the Edge chain); both run the same data-lane allowlist.
-    orm_path = (resolve or _resolve_orm_path)(binding, arg)
+    source, kind = _typed_data_lane_source(
+        f"{name}({_format_field_path(arg)})",
+        f"{name} compares",
+        f"{name}(n.data.<field>) on (n:<type>)",
+        f"{name} compares only {_EXTREMUM_ACCEPTED}",
+        _EXTREMUM_ACCEPTED,
+        frozenset({"integer", "number", "date-time", "date"}),
+        binding,
+        arg,
+        resolve,
+    )
     postprocess = _format_temporal if kind in ("date-time", "date") else None
-    key_steps = len(steps) - 2  # steps after `data.<column>`
-    if key_steps > 0:
-        parts = orm_path.split("__")
-        expr: Any = F("__".join(parts[:-key_steps]))
-        keys = parts[-key_steps:]
-        for key in keys[:-1]:
-            expr = KeyTransform(key, expr)
-        source: Any = Cast(KeyTextTransform(keys[-1], expr), target)
-    else:
-        column_step = steps[1]
-        assert isinstance(column_step, DotStep)  # _data_lane_leaf_schema only resolves a dot-step column
-        column = model_cls._meta.get_field(column_step.name)  # type: ignore[attr-defined]
-        if kind in ("integer", "number"):
-            native = isinstance(column, dj_models.IntegerField) or (
-                kind == "number" and isinstance(column, dj_models.FloatField)
-            )
-        elif kind == "date-time":
-            native = isinstance(column, dj_models.DateTimeField)
-        else:
-            native = isinstance(column, dj_models.DateField) and not isinstance(column, dj_models.DateTimeField)
-        source = F(orm_path) if native else Cast(F(orm_path), target)
     agg_cls = Min if function == "min" else Max
     return source, (lambda alias: agg_cls(alias)), postprocess
 
