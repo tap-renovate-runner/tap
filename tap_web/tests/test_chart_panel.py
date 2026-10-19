@@ -711,7 +711,7 @@ class TestClickConfig:
 
 
 class TestClickOption:
-    ROWS = [{"source": "a b", "n": 2}, {"source": "c&d", "n": 1}, {"source": None, "n": 3}]
+    ROWS: list[dict[str, Any]] = [{"source": "a b", "n": 2}, {"source": "c&d", "n": 1}, {"source": None, "n": 3}]
 
     @pytest.mark.spec("req-web-panels-chart-click-2")
     def test_each_dataset_row_carries_its_encoded_url_and_unfillable_rows_none(self):

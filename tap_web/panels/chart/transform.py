@@ -226,10 +226,10 @@ def pivot(rows: list[dict[str, Any]], option: dict[str, Any], config: dict[str, 
     cells: dict[tuple[Any, str], float] = {}
     unusable = 0
     cat_urls: dict[Any, str] = {}
-    template = click_template(config)
+    click_tpl = click_template(config)
     for row in rows:
         cat = row.get(cat_f)
-        url = fill_row_url(template, {cat_f: cat})
+        url = fill_row_url(click_tpl, {cat_f: cat})
         cat = cat if time_axis and cat is not None else _label(cat, config)
         if url:
             cat_urls.setdefault(cat, url)
