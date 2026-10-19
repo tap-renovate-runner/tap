@@ -1,0 +1,88 @@
+// info_window.columns rendering (req-viz-info-window-columns-3..8). Run with `node --test`; the
+// Python wrapper tap_viz/tests/test_info_window_columns.py::test_js_rendering runs it when node exists.
+// renderInfoTable is pure string-in/string-out, so no DOM is needed.
+import assert from "node:assert/strict";
+import {test} from "node:test";
+import {renderInfoTable} from "../../static/tap_viz/js/runtime/info-window.js";
+
+const rows = [
+    {entity_id: "h", name: "n1", id: "CVE-1", cvss: 9, title: "First <b>bad</b>", finding_id: "f1"},
+    {entity_id: "h", name: "n2", id: "CVE-2", cvss: "7.25", title: null, finding_id: "f2"},
+    {entity_id: "h", name: "n3", id: "CVE-3"},
+];
+const cols = [
+    {field: "id", label: "ID", link: true},
+    {field: "cvss", label: "CVSS", align: "right", format: "number"},
+    {field: "title", label: "Title"},
+];
+const tds = (html) => [...html.split("<tbody>")[1].matchAll(/<tr>(.*?)<\/tr>/gs)].map((m) => [...m[1].matchAll(/<td[^>]*>(.*?)<\/td>/gs)].map((c) => c[1]));
+
+test("absent columns is the legacy single Name column, header hidden by CSS", () => {
+    const html = renderInfoTable(rows, {search_id: "s"});
+    assert.match(html, /<thead><tr><th>Name<\/th><\/tr><\/thead>/);
+    assert.doesNotMatch(html, /table--columns/);
+    assert.equal((html.match(/<td>/g) || []).length, 3);
+});
+
+test("legacy path still honours row_url_template and the finding_id fallback", () => {
+    const withTpl = renderInfoTable(rows, {row_url_template: "/x?i={finding_id}"});
+    assert.match(withTpl, /href="\/x\?i=f1"/);
+    assert.match(withTpl, /<td>n3<\/td>/); // row 3 has no finding_id -> plain text
+    assert.match(renderInfoTable(rows, {}), /href="[^"]*entity_id=f1"/);
+});
+
+test("empty columns array falls back to legacy", () => {
+    assert.doesNotMatch(renderInfoTable(rows, {columns: []}), /table--columns/);
+});
+
+test("header row shows every label in order", () => {
+    const html = renderInfoTable(rows, {columns: cols});
+    assert.match(html, /table--columns/);
+    assert.match(html, /<thead><tr><th scope="col">ID<\/th><th scope="col" class="tap-info-window__cell--right">CVSS<\/th><th scope="col">Title<\/th><\/tr><\/thead>/);
+    assert.equal(tds(html).length, 3);
+});
+
+test("missing, null and empty values are empty cells, never undefined", () => {
+    const html = renderInfoTable(rows, {columns: cols});
+    assert.doesNotMatch(html, /undefined|null/);
+    assert.deepEqual(tds(html)[2], ["CVE-3", "", ""]);
+    assert.equal(tds(html)[1][2], "");
+    assert.equal(tds(renderInfoTable([{id: ""}], {columns: cols}))[0].join("|"), "||");
+});
+
+test("number format gives one decimal place and leaves non-numbers as given", () => {
+    const t = tds(renderInfoTable(rows, {columns: cols}));
+    assert.equal(t[0][1], "9.0");
+    assert.equal(t[1][1], "7.3");
+    assert.equal(tds(renderInfoTable([{cvss: "n/a"}], {columns: cols}))[0][1], "n/a");
+    assert.equal(tds(renderInfoTable([{cvss: 0}], {columns: cols}))[0][1], "0.0");
+    // text format does not round
+    assert.equal(tds(renderInfoTable([{cvss: 9.25}], {columns: [{field: "cvss", label: "C"}]}))[0][0], "9.25");
+});
+
+test("cell text and labels are escaped", () => {
+    const html = renderInfoTable(rows, {columns: [{field: "title", label: "<i>T</i>"}]});
+    assert.match(html, /First &lt;b&gt;bad&lt;\/b&gt;/);
+    assert.match(html, /&lt;i&gt;T&lt;\/i&gt;/);
+    assert.doesNotMatch(html, /<b>|<i>/);
+});
+
+test("link goes on the link:true column when the template resolves, else nowhere", () => {
+    const cfg = {columns: [{field: "title", label: "T"}, {field: "id", label: "ID", link: true}], row_url_template: "/p?f={finding_id}"};
+    const t = tds(renderInfoTable(rows, cfg));
+    assert.match(t[0][1], /^<a class="tap-info-window__row-link" href="\/p\?f=f1">CVE-1<\/a>$/);
+    assert.doesNotMatch(t[0][0], /<a /);
+    assert.doesNotMatch(t[2].join(""), /<a /); // row 3 lacks finding_id: all-or-nothing
+});
+
+test("link defaults to the first column and needs a template (no finding_id fallback)", () => {
+    const withTpl = tds(renderInfoTable(rows, {columns: cols, row_url_template: "/p?f={finding_id}"}));
+    assert.match(withTpl[0][0], /<a [^>]*href="\/p\?f=f1">CVE-1<\/a>/);
+    const noTpl = renderInfoTable(rows, {columns: cols});
+    assert.doesNotMatch(noTpl, /<a /);
+});
+
+test("template values are URL-encoded and the href is escaped", () => {
+    const html = renderInfoTable([{id: "x", finding_id: 'a b"&<'}], {columns: [{field: "id", label: "ID"}], row_url_template: "/p?f={finding_id}"});
+    assert.match(html, /href="\/p\?f=a%20b%22%26%3C"/);
+});
