@@ -29,7 +29,8 @@ SEED = (FIXTURES / "wheel-seed-records.txt").read_text()
 
 @pytest.fixture(name="attributes")
 def _attributes() -> dict[tuple[str, str], dict[str, Any]]:
-    return wa.attributes_by_component(wa.parse_seed_records(SEED))
+    built: dict[tuple[str, str], dict[str, Any]] = wa.attributes_by_component(wa.parse_seed_records(SEED))
+    return built
 
 
 @pytest.fixture(name="cdx")
@@ -61,8 +62,8 @@ def test_the_real_seed_parses_to_seventy_three_wheels_with_tags_and_licenses():
 def test_the_join_matches_sixty_eight_of_the_seventy_one_locked_components(attributes):
     locked = (FIXTURES / "locked-pypi.txt").read_text().split()
     assert len(locked) == 71
-    matched = []
-    unmatched = []
+    matched: list[str] = []
+    unmatched: list[str] = []
     for key in locked:
         name, _, version = key.rpartition("-")
         (matched if (name.replace("_", "-"), version) in attributes else unmatched).append(key)
@@ -91,7 +92,7 @@ def test_architecture_comes_from_the_platform_tag(tags, expected):
 
 @pytest.mark.spec("req-cicd-sbom-33-2")
 def test_licenses_prefer_the_expression_then_the_license_text_then_the_classifier():
-    base = {"expression": None, "license": None, "classifiers": []}
+    base: dict[str, Any] = {"expression": None, "license": None, "classifiers": []}
     assert wa.license_choice({**base, "expression": "Apache-2.0 OR BSD-3-Clause"}) == (
         [{"expression": "Apache-2.0 OR BSD-3-Clause"}],
         "expression",
@@ -107,7 +108,8 @@ def test_licenses_prefer_the_expression_then_the_license_text_then_the_classifie
 
 @pytest.mark.spec("req-cicd-sbom-33-2")
 def test_four_real_wheels_have_only_a_classifier(attributes):
-    sources = [wa.license_choice(r)[1] for r in attributes.values() if wa.license_choice(r)]  # type: ignore[index]
+    choices = [wa.license_choice(r) for r in attributes.values()]
+    sources = [choice[1] for choice in choices if choice is not None]
     assert sources.count("classifier") == 4
     assert all(wa.license_choice(r) is not None for r in attributes.values())
 
