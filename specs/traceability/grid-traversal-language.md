@@ -4,7 +4,7 @@
 
 | Bucket | Count |
 | --- | ---: |
-| mapped | 15 |
+| mapped | 16 |
 | unbuilt | 1 |
 | unaccounted | 5 |
 | 0-ACID (payable) | 3 |
@@ -28,3 +28,4 @@
 | `req-grid-traversal-lang-shape` | Implemented | Verified | `_repeated_variable_equality_filters` | `req-grid-traversal-lang-shape-6` |
 | `req-grid-traversal-lang-storage` | Implemented | Tested | — | `req-grid-traversal-lang-storage-3` |
 | `req-grid-traversal-lang-string-match` | Implemented | Implemented | `_comparison_to_q` | — |
+| `req-grid-traversal-lang-temporal-offset` | Proposed | Implemented | `TemporalComparison`, `_temporal_to_q` | — |
