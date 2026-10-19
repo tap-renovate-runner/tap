@@ -324,7 +324,7 @@ class TestTemporalOffsetExecutor(_TemporalFixture):
         """The main query's own scalar subquery excludes tombstones, not only the counting read."""
         self._build()
         captured = explain_gryphon_raw(HOP + LOOKUP_GOLD + f"WHERE {DUE} RETURN a.name AS n", {}, clock=lambda: NOW)
-        main = [s.sql for s in captured["sql"].statements if s.stage != "lookup"][0]
+        main = [s.sql for s in captured["sql"].statements if "LIMIT 2" not in s.sql][0]
         assert 'U1."deleted_at" IS NULL' in main
         assert "SELECT U0." in main
 
@@ -355,7 +355,7 @@ class TestTemporalOffsetExecutor(_TemporalFixture):
             with capture_sql() as capture:
                 with pytest.raises(SearchExecutionError):
                     execute_gryphon_raw(query, {}, clock=lambda: NOW)
-            assert "lookup" not in [s.stage for s in capture.statements], query
+            assert not any("severity_score" in s.sql for s in capture.statements), query
 
     @pytest.mark.spec("req-grid-traversal-lang-temporal-offset-15")
     def test_one_hop_envelope_filters_and_no_where_returns_everything(self):
@@ -408,13 +408,16 @@ class TestTemporalOffsetExecutor(_TemporalFixture):
         assert [s.params for s in first["sql"].statements] == [s.params for s in second["sql"].statements]
 
     @pytest.mark.spec("req-grid-traversal-lang-temporal-offset-25")
-    def test_counting_read_runs_in_its_own_stage_before_the_main_query(self):
+    def test_counting_read_runs_first_and_carries_no_stage_label_of_its_own(self):
+        """The count (at most two rows) precedes the main query, and adds no stage to the executor's inventory."""
         self._build()
         captured = explain_gryphon_raw(HOP + LOOKUP_GOLD + f"WHERE {DUE} RETURN a.name AS n", {}, clock=lambda: NOW)
-        stages = [s.stage for s in captured["sql"].statements]
-        assert "lookup" in stages
-        assert stages.index("lookup") < len(stages) - 1
-        assert stages.count("lookup") == 1
+        statements = captured["sql"].statements
+        assert "LIMIT 2" in statements[0].sql
+        assert sum("LIMIT 2" in s.sql for s in statements) == 1
+        # it runs inside the dispatch stage that follows it; an unlabelled statement would trip the
+        # Gridkin snapshot-stage tripwire, and a new label would change the stage inventory
+        assert all(s.stage in {"advanced", "single-hop"} for s in statements)
 
     @pytest.mark.spec("req-grid-traversal-lang-temporal-offset-18")
     def test_lowering_is_plain_orm_composition(self):

@@ -3441,6 +3441,9 @@ class _TemporalContext:
 
     now: datetime
     lookups: dict[str, _LookupSource]
+    # The counting read, deferred so it runs INSIDE the dispatch stage that lowers the first temporal leaf
+    # (see `_temporal_to_q`) and its statements carry that stage's existing label.
+    run_checks: Callable[[], None] = lambda: None
 
 
 _TEMPORAL_CTX: ContextVar[_TemporalContext | None] = ContextVar("gryphon_temporal_ctx", default=None)
@@ -3658,8 +3661,20 @@ def _prepare_temporal(
         )
         lookups[lc.variable] = _LookupSource(clause=lc, model_cls=model_cls, relation=relation)
 
-    ctx = _TemporalContext(now=now, lookups=lookups)
-    with gryphon_stage("lookup"):
+    done = False
+
+    def run_checks() -> None:
+        """The counting read: each lookup must select exactly one row with a non-null field.
+
+        Runs once, at the first lowering of a temporal leaf, inside whichever dispatch stage is lowering. It deliberately carries NO stage label
+        of its own: a new `gryphon_stage` literal would change the executor's stage inventory, which the
+        Gridkin stage-coverage tripwire pins, and a statement with no label is itself refused there; the
+        label only names statements in captured SQL snapshots.
+        """
+        nonlocal done
+        if done:
+            return
+        done = True
         for var, paths in used_by_var.items():
             source = lookups[var]
             exprs = {
@@ -3685,6 +3700,8 @@ def _prepare_temporal(
                     f"{where} selected a row whose hours field is null. A null offset is refused, not treated "
                     "as zero or as no match."
                 )
+
+    ctx = _TemporalContext(now=now, lookups=lookups, run_checks=run_checks)
     return ctx
 
 
@@ -3726,7 +3743,7 @@ def _lookup_value_expr(source: _LookupSource, path: FieldPath) -> Any:
 def _temporal_to_q(leaf: TemporalComparison, bindings: dict[str, dict[str, Any]], inputs: dict[str, Any]) -> Any:
     """Lower a temporal leaf to a ``Q``: the comparison conjoined with a not-null guard on the base.
 
-    TAP-IMPLEMENTS: req-grid-traversal-lang-temporal-offset@1b7231fd674b/14ab1f5ce631 (derivation) — the offset comparison
+    TAP-IMPLEMENTS: req-grid-traversal-lang-temporal-offset@84f09008b052/46caab7a343b (derivation) — the offset comparison
         lowers here: base shifted by whole hours, compared with the clock or a supplied instant.
 
     Rung 1: ``F``/``Cast`` of the base, plus-or-minus an ``ExpressionWrapper`` of the integer
@@ -3744,6 +3761,9 @@ def _temporal_to_q(leaf: TemporalComparison, bindings: dict[str, dict[str, Any]]
     ctx = _TEMPORAL_CTX.get()
     if ctx is None:
         raise SearchExecutionError("Internal: a temporal comparison reached lowering without an execution context.")
+    # The counting read runs at the first lowering of a temporal leaf: the queryset is lazy, so this precedes
+    # the main query on every route, inside whichever existing dispatch stage is lowering (no new stage label).
+    ctx.run_checks()
 
     base_path = leaf.offset.base
     binding = bindings.get(base_path.variable)
