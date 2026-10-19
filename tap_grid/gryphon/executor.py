@@ -3445,6 +3445,10 @@ class _TemporalContext:
 
 _TEMPORAL_CTX: ContextVar[_TemporalContext | None] = ContextVar("gryphon_temporal_ctx", default=None)
 
+# Postgres data errors a temporal cast or shift can raise: 22P02 invalid text representation (a bad cast),
+# 22007 invalid datetime format, 22008 datetime field overflow, 22003 numeric value out of range.
+_TEMPORAL_DATA_SQLSTATES = frozenset({"22P02", "22007", "22008", "22003"})
+
 _TEMPORAL_ACCEPTED = "date-time (a string with format date-time)"
 _HOURS_ACCEPTED = "integer"
 
@@ -3469,9 +3473,9 @@ def _temporal_stored_value_error() -> SearchExecutionError:
     value, so it stays on ``__cause__`` and never reaches the caller.
     """
     return SearchExecutionError(
-        "A stored value could not be used in a temporal offset comparison (the date-time or hours "
-        "field is cast to its declared type, and the shifted result must be a valid timestamp). "
-        "Fix or remove the malformed stored value."
+        "A stored value could not be used in a temporal offset comparison, or the offset moved a date-time "
+        "outside the supported range (the date-time and hours fields are cast to their declared types and "
+        "the shifted result must be a valid timestamp). Check the stored values and the size of the offset."
     )
 
 
@@ -3496,7 +3500,9 @@ def _mapped_read_error(plan: MaterializationPlan | None, exc: Exception) -> Sear
             return _temporal_cardinality_error()
         return None
     if isinstance(exc, DataError):
-        if _TEMPORAL_CTX.get() is not None:
+        # Only the data errors a temporal cast or shift can raise are blamed on the temporal leaf; any
+        # other DataError (for example an invalid regex, 2201B) is not this feature's to relabel.
+        if _TEMPORAL_CTX.get() is not None and getattr(cause, "sqlstate", None) in _TEMPORAL_DATA_SQLSTATES:
             return _temporal_stored_value_error()
         if plan is not None and _has_extremum(plan):
             return _stored_value_error()
@@ -3559,9 +3565,27 @@ def _validate_temporal_shape(ast: GryphonAST, temporal: list[TemporalComparison]
         raise refuse("an undirected hop")
     if edge.min_hops != 1 or edge.max_hops != 1:
         raise refuse("a variable-length hop")
-    if ast.order_by is not None or ast.limit is not None:
-        # The single-hop path refuses these already; say so before the lookup runs.
-        raise refuse("ORDER BY / LIMIT")
+
+    # The leaf's base must be a NAMED node of this pattern. `_filter_predicate_for_bindings` scopes a
+    # WHERE to the variables a clause binds and drops a leaf whose variable it does not (right for a
+    # multi-MATCH union, a silent drop for ONE MATCH), and an unnamed labelled node binds nothing.
+    named = {node.variable for node in pattern.nodes if node.variable}
+    for leaf in temporal:
+        base_var = leaf.offset.base.variable
+        if base_var not in named:
+            raise SearchExecutionError(
+                f"A temporal comparison reads '{base_var}', which is not a named node variable of the MATCH "
+                f"pattern (bound: {', '.join(sorted(named)) or 'none'}). Name the node and use that variable, "
+                "e.g. MATCH (r:x)-[:E]->(t:y) WHERE t.data.opened_at + hours(12) < now() "
+                "(req-grid-traversal-lang-temporal-offset)."
+            )
+
+    # ORDER BY / LIMIT follow what the one-hop path already allows: an aggregate RETURN routes to the
+    # advanced path, which orders and limits; an envelope or plain projection refuses them. Say so here,
+    # before any lookup runs.
+    has_aggregate = any(isinstance(item, AggregateReturnItem) for item in (ast.return_clause.items or ()))
+    if (ast.order_by is not None or ast.limit is not None) and not has_aggregate:
+        raise refuse("ORDER BY / LIMIT without an aggregate RETURN")
 
 
 def _prepare_temporal(
@@ -3584,6 +3608,10 @@ def _prepare_temporal(
     from tap_grid.registry import get_model_class
 
     temporal = _temporal_leaves(ast.where_clause.predicate if ast.where_clause else None)
+    for nec in ast.not_exists_clauses:
+        # A leaf inside NOT EXISTS must reach the shape check (which refuses NOT EXISTS), not lowering.
+        if nec.where_clause is not None:
+            temporal += _temporal_leaves(nec.where_clause.predicate)
     if not temporal:
         if ast.lookup_clauses:
             raise SearchExecutionError(
@@ -3698,15 +3726,16 @@ def _lookup_value_expr(source: _LookupSource, path: FieldPath) -> Any:
 def _temporal_to_q(leaf: TemporalComparison, bindings: dict[str, dict[str, Any]], inputs: dict[str, Any]) -> Any:
     """Lower a temporal leaf to a ``Q``: the comparison conjoined with a not-null guard on the base.
 
-    TAP-IMPLEMENTS: req-grid-traversal-lang-temporal-offset@ce4e1aaa8a9d/14ab1f5ce631 (derivation) — the offset comparison
+    TAP-IMPLEMENTS: req-grid-traversal-lang-temporal-offset@1b7231fd674b/14ab1f5ce631 (derivation) — the offset comparison
         lowers here: base shifted by whole hours, compared with the clock or a supplied instant.
 
     Rung 1: ``F``/``Cast`` of the base, plus-or-minus an ``ExpressionWrapper`` of the integer
     hours times ``Value(timedelta(hours=1))`` (Django has no integer-times-duration rule without
     the wrapper), compared through Django's own ``LessThan`` family and composed through ``Q``.
     The guard is ``IsNull(base_expr, False)`` on the CAST expression itself: a conditional
-    expression gets no null guard from Django, and a JSON key holding ``null`` is SQL NULL only
-    after the cast, so a guard on the key path would let it through. Without the guard ``NOT`` of
+    expression gets no null guard from Django, and Django's key-path null test asks whether the key
+    EXISTS, so a key holding JSON ``null`` would pass a guard placed on the key path; the cast
+    (``->>``) turns that JSON null into SQL NULL, which is what the guard tests. Without the guard ``NOT`` of
     a null-based row would be UNKNOWN and dropped, which disagrees with every sibling comparison.
     """
     from django.db.models import DateTimeField, DurationField, ExpressionWrapper, Q, Subquery, Value
@@ -3817,7 +3846,7 @@ def _json_null_collapsed(annotations: dict[str, Any], group_internals: list[str]
 def materialize_rows(plan: MaterializationPlan) -> list[dict[str, Any]]:
     """The shared Layer-B row backend: a resolved plan -> the ``rows`` list.
 
-    TAP-IMPLEMENTS: req-grid-traversal-exec-row-materialization@edbd98db287d/9a9d8ae12e2b (derivation) —
+    TAP-IMPLEMENTS: req-grid-traversal-exec-row-materialization@edbd98db287d/7c14471245c6 (derivation) —
         the requirement exists to forbid per-dispatch row tails; this function is the one
         backend every shape reaches, so a fifth row tail is a defect by construction.
 
@@ -3867,7 +3896,10 @@ def materialize_rows(plan: MaterializationPlan) -> list[dict[str, Any]]:
         try:
             totals = qs.order_by().aggregate(**plan.aggregate_annotations)
         except (DataError, ProgrammingError) as exc:
-            raise _mapped_read_error(plan, exc) or exc
+            mapped = _mapped_read_error(plan, exc)
+            if mapped is None:
+                raise
+            raise mapped from exc
         return _rows_from_values([totals], plan.group_pairs, plan.aggregate_pairs, plan.aggregate_postprocess)
     qs = qs.values(*group_internals)
     if plan.aggregate_annotations:
@@ -3880,7 +3912,10 @@ def materialize_rows(plan: MaterializationPlan) -> list[dict[str, Any]]:
     try:
         raw_rows = list(qs)
     except (DataError, ProgrammingError) as exc:
-        raise _mapped_read_error(plan, exc) or exc
+        mapped = _mapped_read_error(plan, exc)
+        if mapped is None:
+            raise
+        raise mapped from exc
     return _rows_from_values(raw_rows, plan.group_pairs, plan.aggregate_pairs, plan.aggregate_postprocess)
 
 

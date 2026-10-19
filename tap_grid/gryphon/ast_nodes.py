@@ -325,7 +325,7 @@ class TemporalComparison:
     `field op value`, so every walker that tests for `Comparison` must decide what to do
     with it (apply or reject, never fall through).
 
-    TAP-IMPLEMENTS: req-grid-traversal-lang-temporal-offset@ce4e1aaa8a9d/25bec85d4292 (surface) — the temporal
+    TAP-IMPLEMENTS: req-grid-traversal-lang-temporal-offset@1b7231fd674b/25bec85d4292 (surface) — the temporal
         offset predicate is declared on this node; its lowering is `_temporal_to_q`.
 
     True when the base shifted by the offset is strictly before (`<`), at or before
@@ -347,10 +347,10 @@ class TemporalComparison:
 
        Example::
 
-          MATCH (r:pg_review)-[:PG_REVIEWS]->(t:pg_task)
-          LOOKUP p = (:pg_policy {tier: "gold"})
-          WHERE t.data.opened_at + hours(p.data.window_hours) < now()
-          RETURN t.entity_id AS id
+          MATCH (f:grid_fixtures__leaf)-[:PG_LINKS__grid_fixtures]->(a:grid_fixtures__node)
+          LOOKUP p = (:grid_fixtures__node {kind: "policy-gold"})
+          WHERE a.data.observed_at + hours(p.data.severity_score) < now()
+          RETURN a.entity_id AS id
     """
 
     offset: TemporalOffset

@@ -22,7 +22,7 @@
           "type": "git",
           "url": "https://github.com/unified-systems-com/gryphon-playground-tap",
           "rev": "gridkin/temporal-offset",
-          "commit": "c3365071ae00899a7227364518955fce0431d344"
+          "commit": "089dbaf6eaf28bd2e0610cb043f7029f99f14a64"
         },
         "note": "Fixture: the Gridkin scenario corpus + harness that exercise the Gryphon query language; owns no types, depends_on grid_fixtures."
       },

@@ -235,6 +235,7 @@ class _TemporalFixture:
         make(PgNode, "grid_fixtures__node", "gold", kind="policy-gold", severity_score=24)
         make(PgNode, "grid_fixtures__node", "silver", kind="policy-silver", severity_score=48)
         make(PgNode, "grid_fixtures__node", "blank", kind="policy-blank", severity_score=1, tags={"window": None})
+        make(PgNode, "grid_fixtures__node", "negative", kind="policy-negative", severity_score=-12)
 
     def _names(self, query: str, inputs: dict[str, Any] | None = None, clock=lambda: NOW) -> list[str]:
         rows = execute_gryphon_raw(query, inputs or {}, clock=clock)["rows"]
@@ -303,6 +304,59 @@ class TestTemporalOffsetExecutor(_TemporalFixture):
             {"tier": "policy-gold"},
         ) == ["overdue"]
 
+    @pytest.mark.spec("req-grid-traversal-lang-temporal-offset-19")
+    def test_negative_stored_offset_and_a_param_hours_value(self):
+        self._build()
+        # hours = -12 moves the deadline 12h EARLIER than the observation: observed - 12h < now.
+        negative = 'LOOKUP p = (:grid_fixtures__node {kind: "policy-negative"}) '
+        assert self._names(HOP + negative + f"WHERE {DUE} RETURN a.name AS n") == [
+            "boundary",
+            "fresh",
+            "overdue",
+        ]
+        # ages: boundary 24h, overdue 48h, fresh 12h; only the 48h row is older than 40h
+        assert self._names(HOP + "WHERE a.data.observed_at + hours($h) < now() RETURN a.name AS n", {"h": 40}) == [
+            "overdue"
+        ]
+
+    @pytest.mark.spec("req-grid-traversal-lang-temporal-offset-4")
+    def test_the_embedded_subquery_carries_the_liveness_scope(self):
+        """The main query's own scalar subquery excludes tombstones, not only the counting read."""
+        self._build()
+        captured = explain_gryphon_raw(HOP + LOOKUP_GOLD + f"WHERE {DUE} RETURN a.name AS n", {}, clock=lambda: NOW)
+        main = [s.sql for s in captured["sql"].statements if s.stage != "lookup"][0]
+        assert 'U1."deleted_at" IS NULL' in main
+        assert "SELECT U0." in main
+
+    @pytest.mark.spec("req-grid-traversal-lang-temporal-offset-16")
+    def test_order_by_and_limit_follow_the_one_hop_path(self):
+        """An aggregate RETURN keeps ORDER BY / LIMIT; a plain projection or envelope refuses them."""
+        self._build()
+        rows = execute_gryphon_raw(
+            HOP + LOOKUP_GOLD + f"WHERE {DUE} RETURN a.data.kind AS k, COUNT(a) AS c ORDER BY c LIMIT 5",
+            {},
+            clock=lambda: NOW,
+        )["rows"]
+        assert rows == [{"k": "alert", "c": 1}]
+        with pytest.raises(SearchExecutionError, match="ORDER BY / LIMIT"):
+            self._names(HOP + LOOKUP_GOLD + f"WHERE {DUE} RETURN a.name AS n ORDER BY n")
+
+    @pytest.mark.spec("req-grid-traversal-lang-temporal-offset-25")
+    def test_a_refused_shape_issues_no_lookup_sql(self):
+        from tap_grid.gryphon import capture_sql
+
+        self._build()
+        refused = (
+            "MATCH (a:grid_fixtures__node) " + LOOKUP_GOLD + f"WHERE {DUE}",  # node-only
+            HOP + LOOKUP_GOLD + f"WHERE {DUE} RETURN a.name AS n ORDER BY n",  # ORDER BY without aggregate
+            HOP + LOOKUP_GOLD + f"WHERE zz.data.observed_at + hours(p.data.severity_score) < now()",  # unbound base
+        )
+        for query in refused:
+            with capture_sql() as capture:
+                with pytest.raises(SearchExecutionError):
+                    execute_gryphon_raw(query, {}, clock=lambda: NOW)
+            assert "lookup" not in [s.stage for s in capture.statements], query
+
     @pytest.mark.spec("req-grid-traversal-lang-temporal-offset-15")
     def test_one_hop_envelope_filters_and_no_where_returns_everything(self):
         self._build()
@@ -369,10 +423,11 @@ class TestTemporalOffsetExecutor(_TemporalFixture):
 
         from tap_grid.gryphon import executor
 
-        source = inspect.getsource(executor._temporal_to_q)
-        assert "RawSQL" not in source
-        assert "Func(" not in source
-        assert "class " not in source
+        for fn in (executor._temporal_to_q, executor._lookup_value_expr, executor._typed_data_lane_source):
+            source = inspect.getsource(fn)
+            assert "RawSQL" not in source, fn.__name__
+            assert "Func(" not in source, fn.__name__
+            assert "class " not in source, fn.__name__
 
 
 @DB
@@ -427,7 +482,7 @@ class TestTemporalOffsetLookup(_TemporalFixture):
         self._build()
         with pytest.raises(SearchExecutionError, match="null instant"):
             self._names(HOP + "WHERE a.data.observed_at + hours(1) < $t RETURN a.name AS n", {"t": None})
-        with pytest.raises(SearchExecutionError, match="null"):
+        with pytest.raises(SearchExecutionError, match="received a null value"):
             self._names(HOP + "WHERE a.data.observed_at + hours($h) < now() RETURN a.name AS n", {"h": None})
 
     @pytest.mark.spec("req-grid-traversal-lang-temporal-offset-4")
@@ -519,17 +574,62 @@ class TestTemporalOffsetRefusals(_TemporalFixture):
         with pytest.raises(SearchExecutionError, match=match):
             execute_gryphon_raw(query, {}, clock=lambda: NOW)
 
+    @pytest.mark.spec("req-grid-traversal-lang-temporal-offset-24")
+    @pytest.mark.parametrize(
+        "query",
+        [
+            # a base variable no MATCH node binds, with and without a lookup, positive and negated
+            HOP + LOOKUP_GOLD + "WHERE zz.data.observed_at + hours(p.data.severity_score) < now() RETURN a.name AS n",
+            HOP + LOOKUP_GOLD + "WHERE NOT zz.data.observed_at + hours(p.data.severity_score) < now() RETURN a.name AS n",
+            HOP + "WHERE zz.data.observed_at + hours(1) < now() RETURN a.name AS n",
+            # an unnamed labelled node binds nothing, though its label reads like a variable
+            "MATCH (:grid_fixtures__leaf)-[:PG_LINKS__grid_fixtures]->(a:grid_fixtures__node) "
+            "WHERE grid_fixtures__leaf.data.observed_at + hours(1) < now() RETURN a.name AS n",
+        ],
+    )
+    def test_a_base_variable_the_pattern_does_not_name_is_refused_not_dropped(self, query):
+        self._build()
+        with pytest.raises(SearchExecutionError, match="not a named node variable"):
+            self._names(query)
+
+    @pytest.mark.spec("req-grid-traversal-lang-temporal-offset-16")
+    def test_a_temporal_leaf_inside_not_exists_names_the_supported_form(self):
+        self._build()
+        inner = "{ MATCH (a)<-[:PG_LINKS__grid_fixtures]-(g:grid_fixtures__leaf) WHERE a.data.observed_at + hours(1) < now() }"
+        with pytest.raises(SearchExecutionError, match="NOT EXISTS"):
+            self._names(HOP + f"NOT EXISTS {inner} RETURN a.name AS n")
+        with pytest.raises(SearchExecutionError, match="NOT EXISTS"):
+            self._names(
+                HOP + LOOKUP_GOLD + "NOT EXISTS { MATCH (a)<-[:PG_LINKS__grid_fixtures]-(g:grid_fixtures__leaf) "
+                "WHERE a.data.observed_at + hours(p.data.severity_score) < now() } RETURN a.name AS n"
+            )
+
+    @pytest.mark.spec("req-grid-traversal-lang-temporal-offset-21")
+    def test_other_data_errors_are_not_blamed_on_the_temporal_leaf(self):
+        """An invalid regex is the caller's own error; it must not read as a malformed stored value."""
+        from django.db import DataError
+
+        self._build()
+        with pytest.raises(DataError):
+            self._names(HOP + 'WHERE a.name =~ "(" AND a.data.observed_at + hours(1) < now() RETURN a.name AS n')
+
+    @pytest.mark.spec("req-grid-traversal-lang-temporal-offset-21")
+    def test_an_offset_that_leaves_the_timestamp_range_is_a_search_error(self):
+        self._build()
+        with pytest.raises(SearchExecutionError, match="outside the supported range"):
+            self._names(HOP + "WHERE a.data.observed_at + hours($h) < now() RETURN a.name AS n", {"h": 10**10})
+
     @pytest.mark.spec("req-grid-traversal-lang-temporal-offset-6")
     @pytest.mark.parametrize("field", ["a.data.severity_score", "a.data.kind", "a.created_at", "a.entity_id"])
     def test_a_base_that_is_not_a_declared_date_time_is_rejected(self, field):
         self._build()
-        with pytest.raises(SearchExecutionError, match="not supported"):
+        with pytest.raises(SearchExecutionError, match="(takes only a date-time|typed data-lane field)"):
             self._names(HOP + f"WHERE {field} + hours(1) < now() RETURN a.name AS n")
 
     @pytest.mark.spec("req-grid-traversal-lang-temporal-offset-7")
     def test_hours_that_is_not_an_integer_is_rejected(self):
         self._build()
-        with pytest.raises(SearchExecutionError, match="hours"):
+        with pytest.raises(SearchExecutionError, match=r"hours\(\) takes only an integer"):
             self._names(
                 HOP + 'LOOKUP p = (:grid_fixtures__node {kind: "policy-gold"}) '
                 "WHERE a.data.observed_at + hours(p.data.kind) < now() RETURN a.name AS n"
@@ -624,7 +724,8 @@ class TestTemporalOffsetJsonFields(_TemporalFixture):
         self._json_build(monkeypatch)
         PgNode.objects.filter(name="boundary").update(tags={"seen": "n/a", "window": 1})
         base = HOP + LOOKUP_GOLD + f"WHERE {self.JSON_DUE}"
-        with pytest.raises(SearchExecutionError, match="stored value could not be used"):
+        with pytest.raises(SearchExecutionError, match="stored value could not be used") as row_path:
             execute_gryphon_raw(base + " RETURN a.name AS n", {}, clock=lambda: NOW)
+        assert row_path.value.__cause__ is not None  # the driver error stays on __cause__, server-side
         with pytest.raises(SearchExecutionError, match="stored value could not be used"):
             execute_gryphon_raw(base, {}, clock=lambda: NOW)
