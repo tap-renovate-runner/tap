@@ -419,6 +419,14 @@ _PROJECTION_DEFINITION_SCHEMA: dict = {
                                                     "enum": ["text", "number"],
                                                     "description": "`text` (default) shows the value as given; `number` shows a numeric value with one decimal place.",
                                                 },
+                                                "nowrap": {
+                                                    "type": "boolean",
+                                                    "description": (
+                                                        "True keeps this column's cell text on one line (no wrapping), so the "
+                                                        "column takes its content width within the window's width limits. "
+                                                        "Default false: text wraps."
+                                                    ),
+                                                },
                                             },
                                         },
                                     },

@@ -86,3 +86,21 @@ test("template values are URL-encoded and the href is escaped", () => {
     const html = renderInfoTable([{id: "x", finding_id: 'a b"&<'}], {columns: [{field: "id", label: "ID"}], row_url_template: "/p?f={finding_id}"});
     assert.match(html, /href="\/p\?f=a%20b%22%26%3C"/);
 });
+
+test("nowrap: true puts the nowrap class on that column's body cells only (columns-12)", () => {
+    const nw = [{field: "id", label: "ID", link: true, nowrap: true}, {field: "cvss", label: "CVSS", align: "right", nowrap: true}, {field: "title", label: "Title"}];
+    const html = renderInfoTable(rows, {columns: nw});
+    const body = html.split("<tbody>")[1];
+    assert.equal((body.match(/<td class="tap-info-window__cell--nowrap">/g) || []).length, 3);
+    assert.equal((body.match(/<td class="tap-info-window__cell--right tap-info-window__cell--nowrap">/g) || []).length, 3);
+    assert.equal((body.match(/<td>/g) || []).length, 3); // the Title column is untouched
+    assert.doesNotMatch(html.split("<tbody>")[0], /nowrap/); // headers keep wrapping
+    assert.doesNotMatch(html, /style=/);
+});
+
+test("nowrap absent or false leaves the output identical to before (columns-12)", () => {
+    const plain = renderInfoTable(rows, {columns: cols});
+    const falsy = renderInfoTable(rows, {columns: cols.map((c) => ({...c, nowrap: false}))});
+    assert.equal(falsy, plain);
+    assert.doesNotMatch(plain, /nowrap/);
+});

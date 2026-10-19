@@ -237,6 +237,14 @@ function _renderColumnsTable(rows, columns, rowUrlTemplate) {
     const flagged = columns.findIndex((c) => c && c.link === true);
     const linkIdx = flagged >= 0 ? flagged : 0;
     const cellClass = (c) => (c.align === "right" ? ' class="tap-info-window__cell--right"' : "");
+    // `nowrap: true` keeps a cell's text on one line (req-viz-info-window-columns-11); body cells only,
+    // so a long header label may still wrap. Absent or false leaves the markup untouched.
+    const bodyCellClass = (c) => {
+        const classes = [];
+        if (c.align === "right") classes.push("tap-info-window__cell--right");
+        if (c.nowrap === true) classes.push("tap-info-window__cell--nowrap");
+        return classes.length ? ` class="${classes.join(" ")}"` : "";
+    };
     const head = columns
         .map((c) => `<th scope="col"${cellClass(c)}>${_escape(c.label)}</th>`)
         .join("");
@@ -247,7 +255,7 @@ function _renderColumnsTable(rows, columns, rowUrlTemplate) {
                     const text = _escape(_cellText(r[c.field], c.format));
                     const url = i === linkIdx && text !== "" ? _buildRowUrl(rowUrlTemplate, r) : null;
                     const inner = url ? `<a class="tap-info-window__row-link" href="${url}">${text}</a>` : text;
-                    return `<td${cellClass(c)}>${inner}</td>`;
+                    return `<td${bodyCellClass(c)}>${inner}</td>`;
                 })
                 .join("");
             return `<tr>${tds}</tr>`;

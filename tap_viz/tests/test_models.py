@@ -263,6 +263,14 @@ class TestInfoWindowColumnsSchema:
         )
         jsonschema.validate(d, _PROJECTION_DEFINITION_SCHEMA)
 
+    @pytest.mark.spec("req-viz-info-window-columns-11")
+    def test_nowrap_accepted_true_and_false(self):
+        for value in (True, False):
+            jsonschema.validate(
+                _columns_definition([{"field": "id", "label": "ID", "nowrap": value}]),
+                _PROJECTION_DEFINITION_SCHEMA,
+            )
+
     @pytest.mark.spec("req-viz-info-window-columns-2")
     @pytest.mark.parametrize(
         "columns",
@@ -277,6 +285,7 @@ class TestInfoWindowColumnsSchema:
             [{"field": "id", "label": "ID", "format": "currency"}],
             [{"field": "id", "label": "ID", "link": "yes"}],
             [{"field": "id", "label": "ID", "width": 80}],
+            [{"field": "id", "label": "ID", "nowrap": "yes"}],
             "id",
             [["id", "ID"]],
         ],
