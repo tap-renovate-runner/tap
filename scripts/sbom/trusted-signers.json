@@ -23,6 +23,17 @@
       "transitional": false,
       "reason": "Signs every revision after the first. Each change to the workflow is a new commit and a new caller pin, so a new entry here; the old entry stays so earlier revisions keep verifying, and is removed only by a reviewed change.",
       "added_by": "George approved the first real signed run in the rampart-pg-ci session on 2026-10-16; this entry records the identity it produced"
+    },
+    {
+      "_description": "The reusable vulnerability-evidence workflow at the commit that adds published date, title, description and record URLs to the vulnerability entries (revision 3 of tap-web). Called by commit like the previous entry, so the signer identity and the Build Signer Digest are that commit.",
+      "id": "tap-sbom-evidence-e9841198",
+      "repository": "unified-systems-com/tap",
+      "workflow_path": ".github/workflows/sbom-vulnerability-evidence.yml",
+      "ref": "e9841198ba7535f4eef79247dd5fb2520b6e1da9",
+      "signer_digest": "e9841198ba7535f4eef79247dd5fb2520b6e1da9",
+      "transitional": false,
+      "reason": "Signs revisions made by this version of the workflow. The previous version's entry stays so revisions it signed keep verifying.",
+      "added_by": "George approved SBOM revision 3 in the rampart-pg-ci session on 2026-10-19; the identity pattern was observed on run 38955198175"
     }
   ]
 }
