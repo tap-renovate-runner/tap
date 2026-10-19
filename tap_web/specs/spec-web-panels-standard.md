@@ -354,13 +354,13 @@ Status: `Implemented`
 Trace: `non-python` — tap_web/static/tap_web/css/stat-cards.css
 
 #### Implementation
-`tap_web/static/tap_web/css/stat-cards.css`: the cards lay out as `grid-template-columns: repeat(auto-fill, minmax(min(11rem, 100%), 1fr))`, so a panel wraps its cards to whatever width its page slot gives and a row of several panels each wraps independently, down to one column at phone width. Colours are custom properties on the panel root with dark values under `prefers-color-scheme: dark` and `[data-theme="dark"]` (guarded by `[data-theme="light"]`). Tone is a left rule plus the tone word.
+`tap_web/static/tap_web/css/stat-cards.css`: the cards lay out as `grid-template-columns: repeat(auto-fit, minmax(min(11rem, 100%), 1fr))`, so a panel wraps its cards to whatever width its page slot gives and a row of several panels each wraps independently, down to one column at phone width. `auto-fit` (not `auto-fill`) collapses the empty tracks, so a panel holding a single card gives it the full width of its slot, which is what a page of one card per column wants. Colours are custom properties on the panel root with dark values under `prefers-color-scheme: dark` and `[data-theme="dark"]` (guarded by `[data-theme="light"]`). Tone is a left rule plus the tone word.
 
 #### Acceptance Criteria
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | :---: | --- | --- |
-| req-web-stdpanel-statcards-style-1 | Responsive Wrapping Grid | Implemented | Cards wrap in an auto-fill grid and never overflow the panel at phone width. | |
+| req-web-stdpanel-statcards-style-1 | Responsive Wrapping Grid | Implemented | Cards wrap in an auto-fit grid and never overflow the panel at phone width; a single card fills its slot. | A lone card sat at 11rem inside a wide column under `auto-fill`. |
 | req-web-stdpanel-statcards-style-2 | Light And Dark Tokens | Implemented | Colours are tokens with light and dark values. | |
 | req-web-stdpanel-statcards-style-3 | Null Styled Apart | Implemented | A stated state (null, missing, blank) is italic and muted so it cannot pass for a value. | |
 
