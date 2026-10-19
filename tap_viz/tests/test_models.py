@@ -300,7 +300,8 @@ def _find_schema_node(node: Any, key: str) -> dict[str, Any] | None:
     if isinstance(node, dict):
         props = node.get("properties")
         if isinstance(props, dict) and "search_id" in props and key in props:
-            return props[key]
+            found: dict[str, Any] = props[key]
+            return found
         for v in node.values():
             hit = _find_schema_node(v, key)
             if hit is not None:
