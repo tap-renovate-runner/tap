@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -561,7 +561,7 @@ class TestTemporalOffsetRefusals(_TemporalFixture):
         with pytest.raises(SearchExecutionError, match="not a date-time"):
             self._names(
                 HOP + "WHERE a.data.observed_at + hours(1) < now() RETURN a.name AS n",
-                clock=lambda: "2026-03-10T00:00:00Z",  # type: ignore[arg-type,return-value]
+                clock=cast("Any", lambda: "2026-03-10T00:00:00Z"),
             )
 
     @pytest.mark.spec("req-grid-traversal-lang-temporal-offset-20")
