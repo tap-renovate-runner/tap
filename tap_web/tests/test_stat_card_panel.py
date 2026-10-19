@@ -328,6 +328,68 @@ class TestBuildCards:
         assert build_cards([{"n": 1}], {"value_field": "n", "tone": "muted"})[0]["tone_label"] == ""
 
 
+class TestZeroToneAndToneText:
+    """`zero_tone` and `tone_text` (req-web-stdpanel-statcards-card-6, -card-7): panel config, not a per-card hardcode."""
+
+    CONFIG = {"value_field": "n", "tone": "bad", "tone_text": True, "zero_tone": "muted"}
+
+    @pytest.mark.spec("req-web-stdpanel-statcards-card-6")
+    def test_a_zero_figure_takes_the_zero_tone_and_a_non_zero_keeps_its_tone(self):
+        cards = build_cards([{"n": 0}, {"n": 3}], self.CONFIG)
+        assert [(c["tone"], c["zero"]) for c in cards] == [("muted", True), ("bad", False)]
+
+    @pytest.mark.spec("req-web-stdpanel-statcards-card-6")
+    @pytest.mark.parametrize("zero", [0, 0.0, "0", "0.00", " 0 "])
+    def test_every_spelling_of_the_number_zero_is_zero(self, zero):
+        assert build_cards([{"n": zero}], self.CONFIG)[0]["tone"] == "muted"
+
+    @pytest.mark.spec("req-web-stdpanel-statcards-card-6")
+    @pytest.mark.parametrize("not_zero", [None, "", "none", False, 1, -1, "0.1"])
+    def test_null_missing_text_and_booleans_are_not_zero(self, not_zero):
+        assert build_cards([{"n": not_zero}], self.CONFIG)[0]["tone"] == "bad"
+        assert build_cards([{"other": 1}], self.CONFIG)[0]["tone"] == "bad"
+
+    @pytest.mark.spec("req-web-stdpanel-statcards-card-6")
+    def test_zero_tone_overrides_a_tone_chosen_by_value_and_prints_no_word(self):
+        cfg = {
+            "value_field": "n",
+            "tone": {"field": "n", "map": {"0": "good"}, "default": "warn"},
+            "zero_tone": "muted",
+        }
+        card = build_cards([{"n": 0}], cfg)[0]
+        assert card["tone"] == "muted" and card["tone_label"] == ""
+
+    @pytest.mark.spec("req-web-stdpanel-statcards-card-6")
+    def test_without_zero_tone_a_zero_keeps_its_tone(self):
+        card = build_cards([{"n": 0}], {"value_field": "n", "tone": "bad"})[0]
+        assert (card["tone"], card["zero"]) == ("bad", False)
+
+    @pytest.mark.spec("req-web-stdpanel-statcards-card-7")
+    def test_tone_text_is_a_flag_on_the_card(self):
+        assert build_cards([{"n": 1}], self.CONFIG)[0]["tone_text"] is True
+        assert build_cards([{"n": 1}], {"value_field": "n"})[0]["tone_text"] is False
+
+    @pytest.mark.spec("req-web-stdpanel-statcards-card-6")
+    @pytest.mark.spec("req-web-stdpanel-statcards-card-7")
+    def test_the_config_validates_and_rejects_bad_values(self):
+        _validate_config(self.CONFIG)
+        for bad in ({"zero_tone": "red"}, {"tone_text": "yes"}, {"zero_tone": ""}):
+            with pytest.raises(ValidationError):
+                _validate_config({"value_field": "n", **bad})
+
+
+class TestToneTextStyle:
+    @pytest.mark.spec("req-web-stdpanel-statcards-style-4")
+    def test_the_tone_text_rules_use_the_edge_tokens_for_every_tone(self):
+        from pathlib import Path
+
+        css = (Path(__file__).resolve().parents[1] / "static/tap_web/css/stat-cards.css").read_text()
+        assert "--statcard-ink: var(--statcard-accent)" in css  # the edge's own token drives the text
+        assert ".tap-statcard--tone-text.tap-statcard--muted { --statcard-ink: var(--statcard-muted); }" in css
+        for part in ("title", "value", "unit"):
+            assert f".tap-statcard--tone-text .tap-statcard__{part}" in css
+
+
 # ---------------------------------------------------------------------------
 # req-web-stdpanel-statcards-render  (through the real panel endpoint)
 # ---------------------------------------------------------------------------
@@ -374,6 +436,24 @@ class TestRender:
         html = _get(panel)
         assert "tap-statcard--bad" in html
         assert re.search(r'tap-statcard__tone"><span[^>]*></span>Problem</p>', html)
+
+    @pytest.mark.spec("req-web-stdpanel-statcards-card-6")
+    @pytest.mark.spec("req-web-stdpanel-statcards-card-7")
+    def test_tone_text_and_a_grey_zero_reach_the_markup(self):
+        _seed({"alpha": 2})
+        nonzero = _panel({"value_field": "n", "tone": "bad", "tone_text": True, "zero_tone": "muted"})
+        _bind(nonzero, _COUNT_ALL)
+        html = _get(nonzero)
+        assert 'class="tap-statcard tap-statcard--bad tap-statcard--tone-text"' in html
+        assert "data-tap-zero" not in html
+        zero = _panel({"value_field": "n", "tone": "bad", "tone_text": True, "zero_tone": "muted"})
+        _bind(zero, ['MATCH (a:grid_fixtures__constrained_source) WHERE a.name = "nobody"', "RETURN COUNT(a) AS n"])
+        html = _get(zero)
+        assert 'class="tap-statcard tap-statcard--muted tap-statcard--tone-text"' in html
+        assert 'data-tap-zero="true"' in html and "Problem" not in html
+        plain = _panel({"value_field": "n", "tone": "bad"})
+        _bind(plain, _COUNT_ALL)
+        assert "tone-text" not in _get(plain)
 
     @pytest.mark.spec("req-web-stdpanel-statcards-render-4")
     def test_no_rows_shows_the_configured_empty_text(self):

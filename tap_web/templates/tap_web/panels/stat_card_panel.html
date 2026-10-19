@@ -12,7 +12,7 @@ browser (localtime.js / stat-cards.js) and read the exact ISO value without JS.
     {% else %}
     <ul class="tap-statcards" aria-label="{{ panel.name }}">
         {% for card in cards %}
-        <li class="tap-statcard tap-statcard--{{ card.tone }}" data-tap-tone="{{ card.tone }}">
+        <li class="tap-statcard tap-statcard--{{ card.tone }}{% if card.tone_text %} tap-statcard--tone-text{% endif %}" data-tap-tone="{{ card.tone }}"{% if card.zero %} data-tap-zero="true"{% endif %}>
             {% if card.title %}<h3 class="tap-statcard__title">{% include "tap_web/panels/_stat_card_cell.html" with cell=card.title %}</h3>{% endif %}
             <p class="tap-statcard__value">{% include "tap_web/panels/_stat_card_cell.html" with cell=card.value %}{% if card.unit and card.value.kind != "state" %} <span class="tap-statcard__unit">{{ card.unit }}</span>{% endif %}</p>
             {% if card.tone_label %}<p class="tap-statcard__tone"><span class="tap-statcard__tone-mark" aria-hidden="true"></span>{{ card.tone_label }}</p>{% endif %}

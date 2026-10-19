@@ -1089,6 +1089,51 @@ class TestProjectionRows:
         assert len(_embedded(content, panel)) == 2
         assert "Showing 2 of 4" in content
 
+    @pytest.mark.spec("req-web-stdpanel-table-config-13")
+    def test_a_row_field_that_is_a_list_of_structured_items_reaches_the_payload_whole(self):
+        """Projection rows are plain dicts: a list of {id, name} items survives the search, the paging and
+        the JSON embed, so the `linkList` formatter receives the items, not a joined string."""
+        from tap_grid.services import create_node
+
+        items = [{"id": "c-1", "name": "alpha"}, {"id": "c-2", "name": "beta & co"}]
+        for name, listed in (("with-items", items), ("empty-list", [])):
+            result = create_node(
+                "grid_fixtures__node",
+                {"name": name, "tags": {"items": listed}},
+                batch_name="list field test",
+                batch_description="Seeds a node whose JSON field carries a list of items.",
+            )
+            assert result.success, result.errors
+        columns = [
+            {"field": "name", "title": "Name"},
+            {
+                "field": "comps",
+                "title": "Components",
+                "formatter": "linkList",
+                "formatter_params": {"href_template": "/c?component_id={id}", "label_field": "name"},
+            },
+        ]
+        panel = _create_table_panel(config={"default_page_size": 25, "columns": columns})
+        query = ["MATCH (a:grid_fixtures__node)", "RETURN a.name AS name, a.data.tags.items AS comps"]
+        _link_search(panel, self._gryphon_search(query))
+        content = make_admin_client(username="table-admin").get(_panel_url(panel)).content.decode()
+        rows = {r["name"]: r["comps"] for r in _embedded(content, panel)}
+        assert rows == {"with-items": items, "empty-list": []}
+        assert _embedded_columns(content, panel) == columns
+
+    @pytest.mark.spec("req-web-stdpanel-table-config-12")
+    @pytest.mark.spec("req-web-stdpanel-table-config-14")
+    @pytest.mark.spec("req-web-stdpanel-table-config-15")
+    def test_link_list_is_a_declared_formatter_with_its_script_branches(self):
+        from pathlib import Path
+
+        assert "linkList" in TABLE_CONFIG_SCHEMA["$defs"]["column"]["properties"]["formatter"]["enum"]
+        _validate_table_config({"columns": [{"field": "c", "title": "C", "formatter": "linkList"}]})
+        script = (Path(__file__).resolve().parents[1] / "static/tap_web/js/panel-table.js").read_text()
+        assert "linkList: function (cell, params)" in script  # the formatter
+        assert 'spec.formatter === "linkList"' in script  # its sorter
+        assert "_filterText(v, filterParams[filterFields[i]])" in script  # the quick filter reads labels
+
     @pytest.mark.spec("req-web-stdpanel-table-rows-5")
     def test_row_url_template_fills_encoded_values_and_voids_missing_ones(self):
         from tap_web.panels.table_panel import _with_row_urls
