@@ -349,7 +349,7 @@ class TestTemporalOffsetExecutor(_TemporalFixture):
         refused = (
             "MATCH (a:grid_fixtures__node) " + LOOKUP_GOLD + f"WHERE {DUE}",  # node-only
             HOP + LOOKUP_GOLD + f"WHERE {DUE} RETURN a.name AS n ORDER BY n",  # ORDER BY without aggregate
-            HOP + LOOKUP_GOLD + f"WHERE zz.data.observed_at + hours(p.data.severity_score) < now()",  # unbound base
+            HOP + LOOKUP_GOLD + "WHERE zz.data.observed_at + hours(p.data.severity_score) < now()",  # unbound base
         )
         for query in refused:
             with capture_sql() as capture:
