@@ -38,7 +38,7 @@ def test_js_rendering() -> None:
     node = shutil.which("node")
     if node is None:
         pytest.skip("node is not installed here; the rendering assertions in info_window_columns.test.mjs did not run")
-    result = subprocess.run(  # noqa: S603 - fixed argv, repo-owned test file
+    result = subprocess.run(  # noqa: S603  # nosec B603 - fixed argv, repo-owned test file
         [node, "--test", str(JS_TEST)], capture_output=True, text=True, check=False, timeout=120
     )
     assert result.returncode == 0, result.stdout + result.stderr

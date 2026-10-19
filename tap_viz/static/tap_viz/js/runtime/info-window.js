@@ -171,7 +171,14 @@ async function _loadSections(state, host, badgeSets) {
                 }
                 anyRendered = true;
                 countEl.textContent = String(hostRows.length);
-                bodyEl.innerHTML = renderInfoTable(hostRows, cfg.info_window);
+                // Parsed into an inert document and adopted, not assigned as markup: every cell
+                // value is already escaped by renderInfoTable, and this keeps the page free of an
+                // innerHTML sink for row data.
+                const parsed = new DOMParser().parseFromString(
+                    renderInfoTable(hostRows, cfg.info_window),
+                    "text/html",
+                );
+                bodyEl.replaceChildren(...parsed.body.childNodes);
                 _wireRowLinks(bodyEl);
                 if (state.el.classList.contains(WIDE_CLASS)) _fitWithinPanel(state.el, state.panelEl);
             } catch (err) {
