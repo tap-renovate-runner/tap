@@ -63,6 +63,17 @@
 .tap-statcard--bad { --statcard-accent: var(--statcard-bad); }
 .tap-statcard--muted { --statcard-accent: var(--statcard-border); color: var(--statcard-muted); }
 
+/* tone_text (req-web-stdpanel-statcards-card-7): the title, figure and unit take the tone colour. The tone colours
+   are the same tokens as the left edge, so the text and the edge cannot disagree; they clear 4.5:1 on the
+   card background in both schemes. `muted` (a zero_tone, req-web-stdpanel-statcards-card-6) is the dimmed grey:
+   the muted text token, readable, with the edge in its quiet border colour. */
+.tap-statcard--tone-text { --statcard-ink: var(--statcard-accent); }
+.tap-statcard--tone-text.tap-statcard--muted { --statcard-ink: var(--statcard-muted); }
+.tap-statcard--tone-text.tap-statcard--neutral { --statcard-ink: var(--statcard-text); }
+.tap-statcard--tone-text .tap-statcard__title,
+.tap-statcard--tone-text .tap-statcard__value,
+.tap-statcard--tone-text .tap-statcard__unit { color: var(--statcard-ink); }
+
 .tap-statcard__title {
   margin: 0 0 0.25rem;
   font-size: 0.8rem;

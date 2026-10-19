@@ -125,6 +125,21 @@ STAT_CARD_CONFIG_SCHEMA: dict[str, Any] = {
                 },
             ],
         },
+        "tone_text": {
+            "type": "boolean",
+            "description": (
+                "When true, the card's title, figure and unit are drawn in the card's tone colour (the "
+                "tone palette, light and dark), not only its left edge. Default false."
+            ),
+        },
+        "zero_tone": {
+            **_TONE,
+            "description": (
+                "Tone a card takes INSTEAD of `tone` when its figure (`value_field`) is the number zero, "
+                "for example `muted` to grey out a count of nothing. A null, missing or non-number figure "
+                "is not zero. Absent: a zero keeps the card's tone."
+            ),
+        },
         "tone_labels": {
             "type": "object",
             "description": "Override the words that announce a tone (tone name to text); an empty string shows none.",
@@ -251,6 +266,14 @@ def _tone_for(row: dict[str, Any], tone: Any) -> str:
     return "neutral"
 
 
+def _is_zero(row: dict[str, Any], field: str) -> bool:
+    """True when the row's ``field`` is the number zero (0, 0.0, "0"); null, missing and text are not."""
+    if field not in row:
+        return False
+    d = _decimal(row[field])
+    return d is not None and d == 0
+
+
 def build_cards(rows: list[dict[str, Any]], config: dict[str, Any]) -> list[dict[str, Any]]:
     """Turn search rows into template-ready cards, driven only by ``config``."""
     labels = {**_DEFAULT_TONE_LABELS, **(config.get("tone_labels") or {})}
@@ -264,6 +287,9 @@ def build_cards(rows: list[dict[str, Any]], config: dict[str, Any]) -> list[dict
         if title is None and config.get("title"):
             title = {"kind": "text", "text": config["title"]}
         tone = _tone_for(row, config.get("tone", "neutral"))
+        zero = bool(config.get("zero_tone")) and _is_zero(row, config["value_field"])
+        if zero:
+            tone = config["zero_tone"]
         cards.append(
             {
                 "index": index,
@@ -278,6 +304,8 @@ def build_cards(rows: list[dict[str, Any]], config: dict[str, Any]) -> list[dict
                     for line in config.get("lines", [])
                 ],
                 "tone": tone,
+                "zero": zero,
+                "tone_text": bool(config.get("tone_text")),
                 "tone_label": labels.get(tone, ""),
             }
         )

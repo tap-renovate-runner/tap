@@ -214,6 +214,8 @@ All keys except `value_field` are optional.
 | `title` | string | Fixed title, used when `title_field` is absent or the row has no value for it. |
 | `lines` | array of `{label, field, formatter?}` | Secondary label/value lines, in order. |
 | `tone` | tone name, or `{field, map, default?}` | Fixed tone, or the tone chosen by the row value of `field` through `map` (value as text to tone), `default` (else `neutral`) for an unlisted value. Tones: `neutral`, `good`, `warn`, `bad`, `muted` (the Table Panel's `toneBadge` vocabulary, plus `neutral`). |
+| `tone_text` | boolean | The card's title, figure and unit are drawn in the tone colour, not only the left edge (`req-web-stdpanel-statcards-card-7`). Default false. |
+| `zero_tone` | tone name | The tone a card takes INSTEAD of `tone` when its figure (`value_field`) is the number zero, for example `muted` to grey out a count of nothing (`req-web-stdpanel-statcards-card-6`). Absent: a zero keeps its tone. |
 | `tone_labels` | object, tone name to string | Replaces the words that announce a tone; `""` shows none. |
 | `empty_text` | string | Shown when the Search returns no rows. Default `No results.` |
 | `null_text` | string | Shown for a null (unobserved) value. Default `not observed`. |
@@ -303,6 +305,8 @@ One card per row, in row order: an optional title (`title_field` value, else the
 | req-web-stdpanel-statcards-card-3 | Secondary Lines | Implemented | `lines` render in declared order, each with its own formatter, and each state a missing or null field. | |
 | req-web-stdpanel-statcards-card-4 | Tone | Implemented | Tone is fixed, or chosen by a field's value through a map with a default; no tone is `neutral`. | |
 | req-web-stdpanel-statcards-card-5 | Tone In Words | Implemented | A `good` / `warn` / `bad` card also prints a word for its tone (`Good`, `Warning`, `Problem`, overridable by `tone_labels`); `neutral` and `muted` print none. | Colour is never the only signal. |
+| req-web-stdpanel-statcards-card-6 | Zero Tone | Implemented | With `zero_tone` set, a card whose figure is the number zero (0, 0.0, `"0"`) takes that tone instead of its own, and its left edge, class and tone word follow; null, missing, text and boolean figures are not zero; absent, a zero keeps its tone. | Panel config, no per-card hardcode. |
+| req-web-stdpanel-statcards-card-7 | Tone Text | Implemented | With `tone_text: true`, the card's title, figure and unit take the tone colour (good / warn / bad; `muted` the dimmed grey; `neutral` the ordinary text colour), from the same tokens as the left edge. | Class `tap-statcard--tone-text`. |
 
 ### Stat Cards Rendering
 ----
@@ -363,6 +367,7 @@ Trace: `non-python` — tap_web/static/tap_web/css/stat-cards.css
 | req-web-stdpanel-statcards-style-1 | Responsive Wrapping Grid | Implemented | Cards wrap in an auto-fit grid and never overflow the panel at phone width; a single card fills its slot. | A lone card sat at 11rem inside a wide column under `auto-fill`. |
 | req-web-stdpanel-statcards-style-2 | Light And Dark Tokens | Implemented | Colours are tokens with light and dark values. | |
 | req-web-stdpanel-statcards-style-3 | Null Styled Apart | Implemented | A stated state (null, missing, blank) is italic and muted so it cannot pass for a value. | |
+| req-web-stdpanel-statcards-style-4 | Tone Text Colours | Implemented | Under `tone_text` the text colours are the tone tokens with light and dark values (the left edge's own tokens), clearing 4.5:1 on the card background in both schemes; a zero card is the muted text token, dimmed and still readable. | Computed colours read in a real browser, light and dark. |
 
 ## Status Vocabulary
 
