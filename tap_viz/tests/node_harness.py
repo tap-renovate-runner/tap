@@ -26,8 +26,8 @@ def run_harness(script: str, module: Path) -> dict[str, dict[str, object]]:
     cytoscape = Path(os.environ.get("TAP_CYTOSCAPE_JS") or _VENDORED_CYTOSCAPE)
     if not node or not cytoscape.is_file():
         pytest.skip("needs Node and the vendored cytoscape (TAP_NODE / TAP_CYTOSCAPE_JS)")
-    done = subprocess.run(
-        [node, str(JS_TESTS / script), str(cytoscape), str(module)],
+    done = subprocess.run(  # noqa: S603  # nosec B603  # nosemgrep - fixed argv, repo-owned harness
+        [node, str(JS_TESTS / script), str(cytoscape), str(module)],  # nosemgrep
         capture_output=True,
         text=True,
         check=False,
