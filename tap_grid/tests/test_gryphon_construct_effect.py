@@ -279,6 +279,88 @@ class TestInPatternVariableReuseIsAJoin:
             _issued("MATCH (t:batch) OPTIONAL MATCH (t)-[:X]->(t) RETURN t.entity_id AS a, COUNT(t) AS c")
 
 
+class TestWhereOnAnUnboundVariable:
+    """A WHERE leaf on a variable the ONE mandatory MATCH does not bind is refused — tap#1072.
+
+    ``_filter_predicate_for_bindings`` drops a leaf whose variable a clause does not bind. That is
+    the multi-MATCH union's rule (shape-5); in a query with ONE mandatory MATCH there is no other
+    clause the leaf could belong to, so the drop turned a mistyped variable into no filter at all.
+    """
+
+    REMEDY = "does not bind"
+
+    def test_comparison_on_an_unbound_variable_is_refused(self):
+        with pytest.raises(SearchExecutionError, match=self.REMEDY):
+            _issued('MATCH (a:batch)-[:X]->(b:batch) WHERE zz.data.name = "x" RETURN b.name AS n')
+
+    def test_the_refusal_names_the_unbound_and_the_bound_variables(self):
+        with pytest.raises(SearchExecutionError, match=r"'zz'.*bound: 'a', 'b'"):
+            _issued('MATCH (a:batch)-[:X]->(b:batch) WHERE zz.data.name = "x" RETURN b.name AS n')
+
+    @pytest.mark.parametrize(
+        "where",
+        [
+            'NOT zz.data.name = "x"',
+            'zz.data.name IN ["x", "y"]',
+            "zz.data.name IS NULL",
+            'b.data.name = "x" AND zz.data.name = "y"',
+            'b.data.name = "x" OR zz.data.name = "y"',
+        ],
+    )
+    def test_every_leaf_form_and_combinator_is_refused(self, where):
+        with pytest.raises(SearchExecutionError, match=self.REMEDY):
+            _issued(f"MATCH (a:batch)-[:X]->(b:batch) WHERE {where} RETURN b.name AS n")
+
+    def test_type_scan_on_an_unbound_variable_is_refused(self):
+        with pytest.raises(SearchExecutionError, match=self.REMEDY):
+            _issued('MATCH (b:batch) WHERE zz.data.name = "x" RETURN b.name AS n')
+
+    def test_an_unnamed_labelled_node_is_not_addressable_by_its_label(self):
+        with pytest.raises(SearchExecutionError, match=self.REMEDY):
+            _issued('MATCH (:batch)-[:X]->(b:batch) WHERE batch.data.name = "x" RETURN b.name AS n')
+
+    def test_a_bound_edge_variable_is_still_accepted(self):
+        assert _issued('MATCH (a:batch)-[e:X]->(b:batch) WHERE e.data.edge_type = "X" RETURN b.name AS n')
+
+    def test_a_bound_variable_changes_the_sql_as_before(self):
+        with_where = _issued('MATCH (a:batch)-[:X]->(b:batch) WHERE b.data.name = "x" RETURN b.name AS n')
+        without = _issued("MATCH (a:batch)-[:X]->(b:batch) RETURN b.name AS n")
+        assert with_where != without
+
+    def test_a_union_keeps_its_per_clause_scoping(self):
+        # One global WHERE over two independent MATCH clauses: a leaf on the other clause's variable
+        # must not apply to this one (shape-5). The refusal is for ONE mandatory MATCH only.
+        assert _issued('MATCH (a:batch) MATCH (b:batch) WHERE a.data.name = "x" RETURN a.name AS n')
+
+    def test_optional_match_keeps_its_scoping(self):
+        assert _issued(
+            'MATCH (t:batch) OPTIONAL MATCH (t)-[:X]->(g:batch) WHERE g.data.name = "x" '
+            "RETURN t.entity_id AS a, COUNT(g) AS c"
+        )
+
+
+class TestReturnOnAnUnboundVariableIsStillADrop:
+    """Found beside tap#1072 and registered, not fixed here: tap#1079.
+
+    A single-node type-scan RETURN item naming a variable the pattern does not bind is skipped
+    silently, where the chain road and an aggregate argument both refuse it. Each case flips green
+    (strict xfail) when someone fixes it.
+    """
+
+    @pytest.mark.xfail(strict=True, reason="tap#1079: RETURN item on an unbound variable is dropped on a type scan")
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "MATCH (a:batch) RETURN b.name AS x",
+            "MATCH (a:batch) RETURN a.name AS y, b.name AS x",
+            "MATCH (a:batch) RETURN b",
+        ],
+    )
+    def test_type_scan_return_on_an_unbound_variable_is_refused(self, query):
+        with pytest.raises(SearchExecutionError):
+            _issued(query)
+
+
 class TestInputNullPredicateEffect:
     """`$p IS [NOT] NULL` — req-grid-traversal-lang-param-null.
 
