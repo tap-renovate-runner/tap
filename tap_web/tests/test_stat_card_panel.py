@@ -379,7 +379,8 @@ class TestZeroToneAndToneText:
 
 
 class TestToneTextStyle:
-    @pytest.mark.spec("req-web-stdpanel-statcards-style-4")
+    # No spec marker: req-web-stdpanel-statcards-style carries a `Trace: non-python` disposition (the stylesheet),
+    # so it cannot also carry test evidence; style-4's proof is the computed colours read in a real browser.
     def test_the_tone_text_rules_use_the_edge_tokens_for_every_tone(self):
         from pathlib import Path
 

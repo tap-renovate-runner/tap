@@ -309,8 +309,6 @@ RID: `req-web-panels-chart-click`
 
 Status: `Implemented`
 
-Trace: `non-python` — tap_web/static/tap_web/js/chart-panel.js
-
 A chart can navigate: clicking a bar or a scatter point opens a page chosen by that item's row. It is panel configuration, never per-page code.
 
 #### Implementation
