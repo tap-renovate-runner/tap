@@ -141,6 +141,7 @@ The layout JSON has a **strict, schema-validated** grammar. The full schema live
 - **`columns` is required.** A layout with no columns fails validation.
 - **Column keys** match `^col-[1-9][0-9]*(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?$` — `col-1`, `col-2`, `col-3-aside`, etc. Numeric suffixes start at 1, never 0.
 - **Column `width`** is one of `auto`, `1fr` … `12fr`. No pixel widths, no percentages, no `min-content`.
+- **Column `band`** (optional): integer ≥ 1, default 1. Columns sharing a band render side by side in one grid; bands stack top to bottom, so a full-width table can sit under three cards (`col-1..3` in `band` 1, `col-4` with `width: 12fr` in `band` 2). Ordering is band, then `col-<n>`. With more than one band, `Nfr` row heights fall back to intrinsic height and the page scrolls normally.
 - **`rows` is required** within each column.
 - **Row keys** match `^row-[1-9][0-9]*(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?$`. Same numeric-suffix rule.
 - **Row `panel-id`** is required, matches `^[a-z][a-z0-9-]*$`. This is the slot name; it's matched **exactly** by `USES_PANEL.properties.hotlink.value`.

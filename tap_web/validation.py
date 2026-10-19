@@ -106,6 +106,15 @@ _LAYOUT_SCHEMA: dict = {
                             "12fr",
                         ],
                     },
+                    "band": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "default": 1,
+                        "description": (
+                            "Horizontal band the column belongs to. Columns sharing a band "
+                            "render side by side in one grid; bands stack top to bottom."
+                        ),
+                    },
                     "tags": {
                         "type": "object",
                         "propertyNames": {"pattern": "^[a-z][a-z0-9-]*$"},
