@@ -22,7 +22,7 @@ from tap_viz.tests.node_harness import RUNTIME, assert_ok, run_harness
 
 
 @pytest.fixture(scope="module")
-def scope_box_checks() -> dict[str, dict]:
+def scope_box_checks() -> dict[str, dict[str, object]]:
     return run_harness("scope_box_runtime.mjs", RUNTIME / "layout-scope-boxes.js")
 
 

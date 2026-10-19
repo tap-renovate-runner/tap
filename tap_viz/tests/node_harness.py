@@ -21,7 +21,7 @@ JS_TESTS = Path(__file__).resolve().parent / "js"
 _VENDORED_CYTOSCAPE = REPO / "tap_viz" / "static" / "tap_viz" / "js" / "lib" / "cytoscape.min.js"
 
 
-def run_harness(script: str, module: Path) -> dict[str, dict]:
+def run_harness(script: str, module: Path) -> dict[str, dict[str, object]]:
     node = os.environ.get("TAP_NODE") or shutil.which("node")
     cytoscape = Path(os.environ.get("TAP_CYTOSCAPE_JS") or _VENDORED_CYTOSCAPE)
     if not node or not cytoscape.is_file():
@@ -40,7 +40,7 @@ def run_harness(script: str, module: Path) -> dict[str, dict]:
     return checks
 
 
-def assert_ok(checks: dict[str, dict], *names: str) -> None:
+def assert_ok(checks: dict[str, dict[str, object]], *names: str) -> None:
     for name in names:
         assert name in checks, f"harness did not report {name!r}; it reported {sorted(checks)}"
         assert checks[name]["ok"], f"{name}: {checks[name]['detail']}"

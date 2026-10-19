@@ -20,7 +20,7 @@ PANEL_GRAPH = REPO / "tap_viz" / "static" / "tap_viz" / "js" / "panel-graph.js"
 
 
 @pytest.fixture(scope="module")
-def outside_label_checks() -> dict[str, dict]:
+def outside_label_checks() -> dict[str, dict[str, object]]:
     return run_harness("outside_label_runtime.mjs", RUNTIME / "chrome.js")
 
 
@@ -46,7 +46,12 @@ def test_graph_panel_carries_box_chrome_hints_to_cytoscape() -> None:
     source = PANEL_GRAPH.read_text(encoding="utf-8")
     assert 'typeof tapViz.fill_opacity === "number"' in source and "data.fill_opacity" in source
     assert 'typeof tapViz.border_width === "number"' in source and "data.border_width" in source
-    for selector in ('"node[fill_opacity]"', '":parent[fill_opacity]"', '"node[border_width]"', '":parent[border_width]"'):
+    for selector in (
+        '"node[fill_opacity]"',
+        '":parent[fill_opacity]"',
+        '"node[border_width]"',
+        '":parent[border_width]"',
+    ):
         assert selector in source
     # The chrome rules come after the palette rules they override, and before the label-position rule.
     assert source.index('"node[fill_opacity]"') > source.rindex('":parent[fill_color]"')
