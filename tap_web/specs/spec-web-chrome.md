@@ -440,6 +440,8 @@ The site-wide icon and product mark are first-class chrome entries. They are pre
 - Favicon and site icon are related but separate contracts:
   - Favicon belongs to browser chrome.
   - Site icon belongs to TAP chrome.
+- When the instance configures a glyph (`req-boot-web-branding`), that one SVG feeds the `site-icon` entry, the `product-mark` entry and the favicon. This is the glyph system: one asset, three places. The header mark at the top left shows the glyph; the configured name stays as its accessible name, the page-title suffix and the fallback text.
+- Until chrome entries are graph-backed, the render point is the home segment of the breadcrumb in `base.html`, which today prints the product name.
 - V1 may seed branding entry config from settings/static assets, but authenticated chrome uses graph-backed `ChromeEntry` instances after authorization.
 - Static login/auth/error pages are responsible for their own brand rendering and do not consume graph-backed branding entries.
 - Future product-line branding may bundle product name, site icon, favicon, and visual tokens under a named brand/profile, but that is not required for v1.
@@ -457,6 +459,9 @@ The site icon has been wanted as a real product-line affordance. Modeling it as 
 | req-web-chrome-branding-3 | Inert Allowed | Proposed | Branding entries may use `activation: null`. | |
 | req-web-chrome-branding-4 | Favicon Separate | Proposed | Browser favicon is not the same contract as the in-app site icon. | |
 | req-web-chrome-branding-5 | Product-Line Seam | Backlog | A future brand/profile object may group name/icon/favicon/tokens. | |
+| req-web-chrome-branding-glyph | Glyph Rendering | Proposed | The configured glyph is rendered inline in the header mark in place of the name text, takes its colour from the surrounding text colour, has `role="img"` and the instance name as its accessible label, and is sized to the header height. Inlined content must contain no `script`, `foreignObject`, event-handler attributes or external references, or the glyph is treated as unusable. | Inline, not `<img>`, so `currentColor` works on the dark header. |
+| req-web-chrome-branding-glyph-favicon | Glyph As Favicon | Proposed | When a glyph is configured, the page serves it as the favicon (`type="image/svg+xml"`); otherwise the existing `favicon.ico` stays. A glyph used as favicon must carry its own fill, since `currentColor` has no context in a browser tab. | The glyph file should work in both places, e.g. an explicit fill with a `prefers-color-scheme` rule inside the SVG. |
+| req-web-chrome-branding-glyph-fallback | Glyph Fallback | Proposed | With no glyph, or an unusable one, the header shows the text name exactly as before and the favicon is unchanged. | `req-boot-web-branding-6`. |
 
 
 ### Built-In Chrome Entries
