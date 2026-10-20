@@ -327,6 +327,16 @@ class TestWhereOnAnUnboundVariable:
         without = _issued("MATCH (a:batch)-[:X]->(b:batch) RETURN b.name AS n")
         assert with_where != without
 
+    def test_a_union_refuses_a_leaf_that_no_clause_binds(self):
+        # tap#1084: shape-5's scoping is for a leaf ANOTHER clause binds; a leaf nobody binds is a drop.
+        with pytest.raises(SearchExecutionError, match=r"'zz'.*any MATCH clause.*bound: 'a', 'b'"):
+            _issued('MATCH (a:batch) MATCH (b:batch) WHERE zz.data.name = "x" RETURN a.name AS n')
+
+    def test_a_union_refuses_an_unbound_leaf_under_not_and_or(self):
+        for where in ('NOT zz.data.name = "x"', 'a.data.name = "x" OR zz.data.name = "y"'):
+            with pytest.raises(SearchExecutionError, match="any MATCH clause"):
+                _issued(f"MATCH (a:batch) MATCH (b:batch) WHERE {where} RETURN a.name AS n")
+
     def test_a_union_keeps_its_per_clause_scoping(self):
         # One global WHERE over two independent MATCH clauses: a leaf on the other clause's variable
         # must not apply to this one (shape-5). The refusal is for ONE mandatory MATCH only.
