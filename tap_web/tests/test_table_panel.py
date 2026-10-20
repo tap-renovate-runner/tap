@@ -1369,3 +1369,31 @@ class TestStripedConfig:
         with patch("tap_grid.search.execute_search", return_value=fake_envelope):
             response = make_admin_client(username="table-admin").get(_panel_url(panel))
         assert (b"tap-table--striped" in response.content) is expected
+
+
+class TestFieldPathsColumn:
+    """`field_paths` + `joiner`: several values in one cell (req-web-stdpanel-table-config-28)."""
+
+    @pytest.mark.spec("req-web-stdpanel-table-config-28")
+    def test_field_paths_is_a_third_way_to_name_the_value(self):
+        paths = [["dimensions", "dataclass.customer"], ["dimensions", "dataclass.infra"]]
+        _validate_table_config({"columns": [{"field_paths": paths, "title": "Data", "joiner": " / ", "empty_text": "-"}]})
+        _validate_table_config({"columns": [{"title": "G", "columns": [{"field_paths": paths, "title": "D"}]}]})
+        for bad in (
+            {"title": "C", "field": "a", "field_paths": paths},
+            {"title": "C", "field_path": ["a"], "field_paths": paths},
+            {"title": "C", "field_paths": []},
+            {"title": "C", "field_paths": [[]]},
+            {"title": "C", "field_paths": [[""]]},
+            {"title": "C", "field_paths": ["a.b"]},
+            {"title": "C", "field_paths": paths, "joiner": 3},
+            {"title": "C", "field_paths": paths, "joiner": "x" * 21},
+            {"title": "C", "field": "a", "joiner": ", "},  # a joiner needs field_paths
+        ):
+            with pytest.raises(ValidationError):
+                _validate_table_config({"columns": [bad]})
+
+    @pytest.mark.spec("req-web-stdpanel-table-config-28")
+    def test_the_new_keys_are_described(self):
+        props = TABLE_CONFIG_SCHEMA["$defs"]["column"]["properties"]
+        assert props["field_paths"]["description"] and props["joiner"]["description"]

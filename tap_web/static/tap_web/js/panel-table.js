@@ -220,22 +220,41 @@
     return cur;
   }
 
-  // A column that declares `field_path` reads its value from the row at that path. Tabulator splits a
-  // column's `field` on dots, so the value is copied onto each row under a synthetic dot-free key and the
-  // column (and the quick filter, sorter and every formatter) reads that key. Walks groups one level deep.
+  // The text a `field_paths` column shows: the scalar values found at each path of the row, in the order
+  // declared, the empty ones (null, missing, blank text) skipped, joined with `joiner` (default ", "). A list or
+  // an object at a path is not a scalar and is skipped as well. Null when nothing is left, so the column's
+  // `empty_text` (or the formatter's own empty rendering) applies (req-web-stdpanel-table-config-28).
+  function _joinPaths(row, paths, joiner) {
+    var parts = [];
+    paths.forEach(function (segments) {
+      var v = _getSegments(row, segments);
+      if (v == null || typeof v === "object") return;
+      var text = String(v);
+      if (text.trim() !== "") parts.push(text);
+    });
+    return parts.length ? parts.join(joiner == null ? ", " : String(joiner)) : null;
+  }
+
+  // A column that declares `field_path` reads its value from the row at that path; one that declares
+  // `field_paths` (several paths, joined into one cell) reads the joined text. Tabulator splits a column's
+  // `field` on dots, so the value is copied onto each row under a synthetic dot-free key and the column (and the
+  // quick filter, sorter and every formatter) reads that key. Walks groups one level deep.
   // Returns the specs with `field` set; `rows` gain the synthetic keys. Specs are copied, not mutated.
   function resolveFieldPaths(specs, rows) {
     var counter = 0;
     function walk(list) {
       return list.map(function (spec) {
-        if (spec.columns && !spec.field && !spec.field_path) {
+        var multi = Array.isArray(spec.field_paths) && spec.field_paths.length > 0;
+        var single = Array.isArray(spec.field_path) && spec.field_path.length > 0;
+        if (spec.columns && !spec.field && !single && !multi) {
           return Object.assign({}, spec, { columns: walk(spec.columns) });
         }
-        if (!Array.isArray(spec.field_path) || spec.field_path.length === 0) return spec;
-        var key = "_fp" + (counter++) + "_" + spec.field_path.join("_").replace(/[^A-Za-z0-9_]/g, "_");
-        var segments = spec.field_path;
+        if (!single && !multi) return spec;
+        var flat = multi ? [].concat.apply([], spec.field_paths) : spec.field_path;
+        var key = "_fp" + (counter++) + "_" + flat.join("_").replace(/[^A-Za-z0-9_]/g, "_");
         rows.forEach(function (row) {
-          if (row && typeof row === "object") row[key] = _getSegments(row, segments);
+          if (!row || typeof row !== "object") return;
+          row[key] = multi ? _joinPaths(row, spec.field_paths, spec.joiner) : _getSegments(row, spec.field_path);
         });
         return Object.assign({}, spec, { field: key });
       });

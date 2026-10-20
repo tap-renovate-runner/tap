@@ -127,3 +127,55 @@ test("formatter_params.style plain adds the plain modifier to every link formatt
         assert.doesNotMatch(dflt, /--plain/, spec.formatter);
     }
 });
+
+// field_paths + joiner (req-web-stdpanel-table-config-28).
+const joined = (spec, rows) => {
+    const [resolved] = resolveFieldPaths([{title: "T", ...spec}], rows);
+    return rows.map((r) => r[resolved.field]);
+};
+const PATHS = [["dimensions", "dataclass.customer"], ["dimensions", "dataclass.infra"]];
+
+test("field_paths joins the non-empty values with the default joiner, in the order given", () => {
+    const rows = [
+        {dimensions: {"dataclass.customer": "high", "dataclass.infra": "low"}},
+        {dimensions: {"dataclass.customer": "", "dataclass.infra": "low"}},
+        {dimensions: {"dataclass.customer": "high"}},
+        {dimensions: {"dataclass.customer": "  ", "dataclass.infra": null}},
+        {dimensions: {}},
+        {dimensions: null},
+        {},
+    ];
+    assert.deepEqual(joined({field_paths: PATHS}, rows), ["high, low", "low", "high", null, null, null, null]);
+});
+
+test("field_paths honours the joiner, keeps zero and false, and skips lists and objects", () => {
+    const rows = [{a: 0, b: false, c: [1], d: {x: 1}, e: "z"}];
+    assert.deepEqual(joined({field_paths: [["a"], ["b"], ["c"], ["d"], ["e"]], joiner: " | "}, rows), ["0 | false | z"]);
+    assert.deepEqual(joined({field_paths: [["e"], ["a"]], joiner: ""}, [{a: 1, e: "z"}]), ["z1"]);
+});
+
+test("field_paths reads own keys only, so a path never reaches the prototype", () => {
+    const rows = [{dimensions: {}}];
+    assert.deepEqual(joined({field_paths: [["dimensions", "constructor"], ["__proto__", "x"]]}, rows), [null]);
+});
+
+test("field_paths gives a dot-free key, works inside a group, and an all-empty cell shows empty_text", () => {
+    const rows = [{a: {"b.c": "x"}}, {a: {}}];
+    const specs = resolveFieldPaths(
+        [{title: "G", columns: [{title: "J", field_paths: [["a", "b.c"], ["a", "d"]], empty_text: "none"}]}],
+        rows,
+    );
+    const leaf = specs[0].columns[0];
+    assert.ok(!leaf.field.includes("."));
+    assert.deepEqual(rows.map((r) => r[leaf.field]), ["x", null]);
+    const col = buildCustomColumns([leaf])[0];
+    assert.equal(col.formatter(cellOf(rows[1][leaf.field]), {}, () => {}), "none");
+    assert.equal(col.formatter(cellOf(rows[0][leaf.field]), {}, () => {}), TEXT("x"));
+});
+
+test("a field_paths column and a field_path column get distinct keys", () => {
+    const rows = [{a: 1, b: 2}];
+    const specs = resolveFieldPaths([{title: "A", field_path: ["a"]}, {title: "B", field_paths: [["a"], ["b"]]}], rows);
+    assert.notEqual(specs[0].field, specs[1].field);
+    assert.deepEqual([rows[0][specs[0].field], rows[0][specs[1].field]], [1, "1, 2"]);
+});

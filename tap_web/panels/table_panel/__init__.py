@@ -166,8 +166,10 @@ TABLE_CONFIG_SCHEMA: dict[str, Any] = {
             "type": "object",
             "additionalProperties": False,
             "required": ["title"],
-            # Exactly one way to name the value: `field` (dotted path) or `field_path` (explicit segments).
-            "oneOf": [{"required": ["field"]}, {"required": ["field_path"]}],
+            # Exactly one way to name the value: `field` (dotted path), `field_path` (explicit segments) or
+            # `field_paths` (several explicit paths joined into one cell). `joiner` only goes with `field_paths`.
+            "oneOf": [{"required": ["field"]}, {"required": ["field_path"]}, {"required": ["field_paths"]}],
+            "dependentRequired": {"joiner": ["field_paths"]},
             "properties": {
                 "field": {"type": "string", "minLength": 1},
                 # An explicit path as an ARRAY of segments, for a key that itself contains a dot:
@@ -181,6 +183,25 @@ TABLE_CONFIG_SCHEMA: dict[str, Any] = {
                     "type": "array",
                     "minItems": 1,
                     "items": {"type": "string", "minLength": 1},
+                },
+                # Several values in ONE cell: each item is a path as an array of segments (the `field_path`
+                # reading, own keys only), the non-empty values are joined with `joiner`, in the order given.
+                "field_paths": {
+                    "description": (
+                        "Several values in one cell: an array of paths, each an array of segments exactly as "
+                        "`field_path` (each one key even if it contains a dot, own keys only). The non-empty "
+                        "scalar values are joined with `joiner` in the order given; null, missing, blank text, "
+                        "lists and objects are skipped; when nothing is left the cell shows `empty_text`. Use "
+                        "instead of `field` and `field_path`, never with them."
+                    ),
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                },
+                "joiner": {
+                    "description": "The text between the values of a `field_paths` column. Default ', '.",
+                    "type": "string",
+                    "maxLength": 20,
                 },
                 # Text shown (plain, escaped) when the cell's value is null, missing or an empty string,
                 # with any formatter. Absent: the formatter's own rendering of an empty value.
