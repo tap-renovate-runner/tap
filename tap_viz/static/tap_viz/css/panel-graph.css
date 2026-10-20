@@ -352,6 +352,7 @@
    (the table panel's tone palette in light, the stat-card tone colours in dark). The tone is also the tooltip. */
 .tap-info-window__tone {
     display: inline-block;
+    white-space: nowrap;
     padding: 1px 6px;
     border-radius: 4px;
     font-weight: 600;
