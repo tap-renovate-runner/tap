@@ -3815,7 +3815,7 @@ def _lookup_value_expr(source: _LookupSource, path: FieldPath) -> Any:
 def _temporal_to_q(leaf: TemporalComparison, bindings: dict[str, dict[str, Any]], inputs: dict[str, Any]) -> Any:
     """Lower a temporal leaf to a ``Q``: the comparison conjoined with a not-null guard on the base.
 
-    TAP-IMPLEMENTS: req-grid-traversal-lang-temporal-offset@84f09008b052/46caab7a343b (derivation) — the offset comparison
+    TAP-IMPLEMENTS: req-grid-traversal-lang-temporal-offset@f1096576be62/46caab7a343b (derivation) — the offset comparison
         lowers here: base shifted by whole hours, compared with the clock or a supplied instant.
 
     Rung 1: ``F``/``Cast`` of the base, plus-or-minus an ``ExpressionWrapper`` of the integer

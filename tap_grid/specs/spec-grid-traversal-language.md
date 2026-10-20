@@ -52,7 +52,7 @@ keeping new language surface explicit, validated, and tested.
 | req-grid-traversal-lang-in | [IN-List Membership](#in-list-membership) | Implemented | `WHERE` membership test against a list of values |
 | req-grid-traversal-lang-string-match | [String Match Predicates](#string-match-predicates) | Implemented | `WHERE` substring predicates: `STARTS_WITH` / `ENDS_WITH` / `CONTAINS` |
 | req-grid-traversal-lang-regex | [Regex Match Operator](#regex-match-operator) | Implemented | `WHERE field =~ pattern` — PostgreSQL ARE/POSIX-family regex, search semantics (substring match; anchor with `^...$`) |
-| req-grid-traversal-lang-temporal-offset | [Temporal Offset Comparison](#temporal-offset-comparison) | Proposed | `LOOKUP p = (:label {k: v})` binds one scalar-lookup row; `WHERE f.data.at + hours(p.data.n) < now()` compares a date-time field plus a whole-hour offset taken from that row with the current time. WHERE only; RETURN arithmetic is a later cycle |
+| req-grid-traversal-lang-temporal-offset | [Temporal Offset Comparison](#temporal-offset-comparison) | Implemented | `LOOKUP p = (:label {k: v})` binds one scalar-lookup row; `WHERE f.data.at + hours(p.data.n) < now()` compares a date-time field plus a whole-hour offset taken from that row with the current time. WHERE only; RETURN arithmetic is a later cycle |
 | req-grid-traversal-lang-is-null | [Null-Existence Predicate](#null-existence-predicate) | Implemented | `WHERE field IS NULL` / `IS NOT NULL` — defensive filter for ORDER BY DESC envelope queries |
 | req-grid-traversal-lang-param-null | [Input-Null Predicate (the optional filter)](#input-null-predicate-the-optional-filter) | Implemented | `WHERE $p IS NULL` / `IS NOT NULL` — a predicate about an INPUT, for the optional-filter demand shape; absent stays an error, null means "do not constrain" |
 | req-grid-traversal-lang-observation | [Observation-Semantic Predicates](#observation-semantic-predicates) | Implemented | `WHERE field IS KNOWN` / `IS UNKNOWN` — the field-observation convention's null axis as intent-revealing vocabulary (`IS EMPTY` deferred) |
@@ -867,7 +867,7 @@ MATCH (n:host) WHERE n.name =~ $pattern RETURN n
 
 RID: `req-grid-traversal-lang-temporal-offset`
 
-Status: `Proposed`
+Status: `Implemented`
 
 A `WHERE` predicate may compare a date-time field, shifted by a whole number of hours, with the current time or a supplied instant. The size of the shift may come from a field of a *different, unlinked* node, selected by a `LOOKUP` clause that names exactly one row by its properties.
 
@@ -913,18 +913,18 @@ The scope is WHERE only. A projected "time remaining" needs a date-time differen
 #### Examples
 
 ```text
-# Tasks, reached from a review by one edge, whose opened-time plus the policy window is past:
+// Tasks, reached from a review by one edge, whose opened-time plus the policy window is past:
 MATCH (r:pg_review)-[:PG_REVIEWS]->(t:pg_task)
 LOOKUP p = (:pg_policy {tier: "gold"})
 WHERE r.data.closed_at IS NULL AND t.data.opened_at + hours(p.data.window_hours) < now()
 RETURN t.entity_id AS id
 
-# A literal offset, and a supplied instant instead of now():
+// A literal offset, and a supplied instant instead of now():
 MATCH (r:pg_review)-[:PG_REVIEWS]->(t:pg_task)
 WHERE t.data.opened_at + hours(12) <= $as_of
 RETURN t.entity_id AS id
 
-# Not yet due, combined with another predicate:
+// Not yet due, combined with another predicate:
 MATCH (r:pg_review)-[:PG_REVIEWS]->(t:pg_task)
 LOOKUP p = (:pg_policy {tier: $tier})
 WHERE NOT t.data.opened_at + hours(p.data.window_hours) < now() AND t.data.state = "open"
@@ -935,31 +935,31 @@ RETURN t.entity_id AS id
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | :---: | --- | --- |
-| req-grid-traversal-lang-temporal-offset-1 | Offset Comparison Parses | Proposed | `field + hours(x) <op> now()` and `field - hours(x) <op> $param` parse to a `TemporalComparison` leaf; `x` may be a lookup field path, an `INT` or a `$param`. | |
-| req-grid-traversal-lang-temporal-offset-2 | Lookup Clause Parses | Proposed | `LOOKUP v = (:label {k: value, ...})` parses; at least one property is required; a duplicate variable is a parse error. | |
-| req-grid-traversal-lang-temporal-offset-3 | Lookup Is Exactly One Row | Proposed | A lookup matching zero rows, or more than one, raises `SearchExecutionError` naming the label and keys. | Fail loud, `GRY-SEM-4`. |
-| req-grid-traversal-lang-temporal-offset-4 | Lookup Is Scoped | Proposed | Both the counting read and the embedded subquery run under the active read scope; a tombstoned row is never selected. | `req-grid-traversal-exec-read-scope`. |
-| req-grid-traversal-lang-temporal-offset-5 | Lookup Variable Scope | Proposed | A lookup variable used outside an `hours(...)` argument in `WHERE`, or sharing a `MATCH` variable's name, is rejected with an error naming it. | `GRY-SEM-6`. |
-| req-grid-traversal-lang-temporal-offset-6 | Date-Time Base Required | Proposed | A base field not declared date-time is rejected, naming the accepted types. | `GRY-SEM-1`. |
-| req-grid-traversal-lang-temporal-offset-7 | Integer Hours Required | Proposed | An `hours` argument not declared integer, or a `$param` resolving to a non-integer, is rejected. | |
-| req-grid-traversal-lang-temporal-offset-8 | Instant Param Parsed | Proposed | A `$param` instant that does not parse as an ISO-8601 date-time is rejected, not coerced. | |
-| req-grid-traversal-lang-temporal-offset-9 | Null Base Field | Proposed | A row whose base field is null (null column, or missing or null JSON sub-key) does not match the comparison and matches its `NOT`, with no error, for a nullable column, a non-null column, a missing JSON sub-key and a JSON sub-key holding `null` alike (a fixture row has a present-but-null key). | Defined here, not by sibling parity; negation pinned. |
-| req-grid-traversal-lang-temporal-offset-10 | Null Offset Or Param Rejected | Proposed | A resolved offset that is null, a null `$param` instant, or a null lookup property value raises `SearchExecutionError`; none lowers to `FALSE`. | A null lowered to `FALSE` turns into `TRUE` under `NOT`. `GRY-SEM-4`. |
-| req-grid-traversal-lang-temporal-offset-11 | Clock Read Once | Proposed | `now()` is evaluated once per execution from the `clock` keyword of the three entry points and bound as a parameter; a fixed clock gives byte-stable captured SQL. | `GRY-ARCH-9`. |
-| req-grid-traversal-lang-temporal-offset-12 | Ordering Operators Only | Proposed | `=` and `!=` on a temporal comparison are rejected, naming `<`, `<=`, `>`, `>=`. | |
-| req-grid-traversal-lang-temporal-offset-13 | Boundary Is Exact | Proposed | With `<`, a row exactly at the boundary instant does not match; with `<=` it does. | The off-by-one pin. |
-| req-grid-traversal-lang-temporal-offset-14 | Composes With Combinators | Proposed | A temporal leaf combines with `AND` / `OR` / `NOT` and scopes per bound variable like any leaf. | |
-| req-grid-traversal-lang-temporal-offset-15 | One-Hop Path Applies It | Proposed | On a single-hop pattern the predicate filters rows; the same pattern with no `WHERE` returns the full set (over-inclusion check). | Merge-gate row 7. |
-| req-grid-traversal-lang-temporal-offset-16 | Other Paths Reject | Proposed | The node-only labelled scan, multi-hop chain, undirected hop, OPTIONAL MATCH, any `NOT EXISTS` and labelless paths each reject a temporal leaf with an error naming the supported form; none silently drop it. | `GRY-ARCH-3`; one rejection test per path. |
-| req-grid-traversal-lang-temporal-offset-17 | No RETURN Arithmetic | Proposed | Arithmetic in `RETURN` or `ORDER BY` is rejected with an error naming WHERE as the supported place. An inline map value cannot hold an expression at all, so it is already a plain parse error. | Dedicated grammar rules parse then refuse, as `unsupported_aggregate` does. Deferred, see Future. |
-| req-grid-traversal-lang-temporal-offset-18 | Rung 1 Only | Proposed | The leaf lowers by ORM composition with no custom `Func` subclass, `RawSQL` or template; the five rung invariants hold. | Confirmed by the pre-implementation spike; no `Func` was needed. |
-| req-grid-traversal-lang-temporal-offset-19 | Gridkin Scenario | Proposed | A scenario with a hand-authored oracle covers: past, future and exact-boundary rows, a hop with the base on each end, a null base (plain and under `NOT`), a null offset (rejected), a literal offset, a `$param` instant, a `-` offset, a negative stored offset, composition with `NOT`, `COUNT` over the pattern, and each lookup rejection. | Lives in the playground plugin's checkout. |
-| req-grid-traversal-lang-temporal-offset-20 | Unused Lookup Rejected | Proposed | A `LOOKUP` no temporal offset uses is rejected, including one whose only use is removed by parameter folding. | `GRY-ARCH-3`. |
-| req-grid-traversal-lang-temporal-offset-21 | Malformed Stored Value | Proposed | A stored date-time that fails the cast fails the query with `SearchExecutionError`, on the envelope path and in row projection, never a database error. | Loud failure, not isolation of the bad row. |
-| req-grid-traversal-lang-temporal-offset-22 | Aware Instants Only | Proposed | A naive `$param` string or a naive clock value is rejected. | |
-| req-grid-traversal-lang-temporal-offset-23 | One MATCH Clause | Proposed | A query with a temporal leaf and more than one `MATCH` clause is rejected. | |
-| req-grid-traversal-lang-temporal-offset-24 | Either End Of The Hop | Proposed | The base field may belong to the source or the target variable, in an outbound or an inbound pattern, and the predicate filters by that variable; undirected hops are rejected, and so is a base variable that no named node of the pattern binds. A fixture row pins a target-end leaf under `NOT`. | `GRY-SEM-6`. |
-| req-grid-traversal-lang-temporal-offset-25 | Counting Read First | Proposed | The counting read runs after the dispatch path is validated and before the main query, inside the existing dispatch stage (no stage label of its own), shares its filtered relation with the embedded unsliced subquery, and its zero-row, many-row and null-field outcomes are errors; a second row appearing after the count raises Postgres sqlstate 21000 (`CardinalityViolation`, wrapped by Django as `ProgrammingError`), which is mapped to `SearchExecutionError` at the same two sites as the cast error (`_collect_graph_envelope` and `materialize_rows`) and matches only that sqlstate. | Residual window between the two statements is named in Implementation. |
+| req-grid-traversal-lang-temporal-offset-1 | Offset Comparison Parses | Implemented | `field + hours(x) <op> now()` and `field - hours(x) <op> $param` parse to a `TemporalComparison` leaf; `x` may be a lookup field path, an `INT` or a `$param`. | |
+| req-grid-traversal-lang-temporal-offset-2 | Lookup Clause Parses | Implemented | `LOOKUP v = (:label {k: value, ...})` parses; at least one property is required; a duplicate variable is a parse error. | |
+| req-grid-traversal-lang-temporal-offset-3 | Lookup Is Exactly One Row | Implemented | A lookup matching zero rows, or more than one, raises `SearchExecutionError` naming the label and keys. | Fail loud, `GRY-SEM-4`. |
+| req-grid-traversal-lang-temporal-offset-4 | Lookup Is Scoped | Implemented | Both the counting read and the embedded subquery run under the active read scope; a tombstoned row is never selected. | `req-grid-traversal-exec-read-scope`. |
+| req-grid-traversal-lang-temporal-offset-5 | Lookup Variable Scope | Implemented | A lookup variable used outside an `hours(...)` argument in `WHERE`, or sharing a `MATCH` variable's name, is rejected with an error naming it. | `GRY-SEM-6`. |
+| req-grid-traversal-lang-temporal-offset-6 | Date-Time Base Required | Implemented | A base field not declared date-time is rejected, naming the accepted types. | `GRY-SEM-1`. |
+| req-grid-traversal-lang-temporal-offset-7 | Integer Hours Required | Implemented | An `hours` argument not declared integer, or a `$param` resolving to a non-integer, is rejected. | |
+| req-grid-traversal-lang-temporal-offset-8 | Instant Param Parsed | Implemented | A `$param` instant that does not parse as an ISO-8601 date-time is rejected, not coerced. | |
+| req-grid-traversal-lang-temporal-offset-9 | Null Base Field | Implemented | A row whose base field is null (null column, or missing or null JSON sub-key) does not match the comparison and matches its `NOT`, with no error, for a nullable column, a non-null column, a missing JSON sub-key and a JSON sub-key holding `null` alike (a fixture row has a present-but-null key). | Defined here, not by sibling parity; negation pinned. |
+| req-grid-traversal-lang-temporal-offset-10 | Null Offset Or Param Rejected | Implemented | A resolved offset that is null, a null `$param` instant, or a null lookup property value raises `SearchExecutionError`; none lowers to `FALSE`. | A null lowered to `FALSE` turns into `TRUE` under `NOT`. `GRY-SEM-4`. |
+| req-grid-traversal-lang-temporal-offset-11 | Clock Read Once | Implemented | `now()` is evaluated once per execution from the `clock` keyword of the three entry points and bound as a parameter; a fixed clock gives byte-stable captured SQL. | `GRY-ARCH-9`. |
+| req-grid-traversal-lang-temporal-offset-12 | Ordering Operators Only | Implemented | `=` and `!=` on a temporal comparison are rejected, naming `<`, `<=`, `>`, `>=`. | |
+| req-grid-traversal-lang-temporal-offset-13 | Boundary Is Exact | Implemented | With `<`, a row exactly at the boundary instant does not match; with `<=` it does. | The off-by-one pin. |
+| req-grid-traversal-lang-temporal-offset-14 | Composes With Combinators | Implemented | A temporal leaf combines with `AND` / `OR` / `NOT` and scopes per bound variable like any leaf. | |
+| req-grid-traversal-lang-temporal-offset-15 | One-Hop Path Applies It | Implemented | On a single-hop pattern the predicate filters rows; the same pattern with no `WHERE` returns the full set (over-inclusion check). | Merge-gate row 7. |
+| req-grid-traversal-lang-temporal-offset-16 | Other Paths Reject | Implemented | The node-only labelled scan, multi-hop chain, undirected hop, OPTIONAL MATCH, any `NOT EXISTS` and labelless paths each reject a temporal leaf with an error naming the supported form; none silently drop it. | `GRY-ARCH-3`; one rejection test per path. |
+| req-grid-traversal-lang-temporal-offset-17 | No RETURN Arithmetic | Implemented | Arithmetic in `RETURN` or `ORDER BY` is rejected with an error naming WHERE as the supported place. An inline map value cannot hold an expression at all, so it is already a plain parse error. | Dedicated grammar rules parse then refuse, as `unsupported_aggregate` does. Deferred, see Future. |
+| req-grid-traversal-lang-temporal-offset-18 | Rung 1 Only | Implemented | The leaf lowers by ORM composition with no custom `Func` subclass, `RawSQL` or template; the five rung invariants hold. | Confirmed by the pre-implementation spike; no `Func` was needed. |
+| req-grid-traversal-lang-temporal-offset-19 | Gridkin Scenario | Implemented | A scenario with a hand-authored oracle covers: past, future and exact-boundary rows, a hop with the base on each end, a null base (plain and under `NOT`), a null offset (rejected), a literal offset, a `$param` instant, a `-` offset, a negative stored offset, composition with `NOT`, `COUNT` over the pattern, and each lookup rejection. | Lives in the playground plugin's checkout. |
+| req-grid-traversal-lang-temporal-offset-20 | Unused Lookup Rejected | Implemented | A `LOOKUP` no temporal offset uses is rejected, including one whose only use is removed by parameter folding. | `GRY-ARCH-3`. |
+| req-grid-traversal-lang-temporal-offset-21 | Malformed Stored Value | Implemented | A stored date-time that fails the cast fails the query with `SearchExecutionError`, on the envelope path and in row projection, never a database error. | Loud failure, not isolation of the bad row. |
+| req-grid-traversal-lang-temporal-offset-22 | Aware Instants Only | Implemented | A naive `$param` string or a naive clock value is rejected. | |
+| req-grid-traversal-lang-temporal-offset-23 | One MATCH Clause | Implemented | A query with a temporal leaf and more than one `MATCH` clause is rejected. | |
+| req-grid-traversal-lang-temporal-offset-24 | Either End Of The Hop | Implemented | The base field may belong to the source or the target variable, in an outbound or an inbound pattern, and the predicate filters by that variable; undirected hops are rejected, and so is a base variable that no named node of the pattern binds. A fixture row pins a target-end leaf under `NOT`. | `GRY-SEM-6`. |
+| req-grid-traversal-lang-temporal-offset-25 | Counting Read First | Implemented | The counting read runs after the dispatch path is validated and before the main query, inside the existing dispatch stage (no stage label of its own), shares its filtered relation with the embedded unsliced subquery, and its zero-row, many-row and null-field outcomes are errors; a second row appearing after the count raises Postgres sqlstate 21000 (`CardinalityViolation`, wrapped by Django as `ProgrammingError`), which is mapped to `SearchExecutionError` at the same two sites as the cast error (`_collect_graph_envelope` and `materialize_rows`) and matches only that sqlstate. | Residual window between the two statements is named in Implementation. |
 
 #### Future
 
