@@ -58,11 +58,11 @@
                             {% elif seg.is_current %}
                                 {# Current page — non-link, aria-current="page", slightly bolder #}
                                 <span class="text-white font-medium" aria-current="page" data-tap-segment-url="{{ seg.url }}">{{ seg.label }}</span>
-                            {% elif seg.is_registered %}
-                                {# Registered Page parent — clickable link in the dim color #}
+                            {% elif seg.is_link %}
+                                {# Discoverable Page parent — clickable link in the dim color #}
                                 <a href="{{ seg.url }}" class="text-slate-300 hover:text-white transition-colors" data-tap-segment-url="{{ seg.url }}">{{ seg.label }}</a>
                             {% else %}
-                                {# Unregistered URL prefix — plain text, unclickable #}
+                                {# No Page, or a non-discoverable Page (its name as label) — plain text, unclickable #}
                                 <span class="text-slate-400" data-tap-segment-url="{{ seg.url }}">{{ seg.label }}</span>
                             {% endif %}
                         </li>
