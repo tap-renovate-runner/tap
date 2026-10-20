@@ -239,7 +239,7 @@ def build_breadcrumb(url: str, explicit_parents: Mapping[str, str] | None = None
     # (req-web-nav-page-discoverable-3).
     page_map: dict[str, tuple[str, bool]] = {}
     if can_read:
-        rows = Page.objects.filter(slug__in=["/", *prefixes]).values_list("slug", "name", "discoverable")
+        rows = Page.objects.filter(slug__in=["/", *prefixes]).values_list("slug", "name", "discoverable")  # type: ignore[misc]
         page_map = {slug: (name, discoverable) for slug, name, discoverable in rows}
 
     segments: list[BreadcrumbSegment] = [
