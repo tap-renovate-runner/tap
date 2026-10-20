@@ -775,7 +775,7 @@ class TestFigureRightAndTable:
             {"values": [{"value": "v", "description": "<i>d</i>", "count": 0}]}, "values", "table", {}, _TABLE_LINE
         )
         out = render_to_string("tap_web/panels/_stat_card_cell.html", {"cell": cell})
-        assert out.count("<tr>") == 1 and out.count("<td") == 3 and "<th" not in out
+        assert out.count("<tr>") == 1 and out.count("<th") == 1 and out.count("<td") == 2
         assert "&lt;i&gt;d&lt;/i&gt;" in out and "<i>" not in out
         assert "tap-statcard__td--right" in out and ">0<" in out.replace(" ", "")
         empty = render_to_string(
