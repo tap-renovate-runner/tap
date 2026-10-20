@@ -132,3 +132,11 @@
   outline: 2px solid rgb(var(--tap-indigo-500));
   outline-offset: 1px;
 }
+
+/* Site glyph in the home segment (req-web-chrome-branding-glyph): the SVG carries its own opaque
+   tile, so it is sized to the header and takes nothing from the surrounding text colour. */
+.tap-brand-glyph {
+  display: block;
+  height: 1.625rem;
+  width: auto;
+}
