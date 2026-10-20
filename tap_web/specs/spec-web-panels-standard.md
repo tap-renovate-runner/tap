@@ -214,7 +214,9 @@ All keys except `value_field` are optional.
 | `unit` | string | Fixed unit or label beside the figure (hidden when the figure is a stated state). |
 | `title_field` | string | Row alias shown as the card title. |
 | `title` | string | Fixed title, used when `title_field` is absent or the row has no value for it. |
-| `lines` | array of `{label, field, formatter?, decimals?, max_lines?, link_template?}` | Secondary label/value lines, in order. A line may also use the `longtext` formatter; `decimals` is for `percent`, `max_lines` (1..12, default 4) for `longtext`, `link_template` for `link`. |
+| `lines` | array of `{field, label?, formatter?, decimals?, max_lines?, link_template?, columns?, empty_text?}` | Secondary lines, in order. `label` is optional: a line without one is plain text with no caption (`req-web-stdpanel-statcards-card-10`). A line may also use the `longtext` formatter, or `table` (an ARRAY field drawn as a borderless table, `columns` required, `empty_text` default `none`; `req-web-stdpanel-statcards-format-9`); `decimals` is for `percent`, `max_lines` (1..12, default 4) for `longtext`, `link_template` for `link`. |
+| `layout` | `stacked` \| `figure_right` | Card header. `stacked` (default): title, then figure with the unit beside it. `figure_right`: title top left, figure top right, large, the unit underneath it (`req-web-stdpanel-statcards-card-8`). |
+| `title_style` | `normal` \| `bold` | `bold` draws the title bold in the full text colour (`req-web-stdpanel-statcards-card-9`). Default `normal`. |
 | `tone` | tone name, or `{field, map, default?}` | Fixed tone, or the tone chosen by the row value of `field` through `map` (value as text to tone), `default` (else `neutral`) for an unlisted value. Tones: `neutral`, `good`, `warn`, `bad`, `muted` (the Table Panel's `toneBadge` vocabulary, plus `neutral`). |
 | `tone_text` | boolean | The card's title, figure and unit are drawn in the tone colour, not only the left edge (`req-web-stdpanel-statcards-card-7`). Default false. |
 | `zero_tone` | tone name | The tone a card takes INSTEAD of `tone` when its figure (`value_field`) is the number zero, for example `muted` to grey out a count of nothing (`req-web-stdpanel-statcards-card-6`). Absent: a zero keeps its tone. |
@@ -262,9 +264,9 @@ Example, one card per scanner (a Search `RETURN s.name AS scanner, s.host AS run
 | ACID | Title | Status | Description | Notes |
 | --- | --- | :---: | --- | --- |
 | req-web-stdpanel-statcards-config-1 | Strict Schema | Implemented | `value_field` is required and any undeclared key is rejected. | |
-| req-web-stdpanel-statcards-config-2 | Closed Vocabulary | Implemented | Formatters are the seven named (`longtext` also on lines); tones are the five named; `lines`, `tone` and `max_cards` are bounded and malformed values are rejected. | |
+| req-web-stdpanel-statcards-config-2 | Closed Vocabulary | Implemented | Formatters are the seven named (`longtext` and `table` also on lines); tones are the five named; `lines`, `tone` and `max_cards` are bounded and malformed values are rejected. | |
 | req-web-stdpanel-statcards-config-3 | Self-Describing | Implemented | The schema and every entry of it, including `lines[]` items and the `tone` object, carry a `description`. | Repo rule: JSON structures require descriptions. |
-| req-web-stdpanel-statcards-config-4 | No Domain Values | Implemented | Nothing in the schema enumerates a domain value, node id or tool name; the only enums are the formatter and tone vocabularies. | |
+| req-web-stdpanel-statcards-config-4 | No Domain Values | Implemented | Nothing in the schema enumerates a domain value, node id or tool name; the only enums are the formatter, tone and presentation (`layout`, `title_style`, column `align`) vocabularies. | |
 
 ### Stat Cards Formatters
 ----
@@ -281,6 +283,7 @@ A formatter turns one row value into a cell. Every cell is either a value or one
 - `percent`: a fraction from 0 to 1 as a percentage (`0.0004` is `0.04%`), `decimals` places (0 to 6, default 2), the raw value as the tooltip. A value outside 0 to 1, or not a number, is shown as written with the tooltip `not a fraction between 0 and 1`.
 - `link`: the value as text, linked to the URL the template builds. `{value}` is the value, URL-encoded, and `{number}` is the first run of digits in it (`CWE-79` gives `79`), so `https://cwe.mitre.org/data/definitions/{number}.html` links a CWE id. A template naming another placeholder, a `{number}` with no digits, or a result that is not an absolute `http(s)` URL or a same-origin path leaves the plain text. The anchor opens in a new tab (`rel="noopener noreferrer"`).
 - `longtext` (secondary lines only): a long prose value (a CVE description) wrapped and cut to `max_lines` lines (default 4). The cell is a `<details>` whose summary holds the whole text, so every word is in the markup and a click on it expands (and collapses) it with no script; CSS does the cut. `stat-cards.js` hides the "Show all" cue on a value that already fits. A null, missing or blank value is the usual stated state, never an empty cell.
+- `table` (secondary lines only): an ARRAY row value drawn as a borderless `<table>` with no header row, one `<tr>` per element. `columns` is a list of `{field, formatter?, decimals?, link_template?, align?, bold?}`; each `field` is a key of the element objects, each cell goes through the same single-value formatters as any cell (so plain text is escaped and a zero shows as `0`), `align` is `left` (default), `right` or `center`, and `bold` makes the column bold. A missing key in an element is the `missing` state. An empty array shows the line's `empty_text` (default `none`) and a value that is not an array is shown as written, flagged `not an array`; never an empty table. At most 200 rows are drawn and the rest are counted.
 - A field the row does not carry is `missing` (a Search/config mismatch, `missing_text`); a null is `null` (unobserved, `null_text`); an empty string is `blank` (observed-empty, `blank_text`) — the grid's convention that null means unobserved and `""` means observed-empty. Zero is a value.
 
 #### Acceptance Criteria
@@ -295,6 +298,7 @@ A formatter turns one row value into a cell. Every cell is either a value or one
 | req-web-stdpanel-statcards-format-6 | Identifier Link | Implemented | `link` builds an `href` from `link_template` with `{value}` and `{number}`; an unfillable template or an unsafe URL leaves plain text. | |
 | req-web-stdpanel-statcards-format-7 | Long Text | Implemented | `longtext` renders the whole value inside a `<details>` clamped to `max_lines` lines, expandable with no script; a null, missing or blank value is a stated state. | |
 | req-web-stdpanel-statcards-format-8 | Schema Bounds | Implemented | The new keys are described and bounded: `decimals` 0..6, `max_lines` 1..12, `link_template` at most 300 characters. | |
+| req-web-stdpanel-statcards-format-9 | Table | Implemented | A `table` line renders an array field as a borderless header-less table with one row per element and one cell per declared column; cell text is escaped, a zero is shown, an empty array shows `empty_text`, a non-array is shown as written and flagged, and `columns` is required by the schema. | |
 
 ### Stat Card Anatomy
 ----
@@ -316,6 +320,9 @@ One card per row, in row order: an optional title (`title_field` value, else the
 | req-web-stdpanel-statcards-card-5 | Tone In Words | Implemented | A `good` / `warn` / `bad` card also prints a word for its tone (`Good`, `Warning`, `Problem`, overridable by `tone_labels`); `neutral` and `muted` print none. | Colour is never the only signal. |
 | req-web-stdpanel-statcards-card-6 | Zero Tone | Implemented | With `zero_tone` set, a card whose figure is the number zero (0, 0.0, `"0"`) takes that tone instead of its own, and its left edge, class and tone word follow; null, missing, text and boolean figures are not zero; absent, a zero keeps its tone. | Panel config, no per-card hardcode. |
 | req-web-stdpanel-statcards-card-7 | Tone Text | Implemented | With `tone_text: true`, the card's title, figure and unit take the tone colour (good / warn / bad; `muted` the dimmed grey; `neutral` the ordinary text colour), from the same tokens as the left edge. | Class `tap-statcard--tone-text`. |
+| req-web-stdpanel-statcards-card-8 | Figure Right Layout | Implemented | With `layout: "figure_right"` the title is at the top left and the figure at the top right in one header row, with the unit underneath the figure; absent or `stacked`, the markup is unchanged. | Class `tap-statcard--figure-right`, wrapper `tap-statcard__head`. |
+| req-web-stdpanel-statcards-card-9 | Bold Title | Implemented | With `title_style: "bold"` the title is bold (class `tap-statcard--title-bold`); absent or `normal`, it is unchanged. | |
+| req-web-stdpanel-statcards-card-10 | Unlabelled Line | Implemented | A line without a `label` renders its value as plain text with no caption and no empty `<dt>`; labelled lines still form a definition list. | |
 
 ### Stat Cards Rendering
 ----
@@ -377,6 +384,7 @@ Trace: `non-python` — tap_web/static/tap_web/css/stat-cards.css
 | req-web-stdpanel-statcards-style-2 | Light And Dark Tokens | Implemented | Colours are tokens with light and dark values. | |
 | req-web-stdpanel-statcards-style-3 | Null Styled Apart | Implemented | A stated state (null, missing, blank) is italic and muted so it cannot pass for a value. | |
 | req-web-stdpanel-statcards-style-4 | Tone Text Colours | Implemented | Under `tone_text` the text colours are the tone tokens with light and dark values (the left edge's own tokens), clearing 4.5:1 on the card background in both schemes; a zero card is the muted text token, dimmed and still readable. | Computed colours read in a real browser, light and dark. |
+| req-web-stdpanel-statcards-style-5 | Figure Right And Table Styling | Implemented | The `figure_right` header is a flex row (title grows, figure right-aligned, unit as a block under it) and the table line has no borders or background, using the card's colour tokens. | Read in a real browser, light and dark. |
 
 ## Status Vocabulary
 

@@ -158,3 +158,28 @@
 .tap-statcard__link { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .tap-statcard__link:hover { text-decoration-thickness: 2px; }
 .tap-statcard__link:focus-visible { outline: 2px solid var(--statcard-accent); outline-offset: 2px; border-radius: 2px; }
+
+/* layout: "figure_right" (req-web-stdpanel-statcards-layout): the title top left, the figure top right at the
+   title's weight or larger, the unit underneath the figure. title_style "bold" makes the title bold in full ink. */
+.tap-statcard__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; }
+.tap-statcard--figure-right .tap-statcard__head .tap-statcard__title { flex: 1 1 auto; min-width: 0; margin: 0; }
+.tap-statcard--figure-right .tap-statcard__head .tap-statcard__value { flex: 0 0 auto; text-align: right; }
+.tap-statcard--figure-right .tap-statcard__unit { display: block; font-size: 0.8rem; line-height: 1.2; }
+.tap-statcard--title-bold .tap-statcard__title { font-weight: 700; color: var(--statcard-text); }
+.tap-statcard--title-bold.tap-statcard--figure-right .tap-statcard__title { font-size: 1.1rem; line-height: 1.2; }
+.tap-statcard--title-bold.tap-statcard--tone-text .tap-statcard__title { color: var(--statcard-ink); }
+
+/* A line with no label (req-web-stdpanel-statcards-line-label) is plain text with no caption. */
+.tap-statcard__text { margin: 0.5rem 0 0; font-size: 0.85rem; }
+
+/* table line (req-web-stdpanel-statcards-table): borderless, no header row, the page background shows through. */
+.tap-statcard__line--table { display: block; }
+.tap-statcard__line--table dt:empty { display: none; }
+.tap-statcard__line--table dd { text-align: left; min-width: 0; }
+.tap-statcard__table { width: 100%; border-collapse: collapse; border: 0; background: transparent; }
+.tap-statcard__table td { padding: 0.15rem 0.6rem 0.15rem 0; border: 0; vertical-align: top; }
+.tap-statcard__table td:nth-child(n+2):not(:last-child) { overflow-wrap: anywhere; }
+.tap-statcard__table td:last-child { padding-right: 0; }
+.tap-statcard__td--right { text-align: right; font-variant-numeric: tabular-nums; }
+.tap-statcard__td--center { text-align: center; }
+.tap-statcard__td--bold { font-weight: 700; }
