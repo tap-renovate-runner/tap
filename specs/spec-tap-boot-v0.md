@@ -301,7 +301,7 @@ The profile's `web` section also carries the instance's presentation identity: a
 
 The name moves into the profile so that a product's identity is written down in the record that defines the product, beside its plugins, rather than in an environment variable set per container. The env var stays as the override because containers are configured that way.
 
-**Open for the builder to rule, not decided here:** `TAP_PRODUCT_NAME` already exists as an environment variable. The proposed order is `TAP_BOOT_WEB__BRANDING__NAME`, then the profile, then `TAP_PRODUCT_NAME`, then `TAP`. If a deployment sets `TAP_PRODUCT_NAME` today and expects it to beat the profile, that order breaks it; the alternative is `TAP_PRODUCT_NAME` above the profile. Choose one and record it in `spec-tap-settings.md`.
+**Name precedence (ruled by George 2026-10-20, relayed by rampart-pg):** `TAP_BOOT_WEB__BRANDING__NAME`, then the profile, then the existing `TAP_PRODUCT_NAME` environment variable, then `TAP`. A deployment that sets only `TAP_PRODUCT_NAME` and ships a profile name will now see the profile name; record the order in `spec-tap-settings.md`.
 
 #### Acceptance Criteria
 
@@ -313,7 +313,7 @@ The name moves into the profile so that a product's identity is written down in 
 | req-boot-web-branding-4 | Env Overrides Profile | Proposed | The three `TAP_BOOT_WEB__BRANDING__*` variables win over the profile values with provenance `env`; the empty string counts as absent. | `req-boot-variable-resolution`. |
 | req-boot-web-branding-5 | Settings-Free Reader | Proposed | `tap_web/boot.py` reads the block with no Django import and returns an empty result, with a warning, on a bad file. | Same boundary as the landing pair. |
 | req-boot-web-branding-6 | Unusable Glyph Warns, Never Aborts | Proposed | A glyph whose plugin or file is missing, is not `.svg`, or fails the safety check logs a warning naming plugin and path, and the instance renders the text name and default favicon. The boot completes. | Fail-soft by ruling (George, 2026-10-20); contrast `req-boot-web-section-4`. |
-| req-boot-web-branding-7 | Name Precedence Recorded | Proposed | The order between `TAP_PRODUCT_NAME` and the profile name is decided and written in `spec-tap-settings.md`. | Open point above. |
+| req-boot-web-branding-7 | Name Precedence Recorded | Proposed | The name resolves in the order `TAP_BOOT_WEB__BRANDING__NAME`, profile `web.branding.name`, `TAP_PRODUCT_NAME`, `TAP`, and that order is written in `spec-tap-settings.md`. | Ruled 2026-10-20. |
 | req-boot-web-branding-8 | Shipped Record Declares It | Proposed | The RAMPART profile declares its name and rampart glyph; profiles with no product identity declare none. | Asset supplied by George. |
 
 #### Future
