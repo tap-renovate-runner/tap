@@ -171,7 +171,7 @@ class TestBreadcrumb:
         assert response.request["QUERY_STRING"] == "cluster=prod"
         body = response.content.decode()
         assert 'data-tap-sibling-url="/highbar"' in body
-        assert '<a href="/highbar" class="text-slate-300 hover:text-white transition-colors" ' in body
+        assert '<a href="/highbar" class="tap-nav-link transition-colors" ' in body
         assert 'aria-current="page" data-tap-segment-url="/teleport">Teleport</span>' in body
 
     def test_edges_and_pages_are_two_queries_at_any_depth(self, vendor_pages, django_assert_num_queries):

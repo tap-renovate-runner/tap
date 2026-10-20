@@ -395,7 +395,7 @@ class TestDiscoverableGateInBreadcrumb:
         body = _auth_client().get("/top/cve/leaf").content.decode()
         assert 'data-tap-segment-url="/top/cve">CVE</span>' in body
         assert '<a href="/top/cve"' not in body
-        assert '<a href="/top" class="text-slate-300' in body
+        assert '<a href="/top" class="tap-nav-link' in body
 
     def test_discoverable_page_is_a_link_and_no_page_prefix_is_title_cased(self):
         _create_page("Final Page", "/foo/bar/final-page")
