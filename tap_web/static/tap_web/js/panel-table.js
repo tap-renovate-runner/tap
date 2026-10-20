@@ -797,7 +797,7 @@
         // same-origin paths navigate (the link formatter's rule).
         if (!url || !_safeHref(url)) return;
         var el = row.getElement();
-        el.style.cursor = "pointer";
+        el.classList.add("tap-row--clickable");
         el.addEventListener("click", function (ev) {
           // An in-cell link's click is the link's, not the row's.
           if (ev && ev.target && ev.target.closest && ev.target.closest("a")) return;
