@@ -156,9 +156,33 @@ TABLE_CONFIG_SCHEMA: dict[str, Any] = {
         "column": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["field", "title"],
+            "required": ["title"],
+            # Exactly one way to name the value: `field` (dotted path) or `field_path` (explicit segments).
+            "oneOf": [{"required": ["field"]}, {"required": ["field_path"]}],
             "properties": {
                 "field": {"type": "string", "minLength": 1},
+                # An explicit path as an ARRAY of segments, for a key that itself contains a dot:
+                # ["dimensions", "dataclass.customer"] reads row.dimensions["dataclass.customer"]. Each
+                # segment is one key, never split. Use `field` instead for an ordinary dotted path.
+                "field_path": {
+                    "description": (
+                        "The value's location as an array of path segments, each one key even if it contains a "
+                        "dot (['dimensions', 'dataclass.customer']). Use instead of `field`, never with it."
+                    ),
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"type": "string", "minLength": 1},
+                },
+                # Text shown (plain, escaped) when the cell's value is null, missing or an empty string,
+                # with any formatter. Absent: the formatter's own rendering of an empty value.
+                "empty_text": {
+                    "description": (
+                        "Plain text shown in place of a null, missing or empty-string value, with any formatter."
+                    ),
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80,
+                },
                 "title": {"type": "string"},
                 "width": {"type": "integer", "minimum": 20, "maximum": 800},
                 "widthGrow": {"type": "integer", "minimum": 1, "maximum": 5},

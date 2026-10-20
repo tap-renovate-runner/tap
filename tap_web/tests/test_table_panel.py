@@ -1200,6 +1200,65 @@ class TestProjectionRows:
         assert 'spec.formatter === "linkList"' in script  # its sorter
         assert "_filterText(v, filterParams[filterFields[i]])" in script  # the quick filter reads labels
 
+    @pytest.mark.spec("req-web-stdpanel-table-config-22")
+    def test_a_column_names_its_value_by_exactly_one_of_field_or_field_path(self):
+        _validate_table_config({"columns": [{"field_path": ["dimensions", "dataclass.customer"], "title": "C"}]})
+        _validate_table_config({"columns": [{"field": "dimensions.dataclass.customer", "title": "C"}]})
+        _validate_table_config(
+            {"columns": [{"title": "G", "columns": [{"field_path": ["a", "b.c"], "title": "X", "empty_text": "-"}]}]}
+        )
+        for bad in (
+            {"title": "C"},
+            {"field": "a", "field_path": ["a"], "title": "C"},
+            {"field_path": [], "title": "C"},
+            {"field_path": [""], "title": "C"},
+            {"field_path": "a.b", "title": "C"},
+            {"field_path": [1], "title": "C"},
+        ):
+            with pytest.raises(ValidationError):
+                _validate_table_config({"columns": [bad]})
+        props = TABLE_CONFIG_SCHEMA["$defs"]["column"]["properties"]
+        assert props["field_path"]["description"] and props["empty_text"]["description"]
+
+    @pytest.mark.spec("req-web-stdpanel-table-config-23")
+    def test_empty_text_is_a_bounded_non_empty_string(self):
+        _validate_table_config({"columns": [{"field": "a", "title": "A", "empty_text": "x" * 80}]})
+        for bad in ("", "x" * 81, 3, None):
+            with pytest.raises(ValidationError):
+                _validate_table_config({"columns": [{"field": "a", "title": "A", "empty_text": bad}]})
+
+    @pytest.mark.spec("req-web-stdpanel-table-config-22")
+    @pytest.mark.spec("req-web-stdpanel-table-config-23")
+    def test_the_shipped_script_resolves_field_paths_and_wraps_empty_text(self):
+        from pathlib import Path
+
+        script = (Path(__file__).resolve().parents[1] / "static/tap_web/js/panel-table.js").read_text()
+        for needle in (
+            "function resolveFieldPaths(specs, rows)",
+            "customColumns = resolveFieldPaths(customColumns, rows);",
+            "function _getSegments(obj, segments)",
+            "if (spec.empty_text) {",
+            "var emptyText = _escapeHtml(spec.empty_text);",
+        ):
+            assert needle in script, needle
+
+    @pytest.mark.spec("req-web-stdpanel-table-config-22")
+    @pytest.mark.spec("req-web-stdpanel-table-config-23")
+    def test_js_columns(self):
+        """Run the node test of the column builders when node exists (the browser logic itself)."""
+        import shutil
+        import subprocess
+        from pathlib import Path
+
+        node = shutil.which("node")
+        if node is None:
+            pytest.skip("node is not installed here; tap_web/tests/js/table_columns.test.mjs did not run")
+        js_test = Path(__file__).resolve().parent / "js" / "table_columns.test.mjs"
+        result = subprocess.run(  # noqa: S603  # nosec B603  # nosemgrep - fixed argv, repo-owned test file
+            [node, "--test", str(js_test)], capture_output=True, text=True, check=False, timeout=120
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+
     @pytest.mark.spec("req-web-stdpanel-table-rows-5")
     def test_row_url_template_fills_encoded_values_and_voids_missing_ones(self):
         from tap_web.panels.table_panel import _with_row_urls

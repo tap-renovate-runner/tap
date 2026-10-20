@@ -132,9 +132,12 @@ The authoritative schema is `TABLE_CONFIG_SCHEMA` in `tap_web/panels/table_panel
     "column": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["field", "title"],
+        "required": ["title"],
+        "oneOf": [{"required": ["field"]}, {"required": ["field_path"]}],
         "properties": {
           "field": {"type": "string", "minLength": 1, "description": "Dotted path into the node envelope, e.g. `name` or `data.<field>`; in projection mode, a RETURN alias (e.g. `assignee`)."},
+          "field_path": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "description": "The value's location as an array of path segments, each one key even if it contains a dot (['dimensions', 'dataclass.customer']). Use instead of `field`, never with it."},
+          "empty_text": {"type": "string", "minLength": 1, "maxLength": 80, "description": "Plain text shown in place of a null, missing or empty-string value, with any formatter."},
           "title": {"type": "string", "description": "Column header text."},
           "width": {"type": "integer", "minimum": 20, "maximum": 800},
           "widthGrow": {"type": "integer", "minimum": 1, "maximum": 5},
@@ -158,6 +161,8 @@ The authoritative schema is `TABLE_CONFIG_SCHEMA` in `tap_web/panels/table_panel
 - `common_metadata` — fixed column set derived from current entity-spine metadata fields. Canonical entity metadata terminology is `name`, not `display_name` or `title`. This is the only supported mode in V1, and the fallback when no explicit `columns` are given.
 
 #### Column Formatters
+A column names its value with exactly one of `field` (a dotted path: `dimensions.dataclass.customer` reads `dimensions` then `dataclass` then `customer`) or `field_path` (an explicit array of segments, each exactly one key whatever it contains: `["dimensions", "dataclass.customer"]` reads the key `dataclass.customer` of `dimensions`; `req-web-stdpanel-table-config-22`). The browser copies a `field_path` value onto each row under a dot-free internal key, so sorting, the quick filter and every formatter read it like any other column. `empty_text` is plain text, escaped, shown instead of the cell when its value is null, missing or an empty string, whatever the formatter, so such a cell is never blank; any other value, including `0` and `false`, goes to the formatter (`req-web-stdpanel-table-config-23`).
+
 Every formatter escapes what it renders — a cell value is data, never markup (Tabulator treats a formatter's return as HTML). `columns[].header_tooltip` gives the column a plain-text pop-over on its heading. `refresh_seconds` makes the table live with a refresh button and a visible interval selector (the Grafana/Kibana shape) — a table that refreshes silently is one the reader cannot trust to be still, and a number that counts down is one the reader cannot stop watching. Pagination applies to every search type: a Gryphon search executes whole and is paged in `execute_search`, which records the pre-page `total_count`, so the footer's "showing N of M" is true for Gryphon-bound tables too (tap#299). `columns[].formatter` selects a named client-side renderer (defined in `panel-table.js`); string names keep the config declarable with no inline JS. Available formatters:
 - `plaintext` — raw string value (default).
 - `datetime` — local timestamp with zone disclosure, rendered through the shared time-display helper (`spec-web-time-display.md`, `req-web-time-single-helper`). The incoming value is UTC ISO-8601; the formatter localizes to the viewer's browser zone and discloses the zone (`req-web-time-local-display`, `req-web-time-zone-disclosure`).
@@ -227,6 +232,8 @@ Every future Table Panel option (per-type split mode, row actions, richer render
 | req-web-stdpanel-table-config-19 | Tone Threshold Formatter | Implemented | `toneThreshold` is a known formatter; it tones a number by `formatter_params.steps` (highest `min` first) and `zero_tone`, with the `toneBadge` palette, and shows a below-every-step number as plain text. | `tap_web/tests/test_table_panel.py`. |
 | req-web-stdpanel-table-config-20 | Percent Formatter | Implemented | `percent` is a known formatter that shows a 0..1 fraction as a percentage with `decimals` places (default 2) and any other value as written. | `tap_web/tests/test_table_panel.py`. |
 | req-web-stdpanel-table-config-21 | Identifier Link Template | Implemented | `link` accepts `formatter_params.value_href_template` with `{value}` and `{number}`; an unfillable template or an unsafe result degrades to text. | `tap_web/tests/test_table_panel.py`. |
+| req-web-stdpanel-table-config-22 | Field Path | Implemented | A column may declare `field_path`, an array of segments, instead of `field` (exactly one of the two, `oneOf`); each segment is one key, so a key containing a dot is reachable, and a `field` column resolves as before. | `tap_web/tests/test_table_panel.py`, `tap_web/tests/js/table_columns.test.mjs`. |
+| req-web-stdpanel-table-config-23 | Empty Text | Implemented | A column's `empty_text` (1..80 characters) is shown, plain and escaped, for a null, missing or empty-string value with every formatter; zero and `false` are values and use the formatter. | `tap_web/tests/test_table_panel.py`, `tap_web/tests/js/table_columns.test.mjs`. |
 
 #### Future
 Add `per_node_type_tables` (separate tables per entity type) and per-row actions as config keys once each is specced and approved. (Explicit `columns` with named formatters, declarative `group_by` row sections, and the `quick_filter` search box are implemented above.)

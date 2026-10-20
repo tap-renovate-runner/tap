@@ -181,6 +181,41 @@
   }
 
 
+  // Resolve an explicit path given as an ARRAY of segments (["dimensions", "dataclass.customer"]) against
+  // a row. Unlike the dotted form above, a segment is one key whatever characters it holds, so a key that
+  // itself contains a dot is reachable (req-web-stdpanel-table-config-22).
+  function _getSegments(obj, segments) {
+    var cur = obj;
+    for (var i = 0; i < segments.length; i++) {
+      if (cur == null || typeof cur !== "object") return undefined;
+      cur = cur[segments[i]];
+    }
+    return cur;
+  }
+
+  // A column that declares `field_path` reads its value from the row at that path. Tabulator splits a
+  // column's `field` on dots, so the value is copied onto each row under a synthetic dot-free key and the
+  // column (and the quick filter, sorter and every formatter) reads that key. Walks groups one level deep.
+  // Returns the specs with `field` set; `rows` gain the synthetic keys. Specs are copied, not mutated.
+  function resolveFieldPaths(specs, rows) {
+    var counter = 0;
+    function walk(list) {
+      return list.map(function (spec) {
+        if (spec.columns && !spec.field && !spec.field_path) {
+          return Object.assign({}, spec, { columns: walk(spec.columns) });
+        }
+        if (!Array.isArray(spec.field_path) || spec.field_path.length === 0) return spec;
+        var key = "_fp" + (counter++) + "_" + spec.field_path.join("_").replace(/[^A-Za-z0-9_]/g, "_");
+        var segments = spec.field_path;
+        rows.forEach(function (row) {
+          if (row && typeof row === "object") row[key] = _getSegments(row, segments);
+        });
+        return Object.assign({}, spec, { field: key });
+      });
+    }
+    return walk(specs);
+  }
+
   // The items of a list-of-structured-items cell, as {item, object, label}; items with no label are
   // dropped (nothing to show), a non-list value is no items. label_field defaults to "name".
   function _linkListItems(value, params) {
@@ -657,6 +692,18 @@
         // reach the formatter as Tabulator's formatterParams.
         col.formatterParams = spec.formatter_params || {};
       }
+      if (spec.empty_text) {
+        // A null, missing or empty-string value shows this text, plain and escaped, with every formatter
+        // (req-web-stdpanel-table-config-23); any other value goes to the column's own formatter.
+        var inner = col.formatter;
+        var emptyText = _escapeHtml(spec.empty_text);
+        col.formatter = function (cell, params, onRendered) {
+          var v = cell.getValue();
+          if (v == null || v === "") return emptyText;
+          return inner ? inner.call(this, cell, params, onRendered) : _escapeHtml(v);
+        };
+        col.formatterParams = spec.formatter_params || {};
+      }
       if (spec.formatter === "baselineRatio" || spec.formatter === "baselineN") {
         var bp = spec.formatter_params || {};
         col.sorter = function (a, b, aRow, bRow) {
@@ -772,6 +819,7 @@
     var mode = mountEl.getAttribute("data-tap-table-mode") || "node";
     var columns;
     if (customColumns && customColumns.length > 0) {
+      customColumns = resolveFieldPaths(customColumns, rows);
       columns = buildCustomColumns(customColumns);
     } else {
       columns = mode === "edge" ? EDGE_COLUMNS : COMMON_METADATA_COLUMNS;
@@ -938,6 +986,13 @@
       // recreated the table but left a typed term in the input).
       if (filterInput.value) applyFilter();
     }
+  }
+
+  // Test seam: a test harness sets window.__TAP_TABLE_TEST__ = {} before loading this file and gets the pure
+  // column builders back (tap_web/tests/js/table_columns.test.mjs). Nothing is exposed otherwise.
+  if (typeof window !== "undefined" && window.__TAP_TABLE_TEST__) {
+    window.__TAP_TABLE_TEST__.buildCustomColumns = buildCustomColumns;
+    window.__TAP_TABLE_TEST__.resolveFieldPaths = resolveFieldPaths;
   }
 
   /**
