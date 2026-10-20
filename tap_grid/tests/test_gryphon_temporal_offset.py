@@ -577,6 +577,13 @@ class TestTemporalOffsetRefusals(_TemporalFixture):
         with pytest.raises(SearchExecutionError, match=match):
             execute_gryphon_raw(query, {}, clock=lambda: NOW)
 
+    @pytest.mark.spec("req-grid-traversal-lang-temporal-offset-23")
+    def test_a_second_match_clause_is_refused(self):
+        self._build()
+        query = HOP + "MATCH (g:grid_fixtures__hub) WHERE a.data.observed_at + hours(1) < now() RETURN a.name AS n"
+        with pytest.raises(SearchExecutionError, match="more than one MATCH"):
+            execute_gryphon_raw(query, {}, clock=lambda: NOW)
+
     @pytest.mark.spec("req-grid-traversal-lang-temporal-offset-24")
     @pytest.mark.parametrize(
         "query",
