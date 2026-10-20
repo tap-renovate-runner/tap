@@ -1364,7 +1364,7 @@ class TestStripedConfig:
     @pytest.mark.parametrize(("config", "expected"), [({"striped": True}, True), ({"striped": False}, False), ({}, False)])
     def test_the_mount_carries_the_stripe_class_only_when_asked(self, config, expected):
         panel = _create_table_panel(config=config)
-        _link_search(panel, _create_search())
+        _link_search(panel, _create_search())  # type: ignore[no-untyped-call]
         fake_envelope: dict[str, Any] = {"nodes": [], "edges": [], "info": {}, "warnings": {}}
         with patch("tap_grid.search.execute_search", return_value=fake_envelope):
             response = make_admin_client(username="table-admin").get(_panel_url(panel))
