@@ -327,6 +327,16 @@ class TestWhereOnAnUnboundVariable:
         without = _issued("MATCH (a:batch)-[:X]->(b:batch) RETURN b.name AS n")
         assert with_where != without
 
+    def test_a_union_refuses_a_leaf_that_no_clause_binds(self):
+        # tap#1084: shape-5's scoping is for a leaf ANOTHER clause binds; a leaf nobody binds is a drop.
+        with pytest.raises(SearchExecutionError, match=r"'zz'.*any MATCH clause.*bound: 'a', 'b'"):
+            _issued('MATCH (a:batch) MATCH (b:batch) WHERE zz.data.name = "x" RETURN a.name AS n')
+
+    def test_a_union_refuses_an_unbound_leaf_under_not_and_or(self):
+        for where in ('NOT zz.data.name = "x"', 'a.data.name = "x" OR zz.data.name = "y"'):
+            with pytest.raises(SearchExecutionError, match="any MATCH clause"):
+                _issued(f"MATCH (a:batch) MATCH (b:batch) WHERE {where} RETURN a.name AS n")
+
     def test_a_union_keeps_its_per_clause_scoping(self):
         # One global WHERE over two independent MATCH clauses: a leaf on the other clause's variable
         # must not apply to this one (shape-5). The refusal is for ONE mandatory MATCH only.
@@ -339,15 +349,13 @@ class TestWhereOnAnUnboundVariable:
         )
 
 
-class TestReturnOnAnUnboundVariableIsStillADrop:
-    """Found beside tap#1072 and registered, not fixed here: tap#1079.
+class TestReturnOnAnUnboundVariable:
+    """req-grid-traversal-lang-shape-11, tap#1079 (found beside tap#1072).
 
-    A single-node type-scan RETURN item naming a variable the pattern does not bind is skipped
-    silently, where the chain road and an aggregate argument both refuse it. Each case flips green
-    (strict xfail) when someone fixes it.
+    A single-node type-scan RETURN item naming a variable the pattern does not bind was skipped
+    silently, where the chain road and an aggregate argument both refused it.
     """
 
-    @pytest.mark.xfail(strict=True, reason="tap#1079: RETURN item on an unbound variable is dropped on a type scan")
     @pytest.mark.parametrize(
         "query",
         [
@@ -357,8 +365,14 @@ class TestReturnOnAnUnboundVariableIsStillADrop:
         ],
     )
     def test_type_scan_return_on_an_unbound_variable_is_refused(self, query):
-        with pytest.raises(SearchExecutionError):
+        with pytest.raises(SearchExecutionError, match="Unknown variable 'b' in RETURN"):
             _issued(query)
+
+    def test_a_bound_variable_still_returns(self):
+        assert _issued("MATCH (a:batch) RETURN a.name AS x")
+
+    def test_a_union_return_on_another_clauses_variable_is_kept(self):
+        assert _issued("MATCH (a:batch) MATCH (b:batch) RETURN a.name AS x, b.name AS y")
 
 
 class TestInputNullPredicateEffect:
@@ -378,7 +392,7 @@ class TestInputNullPredicateEffect:
     *forgotten* input cannot masquerade as the withdrawn case.
     """
 
-    OPTIONAL = 'MATCH (b:batch) WHERE $name IS NULL OR b.name = $name RETURN b'
+    OPTIONAL = "MATCH (b:batch) WHERE $name IS NULL OR b.name = $name RETURN b"
     UNFILTERED = "MATCH (b:batch) RETURN b"
 
     def test_supplied_input_puts_the_filter_in_the_plan(self):
