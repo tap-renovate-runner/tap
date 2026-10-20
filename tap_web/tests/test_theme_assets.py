@@ -207,7 +207,9 @@ GRAPH_CSS = (REPO / "tap_viz" / "static" / "tap_viz" / "css" / "panel-graph.css"
 def test_graph_canvas_background_is_theme_invariant() -> None:
     assert "--tap-graph-bg" not in SYSTEM_DARK and "--tap-graph-bg" not in FORCED_DARK
     assert re.search(r"--tap-graph-bg:\s*241 240 236;", THEME_CSS)
-    rule = re.search(r"\.tap-cy-static-grid\s*\{([^}]*)\}", GRAPH_CSS).group(1)
+    match = re.search(r"\.tap-cy-static-grid\s*\{([^}]*)\}", GRAPH_CSS)
+    assert match is not None
+    rule = match.group(1)
     assert "rgb(var(--tap-graph-bg))" in rule and "rgb(var(--tap-graph-grid))" in rule
     assert not re.search(r"prefers-color-scheme[^{]*\{[^{]*tap-cy-static-grid", GRAPH_CSS)
 
