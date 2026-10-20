@@ -69,8 +69,8 @@ const num = (cy, id, prop) => cy.getElementById(id).numericStyle(prop);
 // 2. Defaults and the formula.
 {
     const cfg = normalizeSettleConfig({enabled: true});
-    report("defaults", cfg.debounce_ms === 150 && cfg.classes.font.exponent === 0.3 && cfg.classes.font.min_scale === 0.85
-        && cfg.classes.border.max_scale === 1.7 && cfg.texture_on_viewport === false, JSON.stringify(cfg));
+    report("defaults", cfg.debounce_ms === 150 && near(cfg.classes.font.exponent, 0.3) && near(cfg.classes.font.min_scale, 0.85)
+        && near(cfg.classes.border.max_scale, 1.7) && cfg.texture_on_viewport === false, JSON.stringify(cfg));
     const geo = {exponent: 1, min_scale: 0.1, max_scale: 10};
     report("formula-geometric", near(modelFactor(2, geo), 1) && near(modelFactor(0.5, geo), 1), "exponent 1 leaves the style alone");
     const flat = {exponent: 0, min_scale: 0.5, max_scale: 2};

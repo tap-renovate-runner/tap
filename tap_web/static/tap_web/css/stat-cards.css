@@ -186,7 +186,8 @@
 .tap-statcard__line--table dt:empty { display: none; }
 .tap-statcard__line--table dd { text-align: left; min-width: 0; }
 .tap-statcard__table { width: 100%; border-collapse: collapse; border: 0; background: transparent; }
-.tap-statcard__table td { padding: 0.15rem 0.6rem 0.15rem 0; border: 0; vertical-align: top; }
+.tap-statcard__table td, .tap-statcard__table th { padding: 0.15rem 0.6rem 0.15rem 0; border: 0; vertical-align: top; }
+:where(.tap-statcard__table) th { font-weight: 400; text-align: left; }
 .tap-statcard__table td:nth-child(n+2):not(:last-child) { overflow-wrap: anywhere; }
 .tap-statcard__table td:last-child { padding-right: 0; }
 .tap-statcard__td--right { text-align: right; font-variant-numeric: tabular-nums; }

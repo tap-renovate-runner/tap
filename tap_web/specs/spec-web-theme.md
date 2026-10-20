@@ -230,6 +230,8 @@ RID: `req-web-theme-scope`
 
 Status: `Implemented`
 
+Trace: `narrative` — it states what the theme does not cover; there is no behaviour to test beyond the documentation row
+
 The theme covers what core ships. Two things sit outside it, by design:
 
 - **A plugin's own stylesheet or script** (a `.css` or `.js` a plugin ships, a plugin panel's inline colours) is the plugin's to

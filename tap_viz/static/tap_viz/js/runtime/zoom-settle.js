@@ -233,7 +233,7 @@ export function initZoomSettle(cy, rawConfig, hooks = {}) {
     }
 
     const onZoom = () => {
-        if (settledZoom !== null && Math.abs(cy.zoom() - settledZoom) < 1e-9) return;
+        if (settledZoom !== null && Math.abs(cy.zoom() - settledZoom) < 0.000001) return;
         schedule();
     };
     const onLayoutStart = () => {
