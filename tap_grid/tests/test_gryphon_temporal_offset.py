@@ -590,9 +590,11 @@ class TestTemporalOffsetRefusals(_TemporalFixture):
             "WHERE grid_fixtures__leaf.data.observed_at + hours(1) < now() RETURN a.name AS n",
         ],
     )
+    # The general single-MATCH rule (req-grid-traversal-lang-shape-10) now refuses these first;
+    # the temporal check still owns a base that IS bound but is not a node (an edge variable).
     def test_a_base_variable_the_pattern_does_not_name_is_refused_not_dropped(self, query):
         self._build()
-        with pytest.raises(SearchExecutionError, match="not a named node variable"):
+        with pytest.raises(SearchExecutionError, match="does not bind|not a named node variable"):
             self._names(query)
 
     @pytest.mark.spec("req-grid-traversal-lang-temporal-offset-16")
