@@ -26,6 +26,7 @@ def _rule(selector: str) -> str:
 
 class TestPopover:
     @pytest.mark.spec("req-web-stdpanel-table-config-24")
+    @pytest.mark.spec("req-web-theme-surfaces-5")
     def test_the_header_popover_takes_surface_ink_and_rule_from_tokens(self) -> None:
         body = _rule(".tabulator-popup-container")
         for needle in ("background: rgb(var(--tap-white))", "color: rgb(var(--tap-slate-900))", "border: 1px solid rgb(var(--tap-slate-400))"):
