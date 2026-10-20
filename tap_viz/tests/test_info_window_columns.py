@@ -71,6 +71,18 @@ def test_wide_window_is_content_sized_between_280_and_560_inside_the_panel() -> 
     assert "const DEFAULT_WIDTH_PX = 280;" in WINDOW_JS
 
 
+@pytest.mark.spec("req-viz-info-window-columns-13")
+def test_nowrap_class_is_a_stylesheet_rule_and_width_rules_are_unchanged() -> None:
+    css = _rules()
+    nowrap = re.search(r"\.tap-info-window__cell--nowrap\s*\{([^}]*)\}", css)
+    assert nowrap is not None
+    assert "white-space: nowrap" in nowrap.group(1)
+    assert "style=" not in WINDOW_JS.split("function _renderColumnsTable")[1].split("function _renderTable")[0]
+    wide = re.search(r"\.tap-info-window--wide\s*\{([^}]*)\}", css)
+    assert wide is not None
+    assert "min-width: 280px" in wide.group(1) and "max-width: min(560px, 100%)" in wide.group(1)
+
+
 @pytest.mark.spec("req-viz-info-window-columns-10")
 def test_info_window_colours_are_theme_tokens_with_light_and_dark_values() -> None:
     css = _rules()

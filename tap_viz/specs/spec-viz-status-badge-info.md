@@ -125,12 +125,13 @@ A badge set's `info_window` may declare `columns`, turning the section body from
 
 #### Implementation
 
-- `info_window.columns` (optional) is a list of 1 to 8 column objects, in display order. Each has `field` (required, the row key whose value fills the cell) and `label` (required, the header text), and optionally `link` (boolean), `align` (`left` or `right`, default `left`) and `format` (`text`, the default, or `number`). No other key is accepted, and every key carries a description in the schema.
+- `info_window.columns` (optional) is a list of 1 to 8 column objects, in display order. Each has `field` (required, the row key whose value fills the cell) and `label` (required, the header text), and optionally `link` (boolean), `align` (`left` or `right`, default `left`), `format` (`text`, the default, or `number`) and `nowrap` (boolean, default false). No other key is accepted, and every key carries a description in the schema.
 - Absent `columns`, the section renders exactly as before: one `Name` column with no visible header.
 - With `columns`, the section is a real `<table>` with a header row of the labels. The header stays pinned at the top of the window body while the body scrolls.
 - A cell shows the row's value for `field`. A missing, null or empty value is an empty cell, never the text `undefined`. All cell and header text is HTML-escaped.
 - The row link uses [Row Links](#row-links) unchanged, including its all-or-nothing placeholder rule, and is placed on the first column marked `link: true`, or on the first column when none is marked. The legacy `finding_id` fallback does not apply to a configured table.
 - `format: number` shows a numeric value with one decimal place (a CVSS score of `9` shows `9.0`). A value that is not a number is shown as given.
+- `nowrap: true` renders that column's body cells with the `tap-info-window__cell--nowrap` class (CSS `white-space: nowrap`), so a value such as `CVE-2026-84782` stays on one line and the column takes its content width. Absent or false, the cell is unchanged. The window's 280px minimum and 560px cap still apply.
 - Rows keep the order the Search returned.
 - Width: a window containing a multi-column table is as wide as its content needs, at least 280px and at most 560px (and never wider than the panel); a window of single-column sections stays 280px. Height still caps at 60% of the panel, with internal scroll.
 - Colours come from theme tokens (`--tap-info-*`) on the window, with light and dark values that follow the viewer's scheme as the stat-card and chart panels do.
@@ -154,6 +155,9 @@ A badge set's `info_window` may declare `columns`, turning the section body from
 | req-viz-info-window-columns-7 | Number Format | Implemented | `format: number` renders a numeric value with one decimal place; a non-numeric value renders as given. | `tap_viz/tests/js/info_window_columns.test.mjs`. |
 | req-viz-info-window-columns-8 | Escaping | Implemented | Header labels and cell values are HTML-escaped. | `tap_viz/tests/js/info_window_columns.test.mjs`. |
 | req-viz-info-window-columns-9 | Width | Implemented | A window with a multi-column table is content-sized between 280px and 560px and never wider than the panel; single-column windows stay 280px. | `tap_viz/tests/test_info_window_columns.py`. |
+| req-viz-info-window-columns-11 | Nowrap Schema | Implemented | `nowrap` is an optional boolean on a column, described in the schema; a non-boolean value is rejected and unknown keys still are. | `tap_viz/tests/test_models.py::TestInfoWindowColumnsSchema`. |
+| req-viz-info-window-columns-12 | Nowrap Cell Class | Implemented | A column with `nowrap: true` renders its body cells with the `tap-info-window__cell--nowrap` class and no other column's cells carry it; absent or false output is byte-identical to before. | `tap_viz/tests/js/info_window_columns.test.mjs`. |
+| req-viz-info-window-columns-13 | Nowrap Style | Implemented | The nowrap class sets `white-space: nowrap` from the stylesheet (no inline style), and the window's 280px to 560px width rules are unchanged. | `tap_viz/tests/test_info_window_columns.py`. |
 | req-viz-info-window-columns-10 | Theme Tokens | Implemented | The info window's colours are `--tap-info-*` tokens with light and dark values; the window rules carry no colour literal outside the token definitions. | `tap_viz/tests/test_info_window_columns.py`. |
 
 #### Future
