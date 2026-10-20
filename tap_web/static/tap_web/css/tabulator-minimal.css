@@ -43,3 +43,10 @@
    being cut, so a cell of several links grows the row instead of hiding all but the first. */
 .tabulator .tabulator-cell .tap-linklist__item { white-space: normal; overflow-wrap: anywhere; line-height: 1.35; }
 .tabulator .tabulator-cell .tap-linklist__more { font-size: 0.75rem; color: rgb(var(--tap-slate-500)); }
+/* Pop-overs (header_tooltip, a cell tooltip, any Tabulator popup): the library draws them on a literal white
+   with dark text, which is a flat white box in the dark theme. They take the surface, ink and rule of the theme
+   (req-web-stdpanel-table-config-24); the stock sortable-header hover grey (#ddd) is a second literal, so it
+   follows the palette too. */
+.tabulator-popup-container { background: rgb(var(--tap-white)); color: rgb(var(--tap-slate-900)); border: 1px solid rgb(var(--tap-slate-400)); box-shadow: 0 2px 8px rgb(var(--tap-black) / 0.25); }
+.tabulator-popup-container .tabulator-tooltip { color: rgb(var(--tap-slate-900)); }
+.tabulator .tabulator-header .tabulator-col.tabulator-sortable.tabulator-col-sorter-element:hover { background: rgb(var(--tap-slate-100)); }

@@ -185,6 +185,7 @@ attribute, which does not take `var()`), and form controls take the surface and 
 | req-web-theme-surfaces-2 | Table Cells | Implemented | `panel-table.js` colours pills, marks and the sparkline with palette tokens, not hex literals. | `test_theme_assets.py` |
 | req-web-theme-surfaces-3 | Panels Rendered Dark | Implemented | Every page type renders with a dark surface and no `.tap-panel-error` under `data-theme="dark"`. | Proven in a browser |
 | req-web-theme-surfaces-4 | Form Controls | Implemented | Fields take the theme's surface and ink at zero specificity. | `test_theme_assets.py` |
+| req-web-theme-surfaces-5 | Table Popovers | Implemented | A table header's pop-over (`header_tooltip`) and any Tabulator popup take surface, ink and rule from tokens, never the library's white. | `test_table_polish.py`; see `req-web-stdpanel-table-config-24` |
 
 ### Graph Canvas
 ----
