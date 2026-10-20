@@ -82,7 +82,7 @@ class TestPlainLinks:
     @pytest.mark.spec("req-web-stdpanel-table-config-26")
     def test_the_three_link_formatters_use_the_class_helper(self) -> None:
         assert 'params && params.style === "plain" ? "tap-cell-link tap-cell-link--plain" : "tap-cell-link"' in _JS
-        assert _JS.count("_linkClass(params)") == 3  # externalLink, link, linkList
+        assert _JS.count("class=\"' + _linkClass(params)") == 3  # externalLink, link, linkList
         assert "externalLink: function (cell, params)" in _JS
 
     @pytest.mark.spec("req-web-stdpanel-table-config-26")
