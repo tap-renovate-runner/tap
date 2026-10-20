@@ -1,6 +1,6 @@
 """tap_viz models — Viz layout, projection, elevation, and arrangement entities.
 
-TAP-IMPLEMENTS: req-viz-info-window-row-link@48330d75451b/2c040b25fc11 (derivation) — the
+TAP-IMPLEMENTS: req-viz-info-window-row-link@48330d75451b/935e9b2fe526 (derivation) — the
     `info_window.row_url_template` property on a projection's badge-set schema; the
     placeholder-fill and same-origin enforcement it authorizes live client-side in
     `tap_viz/static/tap_viz/js/runtime/info-window.js` (`_buildRowUrl`), which `ast`-based
