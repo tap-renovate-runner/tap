@@ -88,6 +88,15 @@ TABLE_CONFIG_SCHEMA: dict[str, Any] = {
         # `(?![\s\S])` is a true end of string (`$` also matches before a final
         # newline), in both Python's and ECMAScript's regex dialects.
         "row_url_template": {"type": "string", "minLength": 2, "pattern": ROW_URL_TEMPLATE_PATTERN},
+        # Alternating row background (a stripe on every even row), from the theme's
+        # `--tap-table-stripe` tokens: light and dark values, text contrast-checked.
+        "striped": {
+            "description": (
+                "When true, every even row gets a subtle alternating background (the `--tap-table-stripe` theme "
+                "tokens, readable in light and dark). Default false: uniform rows."
+            ),
+            "type": "boolean",
+        },
         # Optional custom column specs — overrides column_mode in the JS.
         # Each spec maps to a Tabulator column; `formatter` selects one of the
         # JS preset formatters (panel-table.js) so column logic is declarable.
@@ -471,6 +480,7 @@ class TablePanelType:
             "table_search": search,
             "table_columns": custom_columns,
             "table_height": config.get("height"),
+            "table_striped": bool(config.get("striped")),
             "table_refresh_seconds": config.get("refresh_seconds"),
             "table_group_by": group_by,
             "table_initial_sort": config.get("initial_sort"),

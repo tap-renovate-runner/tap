@@ -81,6 +81,10 @@ The authoritative schema is `TABLE_CONFIG_SCHEMA` in `tap_web/panels/table_panel
       "type": "integer", "minimum": 15, "maximum": 3600,
       "description": "Auto-refresh: the panel re-fetches its own fragment every N seconds through the page slot, rendering the Grafana/Kibana affordance beside the heading: a ↻ refresh-now button and a small interval selector (Off / 30s / 1m / 5m / 15m, plus the configured value) defaulting to this value; the reader's choice is remembered per panel for the browser session; nothing counts down while the table is read. Omit for a static table."
     },
+    "striped": {
+      "type": "boolean",
+      "description": "When true, every even row gets a subtle alternating background (the `--tap-table-stripe` theme tokens, readable in light and dark). Default false: uniform rows."
+    },
     "row_url_template": {
       "type": "string", "minLength": 2, "pattern": "^/(?![/\\\\])[^\\\\\\u0000-\\u0020\\u007f]*(?![\\s\\S])",
       "description": "Projection mode only: a same-origin path whose `{alias}` placeholders fill from each row (URL-encoded); a placeholder with no value leaves that row without a link. The result is the row's `_url`, which makes the row a click target. Ignored in node mode. See Projection Rows."
@@ -197,6 +201,10 @@ Links are **visible**: every anchor the table renders (`link`, `externalLink`, `
 
 Every cell is **vertically centred** and **left-aligned** by default, so a one-line identifier (a CVE id, a badge) sits on the midline of a row that a multi-line `linkList` cell makes tall (`req-web-stdpanel-table-config-25`). `align` changes the horizontal placement only. The stat-card table line and the graph info-window table follow the same rule.
 
+#### Striped Rows
+
+`striped: true` is the alternating-row look: a subtle stripe on every even row from the `--tap-table-stripe` / `--tap-table-stripe-hover` tokens in `theme.css` (light and dark values, so no colour is a literal; `req-web-stdpanel-table-config-27`). It is a panel-level option and is off by default.
+
 #### Chrome
 
 `chrome: minimal` draws no nav bars and no quick filter — the heading, the refresh status and the table alone. For a table that is one row of facts (a repository's identity row) rather than a list to page through; `full` (the default) is unchanged.
@@ -241,6 +249,7 @@ Every future Table Panel option (per-type split mode, row actions, richer render
 | req-web-stdpanel-table-config-24 | Themed Popover | Implemented | The pop-over a `header_tooltip` (or any Tabulator tooltip or popup) opens takes its background, text and border from palette tokens (`--tap-white`, `--tap-slate-900`, `--tap-slate-400`), so it is a themed surface in the light and the dark scheme and not the library's flat white; the sortable-header hover is a token wash, not the library grey. | `tap_web/tests/test_table_polish.py`; measured in a real browser in both schemes (the pop-over text is at least 4.5:1 on its surface). |
 | req-web-stdpanel-table-config-25 | Cell Alignment | Implemented | With no config, every table cell (custom, common-metadata and edge columns, grouped leaves) is vertically centred and left-aligned: the column gets Tabulator's `vertAlign: "middle"` and `hozAlign: "left"` unless `align` says otherwise; plain text sits in a shrinkable `tap-cell-text` span so a long value still ends in an ellipsis. The stat-card table line and the info-window table centre their cells vertically too. | `tap_web/tests/test_table_polish.py`, `tap_web/tests/js/table_columns.test.mjs`; measured in a real browser (a tall linkList row keeps the CVE and the badge on its midline). |
 | req-web-stdpanel-table-config-26 | Plain Links | Implemented | `formatter_params.style` (`default` or `plain`) applies to `link`, `externalLink` and `linkList`: `plain` adds `tap-cell-link--plain`, which draws the anchor in the cell's own text colour with no underline and no hover highlight, yet it remains an anchor (clickable, with the `:focus-visible` ring, and the row's clickable wash is untouched). Absent or `default` is exactly `req-web-stdpanel-table-config-16`. | `tap_web/tests/test_table_polish.py`, `tap_web/tests/js/table_columns.test.mjs`; measured in a real browser in both schemes. |
+| req-web-stdpanel-table-config-27 | Striped Rows | Implemented | `striped: true` puts `tap-table--striped` on the table mount: every even row is drawn on `--tap-table-stripe` and a hovered row on `--tap-table-stripe-hover` (theme tokens with light and dark values; group bands are not striped, a clickable row keeps its own hover wash). Absent or `false`: uniform rows. Text, secondary text and links reach 4.5:1 on both stripe tokens in both schemes. | `tap_web/tests/test_table_polish.py`, `tap_web/tests/test_table_panel.py`; measured in a real browser in both schemes. |
 
 #### Future
 Add `per_node_type_tables` (separate tables per entity type) and per-row actions as config keys once each is specced and approved. (Explicit `columns` with named formatters, declarative `group_by` row sections, and the `quick_filter` search box are implemented above.)

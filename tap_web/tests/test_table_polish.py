@@ -98,3 +98,48 @@ class TestPlainLinks:
 
         with pytest.raises(ValidationError):
             _validate_table_config({"columns": [{**col, "formatter_params": {"style": "loud"}}]})
+
+
+def _triplets(block_start: str) -> dict[str, tuple[int, ...]]:
+    start = _THEME.index(block_start)
+    block = _THEME[start : _THEME.index("\n}", start)]
+    return {k: tuple(int(x) for x in v.split()) for k, v in re.findall(r"(--tap-[a-z0-9-]+):\s*(\d+ \d+ \d+);", block)}
+
+
+def _lum(rgb: tuple[int, ...]) -> float:
+    lin = [c / 255 / 12.92 if c / 255 <= 0.03928 else ((c / 255 + 0.055) / 1.055) ** 2.4 for c in rgb]
+    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+
+def _ratio(a: tuple[int, ...], b: tuple[int, ...]) -> float:
+    hi, lo = sorted((_lum(a), _lum(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+class TestStripedRows:
+    @pytest.mark.spec("req-web-stdpanel-table-config-27")
+    def test_stripe_tokens_have_a_light_and_a_dark_value(self) -> None:
+        light, dark = _triplets(":root {"), _triplets(':root[data-theme="dark"] {')
+        for token in ("--tap-table-stripe", "--tap-table-stripe-hover"):
+            assert token in light and token in dark
+            assert light[token] != dark[token]
+        # system-dark block carries the same values (the theme tests also compare the blocks as a whole)
+        media = _THEME[_THEME.index("@media (prefers-color-scheme: dark)") :]
+        assert f"--tap-table-stripe: {' '.join(map(str, dark['--tap-table-stripe']))};" in media
+
+    @pytest.mark.spec("req-web-stdpanel-table-config-27")
+    @pytest.mark.parametrize("scheme", ["light", "dark"])
+    def test_text_and_links_stay_readable_on_the_stripe(self, scheme: str) -> None:
+        pal = _triplets(":root {" if scheme == "light" else ':root[data-theme="dark"] {')
+        for surface in ("--tap-table-stripe", "--tap-table-stripe-hover"):
+            assert _ratio(pal["--tap-slate-900"], pal[surface]) >= 4.5, surface
+            assert _ratio(pal["--tap-slate-600"], pal[surface]) >= 4.5, surface  # secondary ink
+            link = pal["--tap-blue-700"]
+            assert _ratio(link, pal[surface]) >= 4.5, surface
+        # subtle: the stripe is close to the plain row, never a different hue family
+        assert _ratio(pal["--tap-white"], pal["--tap-table-stripe"]) < 1.25
+
+    @pytest.mark.spec("req-web-stdpanel-table-config-27")
+    def test_the_stripe_rule_skips_group_bands_and_keeps_the_clickable_wash(self) -> None:
+        assert ".tabulator.tap-table--striped .tabulator-row.tabulator-row-even:not(.tabulator-group) { background: rgb(var(--tap-table-stripe)); }" in _CSS
+        assert ".tap-row--clickable:not(.tabulator-group):hover { background: var(--tap-table-row-link-hover); }" in _CSS

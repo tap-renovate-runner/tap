@@ -129,6 +129,8 @@
   --tap-header-wash: 15 23 42;
   --tap-header-session: 146 64 14;
   --tap-header-avatar: 71 85 105;
+  --tap-table-stripe: 241 245 249;
+  --tap-table-stripe-hover: 226 232 240;
 }
 
 :root[data-theme="light"] { color-scheme: light; }
@@ -248,6 +250,8 @@
     --tap-header-wash: 255 255 255;
     --tap-header-session: 252 211 77;
     --tap-header-avatar: 71 85 105;
+    --tap-table-stripe: 40 54 76;
+    --tap-table-stripe-hover: 51 65 85;
   }
 }
 
@@ -365,6 +369,8 @@
   --tap-header-wash: 255 255 255;
   --tap-header-session: 252 211 77;
   --tap-header-avatar: 71 85 105;
+  --tap-table-stripe: 40 54 76;
+  --tap-table-stripe-hover: 51 65 85;
 }
 
 /* Chrome that stays dark in both schemes (the header bar): --tap-chrome is its fill. */

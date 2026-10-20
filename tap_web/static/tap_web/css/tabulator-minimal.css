@@ -61,3 +61,8 @@
 .tabulator .tap-cell-link--plain,
 .tabulator .tap-cell-link--plain:hover,
 .tabulator .tap-cell-link--plain:focus-visible { color: inherit; text-decoration: none; }
+/* Striped rows (config `striped`, req-web-stdpanel-table-config-27): every even row on the stripe token, hover one
+   step further. A clickable row keeps its own hover wash; group bands are not rows to stripe. */
+.tabulator.tap-table--striped .tabulator-row.tabulator-row-even:not(.tabulator-group) { background: rgb(var(--tap-table-stripe)); }
+.tabulator.tap-table--striped .tabulator-row:not(.tabulator-group):hover { background: rgb(var(--tap-table-stripe-hover)); }
+.tabulator.tap-table--striped .tabulator-row.tap-row--clickable:not(.tabulator-group):hover { background: var(--tap-table-row-link-hover); }

@@ -1345,3 +1345,27 @@ class TestProjectionRows:
         assert _embedded(content, panel) == []
         assert "data-tap-table-mode" not in content
         assert "Showing 0 of 0" in content
+
+
+@pytest.mark.django_db
+class TestStripedConfig:
+    """`striped` is an opt-in boolean that puts the stripe class on the mount (req-web-stdpanel-table-config-27)."""
+
+    @pytest.mark.spec("req-web-stdpanel-table-config-27")
+    def test_striped_is_a_described_boolean(self):
+        prop = TABLE_CONFIG_SCHEMA["properties"]["striped"]
+        assert prop["type"] == "boolean" and prop["description"]
+        _validate_table_config({"striped": True})
+        for bad in ("yes", 1, None):
+            with pytest.raises(ValidationError):
+                _validate_table_config({"striped": bad})
+
+    @pytest.mark.spec("req-web-stdpanel-table-config-27")
+    @pytest.mark.parametrize(("config", "expected"), [({"striped": True}, True), ({"striped": False}, False), ({}, False)])
+    def test_the_mount_carries_the_stripe_class_only_when_asked(self, config, expected):
+        panel = _create_table_panel(config=config)
+        _link_search(panel, _create_search())
+        fake_envelope = {"nodes": [], "edges": [], "info": {}, "warnings": {}}
+        with patch("tap_grid.search.execute_search", return_value=fake_envelope):
+            response = make_admin_client(username="table-admin").get(_panel_url(panel))
+        assert (b"tap-table--striped" in response.content) is expected
