@@ -108,3 +108,22 @@ test("plain text is escaped in a shrinkable span, and an empty value stays empty
     assert.equal(col[1].formatter(cellOf("abc"), {}), TEXT("Abc"));
     assert.equal(col[0].formatter(cellOf(null), {}), "");
 });
+
+// Plain links (req-web-stdpanel-table-config-26).
+test("formatter_params.style plain adds the plain modifier to every link formatter, default does not", () => {
+    const row = {id: "c-1", name: "openssl", u: "https://example.com/x", items: [{id: "c-1", name: "openssl"}]};
+    const cell = (value) => ({getValue: () => value, getRow: () => ({getData: () => row})});
+    const html = (spec, value) => buildCustomColumns([{field: "f", title: "T", ...spec}])[0].formatter(cell(value), spec.formatter_params, () => {});
+    const specs = [
+        [{formatter: "link", formatter_params: {href_template: "/c/{id}", external: false}}, "CVE-1"],
+        [{formatter: "externalLink"}, "https://example.com/x"],
+        [{formatter: "linkList", formatter_params: {href_template: "/c/{id}", external: false}}, row.items],
+    ];
+    for (const [spec, value] of specs) {
+        const plain = html({...spec, formatter_params: {...spec.formatter_params, style: "plain"}}, value);
+        assert.match(plain, /class="tap-cell-link tap-cell-link--plain"/, spec.formatter);
+        const dflt = html(spec, value);
+        assert.match(dflt, /class="tap-cell-link"/, spec.formatter);
+        assert.doesNotMatch(dflt, /--plain/, spec.formatter);
+    }
+});

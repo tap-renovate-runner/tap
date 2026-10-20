@@ -55,7 +55,8 @@ class TestLinkAffordance:
         assert link_rule, "no base rule for .tap-cell-link"
         assert "color: var(--tap-table-link)" in link_rule.group(1)
         assert "text-decoration: underline" in link_rule.group(1)
-        assert "text-decoration: none" not in _CSS
+        # the default link is never undecorated; only the opt-in plain modifier (config-26) is
+        assert "text-decoration: none" not in _CSS.split("/* Plain links")[0]
         assert ".tabulator .tap-cell-link:hover" in _CSS
         focus = re.search(r"\.tap-cell-link:focus-visible \{([^}]*)\}", _CSS)
         assert focus and "outline: 2px solid" in focus.group(1)
@@ -64,7 +65,7 @@ class TestLinkAffordance:
     def test_every_anchor_the_script_builds_carries_the_link_class(self) -> None:
         anchors = [_JS[m.start() : m.start() + 260] for m in re.finditer(r"<a href=", _JS)]
         assert len(anchors) >= 4  # externalLink, link, the icon link, linkList items
-        assert all('class="tap-cell-link"' in a for a in anchors)
+        assert all('class="tap-cell-link"' in a or "class=\"' + _linkClass(params) + '\"" in a for a in anchors)
 
     @pytest.mark.spec("req-web-stdpanel-table-config-17")
     def test_row_url_rows_get_a_class_not_an_inline_style(self) -> None:

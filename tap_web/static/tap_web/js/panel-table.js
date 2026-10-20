@@ -122,6 +122,13 @@
     return text ? '<span class="tap-cell-text">' + text + '</span>' : "";
   }
 
+  // The class list of a link the table draws. formatter_params.style "plain" (req-web-stdpanel-table-config-26)
+  // adds the modifier that drops the underline and the link colour: the text reads as the cell's own, and the
+  // anchor stays clickable with its keyboard focus ring.
+  function _linkClass(params) {
+    return params && params.style === "plain" ? "tap-cell-link tap-cell-link--plain" : "tap-cell-link";
+  }
+
   function _capitalize(v) {
     v = _safeStr(v);
     return v ? v.charAt(0).toUpperCase() + v.slice(1) : v;
@@ -452,7 +459,7 @@
       var text = _percentText(raw, (params || {}).decimals);
       return text === null ? _escapeHtml(raw) : '<span title="' + _escapeHtml(raw) + '">' + text + '</span>';
     },
-    externalLink: function (cell) {
+    externalLink: function (cell, params) {
       // A URL rendered as an anchor that opens in a new tab. Only http(s)
       // values become links; anything else renders as escaped text so a
       // hostile value never becomes a javascript: href. Quiet by design: a
@@ -462,7 +469,7 @@
       if (!/^https?:\/\//i.test(v)) return _escapeHtml(v);
       var label = v.replace(/^https?:\/\//i, "");
       if (label.length > 48) label = label.slice(0, 47) + "…";
-      return '<a href="' + _escapeHtml(v) + '" target="_blank" rel="noopener noreferrer" class="tap-cell-link" title="' + _escapeHtml(v) + '">' + _escapeHtml(label) + ' ↗</a>';
+      return '<a href="' + _escapeHtml(v) + '" target="_blank" rel="noopener noreferrer" class="' + _linkClass(params) + '" title="' + _escapeHtml(v) + '">' + _escapeHtml(label) + ' ↗</a>';
     },
     link: function (cell, params) {
       // The cell's own value as the link text; the href comes from another
@@ -480,7 +487,7 @@
       }
       if (!text || !_safeHref(href)) return _escapeHtml(text);
       var target = params.external === false ? "" : ' target="_blank" rel="noopener noreferrer"';
-      return '<a href="' + _escapeHtml(href) + '"' + target + ' class="tap-cell-link" title="' + _escapeHtml(href) + '">' + _escapeHtml(text) + '</a>';
+      return '<a href="' + _escapeHtml(href) + '"' + target + ' class="' + _linkClass(params) + '" title="' + _escapeHtml(href) + '">' + _escapeHtml(text) + '</a>';
     },
     elapsed: function (cell, params) {
       // Wall-clock between two ISO timestamps on the row (params.start /
@@ -630,7 +637,7 @@
         var href = it.object ? _fillTemplate(params.href_template, it.item, true) : "";
         if (!href || !_safeHref(href)) return '<div class="tap-linklist__item">' + _escapeHtml(it.label) + '</div>';
         return '<div class="tap-linklist__item"><a href="' + _escapeHtml(href) + '"' + target +
-          ' class="tap-cell-link" title="' + _escapeHtml(href) + '">' + _escapeHtml(it.label) + '</a></div>';
+          ' class="' + _linkClass(params) + '" title="' + _escapeHtml(href) + '">' + _escapeHtml(it.label) + '</a></div>';
       });
       if (items.length > max) {
         var rest = items.slice(max).map(function (it) { return it.label; }).join(", ");

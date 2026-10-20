@@ -221,7 +221,24 @@ TABLE_CONFIG_SCHEMA: dict[str, Any] = {
                 # href_field | href_template | value_href_template, external;
                 # elapsed: start, end; iconMap: icons, labels, show_text;
                 # toneThreshold: steps, zero_tone, decimals; percent: decimals).
-                "formatter_params": {"type": "object"},
+                "formatter_params": {
+                    "description": (
+                        "Per-formatter parameters, handed to the formatter; each formatter documents its keys in "
+                        "the spec. `style` applies to every link formatter (link, externalLink, linkList)."
+                    ),
+                    "type": "object",
+                    "properties": {
+                        "style": {
+                            "description": (
+                                "Link appearance. `default` (absent): accent colour, underlined, highlighted on "
+                                "hover. `plain`: the cell's own text colour, no underline, no hover highlight; "
+                                "still clickable, with the keyboard focus ring."
+                            ),
+                            "type": "string",
+                            "enum": ["default", "plain"],
+                        }
+                    },
+                },
                 # A named sorter for the column. `severityRank` orders severity words
                 # (critical, high, medium, low and the like) by rank, not alphabetically.
                 "sorter": {"type": "string", "enum": ["severityRank"]},

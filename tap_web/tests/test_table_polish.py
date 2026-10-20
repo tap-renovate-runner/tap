@@ -66,3 +66,35 @@ class TestCellAlignment:
         assert "vertical-align: top" not in _STAT
         assert "vertical-align: top" not in _GRAPH
         assert _GRAPH.count("vertical-align: middle;") >= 2
+
+
+class TestPlainLinks:
+    @pytest.mark.spec("req-web-stdpanel-table-config-26")
+    def test_the_plain_modifier_drops_colour_underline_and_hover_but_keeps_the_focus_ring(self) -> None:
+        match = re.search(r"(?m)^\.tabulator \.tap-cell-link--plain,\n(?:.*\n)*?.*:focus-visible \{([^}]*)\}", _CSS)
+        assert match, "no plain-link rule"
+        assert "color: inherit" in match.group(1) and "text-decoration: none" in match.group(1)
+        assert ".tabulator .tap-cell-link--plain:hover" in _CSS
+        assert "outline: none" not in _CSS and "outline:none" not in _CSS  # the focus ring stays
+        # the plain rule comes after the default link rules, so equal specificity resolves to it
+        assert _CSS.index("tap-cell-link--plain,") > _CSS.index(".tabulator .tap-cell-link:focus-visible")
+
+    @pytest.mark.spec("req-web-stdpanel-table-config-26")
+    def test_the_three_link_formatters_use_the_class_helper(self) -> None:
+        assert 'params && params.style === "plain" ? "tap-cell-link tap-cell-link--plain" : "tap-cell-link"' in _JS
+        assert _JS.count("_linkClass(params)") == 3  # externalLink, link, linkList
+        assert "externalLink: function (cell, params)" in _JS
+
+    @pytest.mark.spec("req-web-stdpanel-table-config-26")
+    def test_style_is_a_described_enum_in_the_schema(self) -> None:
+        from tap_web.panels.table_panel import TABLE_CONFIG_SCHEMA, _validate_table_config
+
+        fp = TABLE_CONFIG_SCHEMA["$defs"]["column"]["properties"]["formatter_params"]
+        assert fp["description"] and fp["properties"]["style"]["description"]
+        assert fp["properties"]["style"]["enum"] == ["default", "plain"]
+        col = {"field": "a", "title": "A", "formatter": "link", "formatter_params": {"style": "plain", "external": False}}
+        _validate_table_config({"columns": [col]})
+        from django.core.exceptions import ValidationError
+
+        with pytest.raises(ValidationError):
+            _validate_table_config({"columns": [{**col, "formatter_params": {"style": "loud"}}]})

@@ -54,3 +54,10 @@
    content is vertically centred and, with no `align` on the column, left-aligned. Plain text sits in a span that
    shrinks to the cell and cuts a long value with an ellipsis, as the cell itself did before it was a flex box. */
 .tabulator .tabulator-cell .tap-cell-text { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Plain links (formatter_params.style "plain", req-web-stdpanel-table-config-26): the link reads as the cell's own
+   text, with no underline and no hover highlight, but it is still an anchor: it stays clickable (the pointer cursor
+   is the browser's) and keeps the focus ring for a keyboard user. Placed after the link rules so equal specificity
+   resolves here. */
+.tabulator .tap-cell-link--plain,
+.tabulator .tap-cell-link--plain:hover,
+.tabulator .tap-cell-link--plain:focus-visible { color: inherit; text-decoration: none; }
