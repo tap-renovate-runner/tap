@@ -15,6 +15,7 @@ vm.runInNewContext(src, {window, document, history: {}, sessionStorage: {}, cons
 const {buildCustomColumns, resolveFieldPaths} = seam;
 
 const cellOf = (value) => ({getValue: () => value});
+const TEXT = (escaped) => `<span class="tap-cell-text">${escaped}</span>`;
 const render = (spec, value) => buildCustomColumns([spec])[0].formatter(cellOf(value), {}, () => {});
 
 test("the seam exposes the builders", () => {
@@ -56,9 +57,9 @@ test("a dotted field still resolves as before (no field_path means no change)", 
 test("empty_text replaces a null, missing or empty value for the default formatter, escaped", () => {
     const spec = {field: "f", title: "T", empty_text: "<n/a> & co"};
     for (const v of [null, undefined, ""]) assert.equal(render(spec, v), "&lt;n/a&gt; &amp; co");
-    assert.equal(render(spec, "<b>x</b>"), "&lt;b&gt;x&lt;/b&gt;", "a real value is still escaped plain text");
-    assert.equal(render(spec, 0), "0", "zero is a value");
-    assert.equal(render(spec, false), "false", "false is a value");
+    assert.equal(render(spec, "<b>x</b>"), TEXT("&lt;b&gt;x&lt;/b&gt;"), "a real value is still escaped plain text");
+    assert.equal(render(spec, 0), TEXT("0"), "zero is a value");
+    assert.equal(render(spec, false), TEXT("false"), "false is a value");
 });
 
 test("empty_text applies with every declared formatter, never leaving a blank", () => {
@@ -81,4 +82,29 @@ test("empty_text and a non-empty value hand over to the column formatter", () =>
     const out = render({field: "f", title: "T", formatter: "percent", empty_text: "n/a"}, 0.25);
     assert.match(out, /25/);
     assert.doesNotMatch(out, /n\/a/);
+});
+
+// Cell alignment (req-web-stdpanel-table-config-25).
+test("every column is vertically centred and left-aligned unless its spec says align", () => {
+    const [a, b, c] = buildCustomColumns([
+        {field: "a", title: "A"},
+        {field: "b", title: "B", align: "right"},
+        {field: "c", title: "C", align: "center"},
+    ]);
+    assert.deepEqual([a.vertAlign, a.hozAlign, a.headerHozAlign], ["middle", "left", undefined]);
+    assert.deepEqual([b.vertAlign, b.hozAlign, b.headerHozAlign], ["middle", "right", "right"]);
+    assert.deepEqual([c.vertAlign, c.hozAlign], ["middle", "center"]);
+});
+
+test("the leaves of a grouped header are centred too", () => {
+    const [g] = buildCustomColumns([{title: "G", columns: [{field: "a", title: "A"}]}]);
+    assert.equal(g.columns[0].vertAlign, "middle");
+    assert.equal(g.columns[0].hozAlign, "left");
+});
+
+test("plain text is escaped in a shrinkable span, and an empty value stays empty", () => {
+    const col = buildCustomColumns([{field: "f", title: "T"}, {field: "f", title: "T", formatter: "capitalized"}]);
+    assert.equal(col[0].formatter(cellOf("<i>"), {}), TEXT("&lt;i&gt;"));
+    assert.equal(col[1].formatter(cellOf("abc"), {}), TEXT("Abc"));
+    assert.equal(col[0].formatter(cellOf(null), {}), "");
 });

@@ -50,3 +50,7 @@
 .tabulator-popup-container { background: rgb(var(--tap-white)); color: rgb(var(--tap-slate-900)); border: 1px solid rgb(var(--tap-slate-400)); box-shadow: 0 2px 8px rgb(var(--tap-black) / 0.25); }
 .tabulator-popup-container .tabulator-tooltip { color: rgb(var(--tap-slate-900)); }
 .tabulator .tabulator-header .tabulator-col.tabulator-sortable.tabulator-col-sorter-element:hover { background: rgb(var(--tap-slate-100)); }
+/* Cell alignment (req-web-stdpanel-table-config-25): a cell is a flex box (Tabulator's vertAlign: middle), so its
+   content is vertically centred and, with no `align` on the column, left-aligned. Plain text sits in a span that
+   shrinks to the cell and cuts a long value with an ellipsis, as the cell itself did before it was a flex box. */
+.tabulator .tabulator-cell .tap-cell-text { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -20,6 +20,16 @@
 (function () {
   "use strict";
 
+  // Every cell is vertically centred and, unless its column says otherwise, left-aligned
+  // (req-web-stdpanel-table-config-25): Tabulator's own `vertAlign: "middle"` makes the cell a flex box, which
+  // is also why a `hozAlign` has to be spelled out (it becomes the flex justification).
+  function _centred(col) {
+    if (col.columns) { col.columns.forEach(_centred); return col; }
+    if (!col.vertAlign) col.vertAlign = "middle";
+    if (!col.hozAlign) col.hozAlign = "left";
+    return col;
+  }
+
   // Columns for common_metadata mode (req-web-stdpanel-table-columns).
   // Node data uses the GRIFT envelope shape (spec-grift-envelope):
   // spine fields flat at top; per-model fields in `data`; render hints in `display.tap_viz`.
@@ -102,6 +112,14 @@
   function _safeStr(v) { return v == null ? "" : String(v); }
   function _escapeHtml(v) {
     return _safeStr(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  // Plain cell text, escaped, in a shrinkable span: a vertically centred cell is a flex box, where the cell's own
+  // text-overflow cannot cut a long value with an ellipsis, so the span carries it (tabulator-minimal.css).
+  // An empty value stays empty.
+  function _textCell(v) {
+    var text = _escapeHtml(v);
+    return text ? '<span class="tap-cell-text">' + text + '</span>' : "";
   }
 
   function _capitalize(v) {
@@ -335,11 +353,11 @@
   }
 
   var FORMATTERS = {
-    plaintext: function (cell) { return _escapeHtml(cell.getValue()); },
+    plaintext: function (cell) { return _textCell(cell.getValue()); },
     // The value with its first letter upper-cased and nothing else touched
     // ("stand-up" → "Stand-up"): a vocabulary word read as a label, for
     // closed-set fields whose canonical spelling is lower-case.
-    capitalized: function (cell) { return _escapeHtml(_capitalize(cell.getValue())); },
+    capitalized: function (cell) { return _textCell(_capitalize(cell.getValue())); },
     datetime: function (cell) {
       // Local timestamp with zone disclosure, via the shared localtime helper
       // (spec-web-time-display, req-web-time-single-helper). The incoming value
@@ -645,6 +663,8 @@
     },
   };
 
+  COMMON_METADATA_COLUMNS.forEach(_centred);
+
   // Per-entity-type detail URLs override the generic /object/<type>/.../ route
   // when a custom page exists (Path B parameterized pages). Coupling lives in
   // the URL map for now; a per-plugin registration mechanism would lift this.
@@ -745,7 +765,7 @@
       if (spec.tooltip === "full_value") {
         col.tooltip = function (e, cell) { return _safeStr(cell.getValue()); };
       }
-      return col;
+      return _centred(col);
     });
   }
 
@@ -779,6 +799,8 @@
       },
     },
   ];
+
+  EDGE_COLUMNS.forEach(_centred);
 
   /**
    * Mount a single Table Panel.

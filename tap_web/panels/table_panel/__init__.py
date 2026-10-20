@@ -232,8 +232,16 @@ TABLE_CONFIG_SCHEMA: dict[str, Any] = {
                 "headerSort": {"type": "boolean"},
                 # Horizontal alignment of the cell AND its heading, so a value
                 # sits under its title (a one-row identity table reads as
-                # label-over-value). Default is Tabulator's left.
-                "align": {"type": "string", "enum": ["left", "center", "right"]},
+                # label-over-value). Default left; cells are always vertically
+                # centred (req-web-stdpanel-table-config-25).
+                "align": {
+                    "description": (
+                        "Horizontal alignment of the cell and its heading together, so a value sits under its "
+                        "title. Default left. Every cell is vertically centred whatever this says."
+                    ),
+                    "type": "string",
+                    "enum": ["left", "center", "right"],
+                },
             },
         },
     },

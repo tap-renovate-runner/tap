@@ -286,6 +286,7 @@
 }
 
 .tap-info-window__table td {
+    vertical-align: middle;
     padding: 4px 0;
     border-bottom: 1px solid var(--tap-info-divider);
     line-height: 1.35;
@@ -338,7 +339,7 @@
 
 .tap-info-window__table--columns td {
     padding: 4px 8px 4px 0;
-    vertical-align: top;
+    vertical-align: middle;
 }
 
 .tap-info-window__table--columns th:last-child,
