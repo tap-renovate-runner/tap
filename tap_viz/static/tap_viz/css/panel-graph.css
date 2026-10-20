@@ -108,6 +108,14 @@
     --tap-info-faint: #94a3b8;
     --tap-info-error: #b91c1c;
     --tap-info-shadow: rgba(15, 23, 42, 0.12);
+    --tap-info-tone-good-bg: #dcfce7;
+    --tap-info-tone-good-fg: #166534;
+    --tap-info-tone-warn-bg: #fef3c7;
+    --tap-info-tone-warn-fg: #92400e;
+    --tap-info-tone-bad-bg: #fee2e2;
+    --tap-info-tone-bad-fg: #991b1b;
+    --tap-info-tone-muted-bg: #f3f4f6;
+    --tap-info-tone-muted-fg: #4b5563;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -123,6 +131,14 @@
         --tap-info-faint: #94a3b8;
         --tap-info-error: #f87171;
         --tap-info-shadow: rgba(0, 0, 0, 0.5);
+        --tap-info-tone-good-bg: #0f172a;
+        --tap-info-tone-good-fg: #4ade80;
+        --tap-info-tone-warn-bg: #0f172a;
+        --tap-info-tone-warn-fg: #fbbf24;
+        --tap-info-tone-bad-bg: #0f172a;
+        --tap-info-tone-bad-fg: #f87171;
+        --tap-info-tone-muted-bg: #0f172a;
+        --tap-info-tone-muted-fg: #94a3b8;
     }
 }
 
@@ -138,6 +154,14 @@
     --tap-info-faint: #94a3b8;
     --tap-info-error: #f87171;
     --tap-info-shadow: rgba(0, 0, 0, 0.5);
+    --tap-info-tone-good-bg: #0f172a;
+    --tap-info-tone-good-fg: #4ade80;
+    --tap-info-tone-warn-bg: #0f172a;
+    --tap-info-tone-warn-fg: #fbbf24;
+    --tap-info-tone-bad-bg: #0f172a;
+    --tap-info-tone-bad-fg: #f87171;
+    --tap-info-tone-muted-bg: #0f172a;
+    --tap-info-tone-muted-fg: #94a3b8;
 }
 
 .tap-info-window {
@@ -323,6 +347,22 @@
     text-align: right;
     font-variant-numeric: tabular-nums;
 }
+
+/* tone_steps (req-viz-info-window-columns-16): a numeric cell as a toned badge, from the --tap-info-tone-* tokens
+   (the table panel's tone palette in light, the stat-card tone colours in dark). The tone is also the tooltip. */
+.tap-info-window__tone {
+    display: inline-block;
+    white-space: nowrap;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+    background: var(--tap-info-tone-muted-bg);
+    color: var(--tap-info-tone-muted-fg);
+}
+.tap-info-window__tone--good { background: var(--tap-info-tone-good-bg); color: var(--tap-info-tone-good-fg); }
+.tap-info-window__tone--warn { background: var(--tap-info-tone-warn-bg); color: var(--tap-info-tone-warn-fg); }
+.tap-info-window__tone--bad { background: var(--tap-info-tone-bad-bg); color: var(--tap-info-tone-bad-fg); }
+.tap-info-window__tone .tap-info-window__row-link { color: inherit; }
 
 /* A column declared `nowrap: true` keeps its cell text on one line (req-viz-info-window-columns-11);
    the window's min/max width rules still bound the table. */

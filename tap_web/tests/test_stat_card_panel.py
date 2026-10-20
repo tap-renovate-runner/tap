@@ -206,7 +206,8 @@ class TestConfigSchema:
     def test_the_schema_names_no_value_node_or_tool(self):
         """Config names row FIELDS only; the schema carries no enumerated domain value."""
         enums = [n["enum"] for n in _every_schema_node(STAT_CARD_CONFIG_SCHEMA) if "enum" in n]
-        allowed = {"text", "number", "integer", "datetime", "age", "neutral", "good", "warn", "bad", "muted"}
+        formatters = {"text", "number", "integer", "datetime", "age", "percent", "link", "longtext"}
+        allowed = formatters | {"neutral", "good", "warn", "bad", "muted"}
         assert {v for e in enums for v in e} <= allowed
 
 
@@ -543,3 +544,124 @@ def test_a_datetime_object_from_a_typed_field_is_an_instant_too():
     cell = format_cell({"f": datetime(2026, 10, 1, 10, 30, tzinfo=UTC)}, "f", "age", {})
     assert cell == {"kind": "age", "text": "2026-10-01T10:30:00Z", "iso": "2026-10-01T10:30:00Z"}
     assert format_cell({"f": datetime(2026, 10, 1, 10, 30)}, "f", "datetime", {})["iso"] == "2026-10-01T10:30:00Z"
+
+
+# ---------------------------------------------------------------------------
+# req-web-stdpanel-statcards-format-5..8: percent, identifier link, long text
+# ---------------------------------------------------------------------------
+
+
+class TestPercentLinkAndLongText:
+    @pytest.mark.spec("req-web-stdpanel-statcards-format-5")
+    @pytest.mark.parametrize(
+        ("value", "decimals", "text"),
+        [
+            (0.0004, None, "0.04%"),
+            (0.5, None, "50.00%"),
+            (0.12345, 1, "12.3%"),
+            (1, 0, "100%"),
+            (0, None, "0.00%"),
+            ("0.25", 0, "25%"),
+        ],
+    )
+    def test_a_fraction_is_a_percentage(self, value, decimals, text):
+        options = {} if decimals is None else {"decimals": decimals}
+        assert format_cell({"f": value}, "f", "percent", {}, options)["text"] == text
+
+    @pytest.mark.spec("req-web-stdpanel-statcards-format-5")
+    @pytest.mark.parametrize("value", [1.5, -0.1, "lots", True])
+    def test_a_non_fraction_is_shown_as_written_and_flagged(self, value):
+        cell = format_cell({"f": value}, "f", "percent", {})
+        assert cell["text"] == str(value)
+        assert cell["title"] == "not a fraction between 0 and 1"
+
+    @pytest.mark.spec("req-web-stdpanel-statcards-format-5")
+    def test_the_figure_takes_value_decimals(self):
+        cards = build_cards([{"p": 0.0004}], {"value_field": "p", "value_formatter": "percent", "value_decimals": 3})
+        assert cards[0]["value"]["text"] == "0.040%"
+
+    @pytest.mark.spec("req-web-stdpanel-statcards-format-6")
+    def test_an_identifier_links_through_the_template(self):
+        tpl = "https://cwe.mitre.org/data/definitions/{number}.html"
+        cell = format_cell({"f": "CWE-79"}, "f", "link", {}, {"link_template": tpl})
+        assert cell == {"kind": "link", "text": "CWE-79", "href": "https://cwe.mitre.org/data/definitions/79.html"}
+        cell = format_cell({"f": "a b"}, "f", "link", {}, {"link_template": "/find?q={value}"})
+        assert cell["href"] == "/find?q=a%20b"
+
+    @pytest.mark.spec("req-web-stdpanel-statcards-format-6")
+    @pytest.mark.parametrize(
+        ("value", "template"),
+        [
+            ("NOPE", "https://x.example/{number}"),  # no digits to fill {number}
+            ("CWE-79", "https://x.example/{other}"),  # unknown placeholder
+            ("CWE-79", "javascript:alert({number})"),  # not http(s)
+            ("CWE-79", "//evil.example/{number}"),  # protocol-relative
+            ("CWE-79", None),  # no template
+        ],
+    )
+    def test_an_unsafe_or_unfillable_link_is_plain_text(self, value, template):
+        cell = format_cell({"f": value}, "f", "link", {}, {"link_template": template})
+        assert cell == {"kind": "text", "text": value}
+
+    @pytest.mark.spec("req-web-stdpanel-statcards-format-7")
+    def test_long_text_keeps_the_whole_value_and_the_line_limit(self):
+        text = "A very long description. " * 40
+        assert format_cell({"f": text}, "f", "longtext", {}) == {"kind": "longtext", "text": text, "max_lines": 4}
+        assert format_cell({"f": text}, "f", "longtext", {}, {"max_lines": 7})["max_lines"] == 7
+
+    @pytest.mark.spec("req-web-stdpanel-statcards-format-7")
+    def test_absent_long_text_is_a_stated_state_never_blank(self):
+        row = {"nul": None, "blank": "", "spaces": "  \n "}
+        assert format_cell(row, "nul", "longtext", {})["text"] == "not observed"
+        assert format_cell(row, "gone", "longtext", {})["state"] == "missing"
+        assert format_cell(row, "blank", "longtext", {"blank_text": "none"})["text"] == "none"
+        assert format_cell(row, "spaces", "longtext", {})["state"] == "blank"
+
+    @pytest.mark.spec("req-web-stdpanel-statcards-format-8")
+    def test_the_new_keys_validate_and_are_bounded(self):
+        _validate_config(
+            {
+                "value_field": "p",
+                "value_formatter": "percent",
+                "value_decimals": 2,
+                "lines": [
+                    {"label": "D", "field": "d", "formatter": "longtext", "max_lines": 6},
+                    {"label": "C", "field": "c", "formatter": "link", "link_template": "https://x.example/{number}"},
+                    {"label": "P", "field": "p", "formatter": "percent", "decimals": 0},
+                ],
+            }
+        )
+        for bad in (
+            {"value_field": "p", "value_decimals": 7},
+            {"value_field": "p", "value_formatter": "longtext"},
+            {"value_field": "p", "lines": [{"label": "D", "field": "d", "max_lines": 13}]},
+            {"value_field": "p", "lines": [{"label": "D", "field": "d", "max_lines": 0}]},
+            {"value_field": "p", "lines": [{"label": "C", "field": "c", "link_template": "x" * 301}]},
+        ):
+            with pytest.raises(ValidationError):
+                _validate_config(bad)
+
+    @pytest.mark.spec("req-web-stdpanel-statcards-format-7")
+    def test_the_panel_markup_for_each_new_cell(self):
+        from django.template.loader import render_to_string
+
+        tpl = "tap_web/panels/_stat_card_cell.html"
+        long = render_to_string(tpl, {"cell": {"kind": "longtext", "text": "a <b>x</b>", "max_lines": 3}})
+        assert 'class="tap-statcard__longtext" data-lines="3"' in long
+        assert "<summary>" in long and "a &lt;b&gt;x&lt;/b&gt;" in long
+        link = render_to_string(tpl, {"cell": {"kind": "link", "text": "CWE-79", "href": "https://x.example/79"}})
+        assert 'href="https://x.example/79"' in link and 'rel="noopener noreferrer"' in link
+
+    @pytest.mark.spec("req-web-stdpanel-statcards-format-7")
+    def test_the_stylesheet_clamps_and_expands_with_no_script(self):
+        from pathlib import Path
+
+        import tap_web
+
+        static = Path(tap_web.__file__).parent / "static" / "tap_web"
+        css = (static / "css" / "stat-cards.css").read_text(encoding="utf-8")
+        assert "-webkit-line-clamp: 4" in css
+        assert ".tap-statcard__longtext[open] .tap-statcard__longtext-text" in css
+        for n in range(1, 13):
+            assert f'data-lines="{n}"' in css or n == 4, n
+        assert "markFits" in (static / "js" / "stat-cards.js").read_text(encoding="utf-8")

@@ -217,7 +217,33 @@ export function renderInfoTable(rows, infoWindowCfg) {
     return _renderTable(rows, cfg.row_url_template);
 }
 
-function _cellText(value, format) {
+const TONES = ["good", "warn", "bad", "muted", "info"];
+
+/**
+ * A fraction 0..1 as a percentage (0.0004 -> "0.04%"), or null when the value is not such a fraction.
+ * `decimals` is 0..6 and defaults to 2.
+ */
+function _percentText(value, decimals) {
+    const n = typeof value === "number" ? value : Number(value);
+    if (typeof value === "boolean" || !Number.isFinite(n) || n < 0 || n > 1) return null;
+    const d = Number.isInteger(decimals) && decimals >= 0 && decimals <= 6 ? decimals : 2;
+    return `${(Math.round(n * 10 ** (d + 2)) / 10 ** d).toFixed(d)}%`;
+}
+
+/** The tone of a numeric value from `tone_steps` (highest min first) or `zero_tone`; null when none applies. */
+function _toneFor(value, col) {
+    if (!Array.isArray(col.tone_steps) || value === null || value === undefined || value === "") return null;
+    const n = typeof value === "number" ? value : Number(value);
+    if (typeof value === "boolean" || !Number.isFinite(n)) return null;
+    if (n === 0 && TONES.includes(col.zero_tone)) return col.zero_tone;
+    const steps = col.tone_steps
+        .filter((st) => st && typeof st.min === "number" && TONES.includes(st.tone))
+        .sort((a, b) => b.min - a.min);
+    const hit = steps.find((st) => n >= st.min);
+    return hit ? hit.tone : null;
+}
+
+function _cellText(value, format, decimals) {
     // Missing is an empty cell, never the string "undefined" (req-viz-info-window-columns-5).
     if (value === null || value === undefined || value === "") return "";
     if (format === "number") {
@@ -225,6 +251,11 @@ function _cellText(value, format) {
         // as given rather than hidden, so bad data stays visible.
         const n = typeof value === "number" ? value : Number(value);
         if (Number.isFinite(n)) return n.toFixed(1);
+    }
+    if (format === "percent") {
+        // A value that is not a 0..1 fraction is shown as given, so bad data stays visible.
+        const shown = _percentText(value, decimals);
+        if (shown !== null) return shown;
     }
     if (typeof value === "object") return JSON.stringify(value);
     return String(value);
@@ -252,9 +283,14 @@ function _renderColumnsTable(rows, columns, rowUrlTemplate) {
         .map((r) => {
             const tds = columns
                 .map((c, i) => {
-                    const text = _escape(_cellText(r[c.field], c.format));
+                    const text = _escape(_cellText(r[c.field], c.format, c.decimals));
                     const url = i === linkIdx && text !== "" ? _buildRowUrl(rowUrlTemplate, r) : null;
-                    const inner = url ? `<a class="tap-info-window__row-link" href="${url}">${text}</a>` : text;
+                    let inner = url ? `<a class="tap-info-window__row-link" href="${url}">${text}</a>` : text;
+                    // tone_steps (req-viz-info-window-columns-16): a numeric value is drawn as a toned badge.
+                    const tone = text !== "" ? _toneFor(r[c.field], c) : null;
+                    if (tone) {
+                        inner = `<span class="tap-info-window__tone tap-info-window__tone--${tone}" title="${tone}">${inner}</span>`;
+                    }
                     return `<td${bodyCellClass(c)}>${inner}</td>`;
                 })
                 .join("");

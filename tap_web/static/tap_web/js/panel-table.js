@@ -109,6 +109,65 @@
     return v ? v.charAt(0).toUpperCase() + v.slice(1) : v;
   }
 
+  // The tone pill palette (background, text) shared by the badge formatters. `info` and `neutral` are
+  // aliases of `muted`: no tone invents a colour of its own.
+  var _TONE_PALETTE = {
+    good:  ["#dcfce7", "#166534"],
+    bad:   ["#fee2e2", "#991b1b"],
+    warn:  ["#fef3c7", "#92400e"],
+    muted: ["#f3f4f6", "#4b5563"],
+  };
+  _TONE_PALETTE.info = _TONE_PALETTE.muted;
+  _TONE_PALETTE.neutral = _TONE_PALETTE.muted;
+
+  function _tonePill(palette, text, title) {
+    return '<span' + (title ? ' title="' + _escapeHtml(title) + '"' : '') + ' style="background:' + palette[0] + ';color:' + palette[1] + ';padding:2px 8px;border-radius:4px;font-weight:600;font-size:11px">' + text + '</span>';
+  }
+
+  // A number from a cell value, or null: a blank, a boolean or text is not a number (Number("") is 0, so
+  // it is screened out first).
+  function _finiteNumber(v) {
+    if (typeof v === "number") return isFinite(v) ? v : null;
+    if (typeof v !== "string" || !v.trim()) return null;
+    var n = Number(v);
+    return isFinite(n) ? n : null;
+  }
+
+  // A fraction 0..1 as a percentage ("0.0004" -> "0.04%"), or null when the value is not such a fraction.
+  function _percentText(v, decimals) {
+    var n = _finiteNumber(v);
+    if (n === null || n < 0 || n > 1) return null;
+    var d = (typeof decimals === "number" && decimals >= 0 && decimals <= 6) ? Math.floor(decimals) : 2;
+    return (Math.round(n * Math.pow(10, d + 2)) / Math.pow(10, d)).toFixed(d) + "%";
+  }
+
+  // The tone for a number from `steps` ([{min, tone}], tried highest min first: the first whose min <= n),
+  // or `zero_tone` when n is exactly zero. Null when nothing matches.
+  function _thresholdTone(n, steps, zeroTone) {
+    if (n === 0 && zeroTone) return zeroTone;
+    var ordered = (Array.isArray(steps) ? steps : []).filter(function (st) {
+      return st && typeof st.min === "number" && typeof st.tone === "string";
+    }).sort(function (a, b) { return b.min - a.min; });
+    for (var i = 0; i < ordered.length; i++) {
+      if (n >= ordered[i].min) return ordered[i].tone;
+    }
+    return null;
+  }
+
+  // An identifier link: {value} is the cell text (URI-encoded) and {number} the first run of digits in it
+  // (79 for "CWE-79"). Empty when the template names anything else or {number} has no digits to fill it.
+  function _fillValueTemplate(template, value) {
+    var digits = /\d+/.exec(value);
+    var bad = false;
+    var out = _safeStr(template).replace(/\{([A-Za-z_]+)\}/g, function (_m, name) {
+      if (name === "value") return encodeURIComponent(value);
+      if (name === "number" && digits) return digits[0];
+      bad = true;
+      return "";
+    });
+    return bad ? "" : out;
+  }
+
   // Resolve a dotted field path ("data.attributes.public") against a row object.
   function _getPath(obj, path) {
     if (!path) return undefined;
@@ -308,15 +367,35 @@
       // params.labels is shown as written).
       if (params.capitalize && !(params.labels || {})[raw]) label = _capitalize(label);
       var text = _escapeHtml(label);
-      var palette = {
-        good:  ["#dcfce7", "#166534"],
-        bad:   ["#fee2e2", "#991b1b"],
-        warn:  ["#fef3c7", "#92400e"],
-        muted: ["#f3f4f6", "#4b5563"],
-      };
-      var p = palette[tone];
+      var p = _TONE_PALETTE[tone];
       if (!p) return text;
-      return '<span style="background:' + p[0] + ';color:' + p[1] + ';padding:2px 8px;border-radius:4px;font-weight:600;font-size:11px">' + text + '</span>';
+      return _tonePill(p, text);
+    },
+    toneThreshold: function (cell, params) {
+      // A NUMBER as a toned pill chosen by thresholds (CVSS, a score): params.steps is [{min, tone}], tried
+      // highest min first, the first whose min <= the value wins; params.zero_tone is the tone of exactly 0;
+      // tones are the toneBadge palette (good | bad | warn | muted; info and neutral are the muted grey).
+      // A number below every step renders as plain text; params.decimals fixes the places shown. An empty
+      // value is a dash and a non-number is shown as written -- never a quiet blank.
+      params = params || {};
+      var raw = cell.getValue();
+      if (raw === null || raw === undefined || raw === "") return '<span style="color:#9ca3af">–</span>';
+      var n = _finiteNumber(raw);
+      if (n === null) return _escapeHtml(raw);
+      var shown = (typeof params.decimals === "number" && params.decimals >= 0 && params.decimals <= 6)
+        ? n.toFixed(Math.floor(params.decimals)) : _safeStr(raw);
+      var tone = _thresholdTone(n, params.steps, params.zero_tone);
+      var p = tone ? _TONE_PALETTE[tone] : null;
+      if (!p) return _escapeHtml(shown);
+      return _tonePill(p, _escapeHtml(shown), tone);
+    },
+    percent: function (cell, params) {
+      // A fraction 0..1 as a percentage (0.0004 -> "0.04%"); params.decimals (0..6, default 2). A value that
+      // is not such a fraction is shown as written, an empty one as a dash.
+      var raw = cell.getValue();
+      if (raw === null || raw === undefined || raw === "") return '<span style="color:#9ca3af">–</span>';
+      var text = _percentText(raw, (params || {}).decimals);
+      return text === null ? _escapeHtml(raw) : '<span title="' + _escapeHtml(raw) + '">' + text + '</span>';
     },
     externalLink: function (cell) {
       // A URL rendered as an anchor that opens in a new tab. Only http(s)
@@ -339,6 +418,11 @@
       var row = cell.getRow().getData();
       var text = params.text ? _safeStr(params.text) : _safeStr(cell.getValue());
       var href = params.href_field ? _safeStr(_getPath(row, params.href_field)) : _fillTemplate(params.href_template, row);
+      // value_href_template builds the href from the cell's own value (an identifier such as CWE-79):
+      // {value} and {number}. It applies when no href_field / href_template is set.
+      if (params.value_href_template && !params.href_field && !params.href_template) {
+        href = _fillValueTemplate(params.value_href_template, _safeStr(cell.getValue()));
+      }
       if (!text || !_safeHref(href)) return _escapeHtml(text);
       var target = params.external === false ? "" : ' target="_blank" rel="noopener noreferrer"';
       return '<a href="' + _escapeHtml(href) + '"' + target + ' class="tap-cell-link" title="' + _escapeHtml(href) + '">' + _escapeHtml(text) + '</a>';

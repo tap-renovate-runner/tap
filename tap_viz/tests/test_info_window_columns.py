@@ -34,6 +34,8 @@ def _rules() -> str:
 @pytest.mark.spec("req-viz-info-window-columns-6")
 @pytest.mark.spec("req-viz-info-window-columns-7")
 @pytest.mark.spec("req-viz-info-window-columns-8")
+@pytest.mark.spec("req-viz-info-window-columns-15")
+@pytest.mark.spec("req-viz-info-window-columns-17")
 def test_js_rendering() -> None:
     node = shutil.which("node")
     if node is None:
@@ -103,3 +105,17 @@ def test_info_window_colours_are_theme_tokens_with_light_and_dark_values() -> No
         remainder = remainder.replace(block.group(1), "")
     literals = re.findall(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", remainder)
     assert not literals, f"colour literals outside the token blocks: {literals}"
+
+
+@pytest.mark.spec("req-viz-info-window-columns-18")
+def test_tone_badge_colours_are_tokens_defined_in_every_scheme() -> None:
+    css = _rules()
+    names = [f"--tap-info-tone-{tone}-{part}" for tone in ("good", "warn", "bad", "muted") for part in ("bg", "fg")]
+    for name in names:
+        # Defined in the light block, the prefers-dark block and the forced-dark block.
+        assert len(re.findall(re.escape(name) + r":\s*#", css)) == 3, name
+    for tone in ("good", "warn", "bad"):
+        rule = re.search(r"\.tap-info-window__tone--" + tone + r"\s*\{([^}]*)\}", css)
+        assert rule is not None and f"var(--tap-info-tone-{tone}-bg)" in rule.group(1)
+        assert f"var(--tap-info-tone-{tone}-fg)" in rule.group(1)
+    assert "tap-info-window__tone--${tone}" in WINDOW_JS

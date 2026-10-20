@@ -20,9 +20,11 @@ for ``age``); with no JS the element still reads the exact ISO value.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 import jsonschema
 from django.core.exceptions import ValidationError
@@ -37,18 +39,25 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 TONES: tuple[str, ...] = ("neutral", "good", "warn", "bad", "muted")
-FORMATTERS: tuple[str, ...] = ("text", "number", "integer", "datetime", "age")
+FORMATTERS: tuple[str, ...] = ("text", "number", "integer", "datetime", "age", "percent", "link")
+# A secondary line may also be a long prose value (`longtext`); the card's main figure may not.
+LINE_FORMATTERS: tuple[str, ...] = (*FORMATTERS, "longtext")
 
 _DEFAULT_MAX_CARDS = 24
 _DEFAULT_NULL_TEXT = "not observed"
 _DEFAULT_MISSING_TEXT = "not returned by the search"
 _DEFAULT_BLANK_TEXT = "(empty)"
+_DEFAULT_PERCENT_DECIMALS = 2
+_DEFAULT_MAX_LINES = 4
 # Words that carry a tone in text, so colour is never the only signal. `neutral`
 # and `muted` carry none: they are the absence of a verdict.
 _DEFAULT_TONE_LABELS: dict[str, str] = {"good": "Good", "warn": "Warning", "bad": "Problem"}
 
 _FIELD = {"type": "string", "minLength": 1}
 _FORMATTER = {"type": "string", "enum": list(FORMATTERS)}
+_LINE_FORMATTER = {"type": "string", "enum": list(LINE_FORMATTERS)}
+_DECIMALS = {"type": "integer", "minimum": 0, "maximum": 6}
+_LINK_TEMPLATE = {"type": "string", "minLength": 1, "maxLength": 300}
 _TONE = {"type": "string", "enum": list(TONES)}
 
 # JSON Schema for Panel.config on Stat Cards instances. Every property carries a
@@ -68,7 +77,22 @@ STAT_CARD_CONFIG_SCHEMA: dict[str, Any] = {
         },
         "value_formatter": {
             **_FORMATTER,
-            "description": "How the main figure is formatted: text (default), number, integer, datetime or age.",
+            "description": (
+                "How the main figure is formatted: text (default), number, integer, datetime, age, percent "
+                "(a fraction 0..1 shown as a percentage) or link (see value_link_template)."
+            ),
+        },
+        "value_decimals": {
+            **_DECIMALS,
+            "description": "Decimal places of the main figure when value_formatter is percent. Default 2.",
+        },
+        "value_link_template": {
+            **_LINK_TEMPLATE,
+            "description": (
+                "URL template for the main figure when value_formatter is link: {value} is the figure's text "
+                "(URL-encoded) and {number} the first run of digits in it (for example 79 in CWE-79). "
+                "Only http(s) and same-origin paths link; otherwise the figure shows as plain text."
+            ),
         },
         "unit": {
             "type": "string",
@@ -97,7 +121,30 @@ STAT_CARD_CONFIG_SCHEMA: dict[str, Any] = {
                 "properties": {
                     "label": {"type": "string", "minLength": 1, "maxLength": 80, "description": "Text label."},
                     "field": {**_FIELD, "description": "Alias of the row field shown."},
-                    "formatter": {**_FORMATTER, "description": "Formatter for this line; text by default."},
+                    "formatter": {
+                        **_LINE_FORMATTER,
+                        "description": (
+                            "Formatter for this line; text by default. longtext shows long prose wrapped and cut "
+                            "to max_lines, expandable in place."
+                        ),
+                    },
+                    "decimals": {
+                        **_DECIMALS,
+                        "description": "Decimal places when the formatter is percent. Default 2.",
+                    },
+                    "max_lines": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 12,
+                        "description": "Lines of a longtext value shown before the reader expands it. Default 4.",
+                    },
+                    "link_template": {
+                        **_LINK_TEMPLATE,
+                        "description": (
+                            "URL template when the formatter is link: {value} is the value's text (URL-encoded) "
+                            "and {number} the first run of digits in it. Only http(s) and same-origin paths link."
+                        ),
+                    },
                 },
             },
         },
@@ -220,13 +267,66 @@ def _parse_instant(value: Any) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
-def format_cell(row: dict[str, Any], field: str, formatter: str, config: dict[str, Any]) -> dict[str, Any]:
+_TEMPLATE_PLACEHOLDER = re.compile(r"\{([A-Za-z_]+)\}")
+
+
+def percent_text(value: Any, decimals: int = _DEFAULT_PERCENT_DECIMALS) -> str | None:
+    """A fraction 0..1 as a percentage (0.0004 -> "0.04%"), or None when it is not such a fraction."""
+    d = _decimal(value)
+    if d is None or d < 0 or d > 1:
+        return None
+    scaled = (d * 100).quantize(Decimal(1).scaleb(-decimals), rounding=ROUND_HALF_UP)
+    return f"{scaled:,.{decimals}f}%"
+
+
+def safe_href(href: str) -> bool:
+    """True for an absolute http(s) URL or a same-origin path; never ``//host``, ``/\\host`` or another scheme."""
+    if href.startswith("/"):
+        return not href.startswith(("//", "/\\")) and not re.search(r"[\x00-\x20\x7f\\]", href)
+    return bool(re.match(r"https?://[^\s/]", href, re.IGNORECASE)) and not re.search(r"[\x00-\x20\x7f]", href)
+
+
+def identifier_href(template: str | None, value: str) -> str | None:
+    """Fill an identifier link template, or None when it cannot make a safe link.
+
+    ``{value}`` is the value, URL-encoded; ``{number}`` the first run of digits in it (79 for
+    ``CWE-79``). A template naming anything else, a ``{number}`` with no digits to fill it, or
+    a result that is not an http(s) URL or same-origin path yields None: the caller shows the text.
+    """
+    if not template:
+        return None
+    number = re.search(r"\d+", value)
+    parts = {"value": quote(value, safe=""), "number": number.group(0) if number else None}
+    unfillable = False
+
+    def fill(match: re.Match[str]) -> str:
+        nonlocal unfillable
+        part = parts.get(match.group(1))
+        if part is None:
+            unfillable = True
+            return ""
+        return part
+
+    href = _TEMPLATE_PLACEHOLDER.sub(fill, template)
+    return None if unfillable or not safe_href(href) else href
+
+
+def format_cell(
+    row: dict[str, Any],
+    field: str,
+    formatter: str,
+    config: dict[str, Any],
+    options: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Format one row field into a template cell.
 
     A cell is ``{"kind", "text", ...}`` where kind is ``text`` (plain),
     ``time`` (a localized instant), ``age`` (an elapsed time the browser
-    computes) or ``state`` (null / missing / blank, drawn muted so it can never
-    pass for a value). The three states are told apart on purpose: a field the
+    computes), ``link`` (text with an ``href``), ``longtext`` (prose the template
+    clamps to ``max_lines`` and lets the reader expand) or ``state`` (null / missing /
+    blank, drawn muted so it can never
+    pass for a value). ``options`` carries the per-line ``decimals``, ``max_lines`` and
+    ``link_template``. The three states are told apart on purpose: a field the
     row does not carry is a config mismatch, null is *unobserved*, and ``""``
     is observed-empty (the grid's null convention).
     """
@@ -238,6 +338,22 @@ def format_cell(row: dict[str, Any], field: str, formatter: str, config: dict[st
     if value == "":
         return {"kind": "state", "state": "blank", "text": config.get("blank_text", _DEFAULT_BLANK_TEXT)}
 
+    options = options or {}
+    if formatter == "longtext":
+        text = str(value)
+        if not text.strip():
+            return {"kind": "state", "state": "blank", "text": config.get("blank_text", _DEFAULT_BLANK_TEXT)}
+        return {"kind": "longtext", "text": text, "max_lines": options.get("max_lines") or _DEFAULT_MAX_LINES}
+    if formatter == "percent":
+        shown = percent_text(value, options.get("decimals", _DEFAULT_PERCENT_DECIMALS))
+        if shown is None:
+            return {"kind": "text", "text": str(value), "title": "not a fraction between 0 and 1"}
+        return {"kind": "text", "text": shown, "title": str(value)}
+    if formatter == "link":
+        href = identifier_href(options.get("link_template"), str(value))
+        if href is None:
+            return {"kind": "text", "text": str(value)}
+        return {"kind": "link", "text": str(value), "href": href}
     if formatter in ("number", "integer"):
         d = _decimal(value)
         if d is None:
@@ -294,12 +410,21 @@ def build_cards(rows: list[dict[str, Any]], config: dict[str, Any]) -> list[dict
             {
                 "index": index,
                 "title": title,
-                "value": format_cell(row, config["value_field"], config.get("value_formatter", "text"), config),
+                "value": format_cell(
+                    row,
+                    config["value_field"],
+                    config.get("value_formatter", "text"),
+                    config,
+                    {
+                        "decimals": config.get("value_decimals", _DEFAULT_PERCENT_DECIMALS),
+                        "link_template": config.get("value_link_template"),
+                    },
+                ),
                 "unit": config.get("unit", ""),
                 "lines": [
                     {
                         "label": line["label"],
-                        "cell": format_cell(row, line["field"], line.get("formatter", "text"), config),
+                        "cell": format_cell(row, line["field"], line.get("formatter", "text"), config, line),
                     }
                     for line in config.get("lines", [])
                 ],
