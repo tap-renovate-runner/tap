@@ -1,6 +1,6 @@
 """tap_viz models — Viz layout, projection, elevation, and arrangement entities.
 
-TAP-IMPLEMENTS: req-viz-info-window-row-link@48330d75451b/2c040b25fc11 (derivation) — the
+TAP-IMPLEMENTS: req-viz-info-window-row-link@48330d75451b/935e9b2fe526 (derivation) — the
     `info_window.row_url_template` property on a projection's badge-set schema; the
     placeholder-fill and same-origin enforcement it authorizes live client-side in
     `tap_viz/static/tap_viz/js/runtime/info-window.js` (`_buildRowUrl`), which `ast`-based
@@ -418,6 +418,14 @@ _PROJECTION_DEFINITION_SCHEMA: dict = {
                                                     "type": "string",
                                                     "enum": ["text", "number"],
                                                     "description": "`text` (default) shows the value as given; `number` shows a numeric value with one decimal place.",
+                                                },
+                                                "nowrap": {
+                                                    "type": "boolean",
+                                                    "description": (
+                                                        "True keeps this column's cell text on one line (no wrapping), so the "
+                                                        "column takes its content width within the window's width limits. "
+                                                        "Default false: text wraps."
+                                                    ),
                                                 },
                                             },
                                         },

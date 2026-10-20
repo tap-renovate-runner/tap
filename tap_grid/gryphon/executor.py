@@ -289,6 +289,10 @@ def _execute_gryphon_raw_impl(
     # correlation) and are not mandatory clauses, so they are outside this walk.
     _reject_variables_bound_in_multiple_match_clauses(ast.match_clauses)
 
+    # A WHERE leaf on a variable the ONE mandatory MATCH does not bind is refused here, for the same
+    # reason (req-grid-traversal-lang-shape-10); a multi-MATCH union keeps its per-clause scoping.
+    _reject_unbound_where_variables(ast)
+
     # A temporal offset comparison (and its LOOKUPs) is validated and resolved HERE, above the
     # dispatch fork and after folding: shapes it cannot apply to are refused before any path
     # that does not know the leaf can see it, then each lookup is checked by a counting read.
@@ -462,6 +466,48 @@ def _reject_variables_bound_in_multiple_match_clauses(match_clauses: tuple[Match
                     "scans are what you want. Composition is not built (tap#433, "
                     "req-grid-traversal-lang-shape-7)."
                 )
+
+
+def _where_leaf_variables(predicate: Predicate | None) -> list[str]:
+    """Every variable a WHERE tree's leaves name, in source order (duplicates kept)."""
+    if predicate is None:
+        return []
+    if isinstance(predicate, (AndPred, OrPred)):
+        return _where_leaf_variables(predicate.left) + _where_leaf_variables(predicate.right)
+    if isinstance(predicate, NotPred):
+        return _where_leaf_variables(predicate.operand)
+    if isinstance(predicate, (Comparison, InComparison, IsNullComparison, ObservationComparison)):
+        return [predicate.field_path.variable]
+    if isinstance(predicate, TemporalComparison):
+        return [predicate.offset.base.variable]
+    return []
+
+
+def _reject_unbound_where_variables(ast: GryphonAST) -> None:
+    """Refuse a WHERE leaf that names a variable the one MATCH does not bind (GRY-ARCH-3).
+
+    ``_filter_predicate_for_bindings`` keeps only the leaves whose variable a clause binds. That is
+    right for a multi-MATCH union, where one global WHERE is applied to each clause and a leaf on
+    another clause's variable must not apply here (``req-grid-traversal-lang-shape-5``). With ONE
+    mandatory MATCH there is no other clause the leaf could belong to, so the drop is a plain
+    accept-and-drop: a mistyped variable turns the filter into no filter and the query answers a
+    different question. Apply is impossible (there is nothing to filter on), so the leaf is refused
+    with the bound variables named. Only NAMED node and edge variables bind: an unnamed labelled
+    node is not addressable by its label. OPTIONAL MATCH shares its anchor with the MATCH by design
+    and keeps its own scoping; a union keeps the scoping above (``req-grid-traversal-lang-shape-10``).
+    """
+    if len(ast.match_clauses) != 1 or ast.optional_match_clauses or ast.where_clause is None:
+        return
+    bound = _clause_bound_variables(ast.match_clauses[0])
+    for var in _where_leaf_variables(ast.where_clause.predicate):
+        if var not in bound:
+            named = ", ".join(f"'{v}'" for v in sorted(bound)) or "none"
+            raise SearchExecutionError(
+                f"WHERE names variable '{var}', which this MATCH does not bind (bound: {named}). "
+                "Applying the filter is impossible, and dropping it would return every row the pattern "
+                "matches. Name the node in the pattern, e.g. (x:label), and use that name in WHERE "
+                "(req-grid-traversal-lang-shape-10)."
+            )
 
 
 def _fold_param_predicates(predicate: Predicate | None, inputs: dict[str, Any]) -> Predicate | bool | None:
@@ -2351,7 +2397,7 @@ def _pattern_position_paths(
 def _repeated_variable_equality_filters(pattern: PathPattern, hop_paths: list[dict[str, str]]) -> dict[str, Any]:
     """Unify a variable that occurs at more than one position in ONE pattern.
 
-    TAP-IMPLEMENTS: req-grid-traversal-lang-shape@c8c222fdd64d/ed5a2974378f (derivation) —
+    TAP-IMPLEMENTS: req-grid-traversal-lang-shape@ab31f21ebab1/ed5a2974378f (derivation) —
         `req-grid-traversal-lang-shape-9`: in-pattern variable reuse is a join, and this
         is the join — the one place the equality between two positions is emitted.
 

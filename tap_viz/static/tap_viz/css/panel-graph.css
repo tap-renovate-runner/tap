@@ -324,6 +324,12 @@
     font-variant-numeric: tabular-nums;
 }
 
+/* A column declared `nowrap: true` keeps its cell text on one line (req-viz-info-window-columns-11);
+   the window's min/max width rules still bound the table. */
+.tap-info-window__table--columns td.tap-info-window__cell--nowrap {
+    white-space: nowrap;
+}
+
 .tap-info-window__loading,
 .tap-info-window__error {
     padding: 4px 0;
