@@ -208,7 +208,7 @@ class TestConfigSchema:
         enums = [n["enum"] for n in _every_schema_node(STAT_CARD_CONFIG_SCHEMA) if "enum" in n]
         formatters = {"text", "number", "integer", "datetime", "age", "percent", "link", "longtext", "table"}
         # Closed presentation vocabularies (layout, title style, alignment) are not domain values either.
-        presentation = {"stacked", "figure_right", "normal", "bold", "left", "right", "center"}
+        presentation = {"stacked", "figure_right", "normal", "bold", "left", "right", "center", "body", "header", "beside", "above"}
         allowed = formatters | presentation | {"neutral", "good", "warn", "bad", "muted"}
         assert {v for e in enums for v in e} <= allowed
 
@@ -792,4 +792,88 @@ class TestFigureRightAndTable:
 
         css = (Path(tap_web.__file__).parent / "static" / "tap_web" / "css" / "stat-cards.css").read_text("utf-8")
         for needle in (".tap-statcard__head", ".tap-statcard--title-bold", ".tap-statcard__table", "border: 0"):
+            assert needle in css
+
+
+def _render_cards(config: dict[str, Any], row: dict[str, Any]) -> str:
+    """The panel template over cards built from one row; no search or DB needed."""
+    from types import SimpleNamespace
+
+    from django.template.loader import render_to_string
+
+    _validate_config(config)
+    panel = SimpleNamespace(name="p", config={**config, "hide_header": True})
+    return render_to_string(
+        "tap_web/panels/stat_card_panel.html",
+        {"panel": panel, "cards": build_cards([row], config), "cards_omitted": 0},
+    )
+
+
+_HEADER_CONFIG = {
+    "title_field": "source",
+    "value_field": "n",
+    "unit": "components",
+    "layout": "figure_right",
+    "lines": [
+        {"field": "blurb", "placement": "header"},
+        {"field": "second", "placement": "header"},
+        {"field": "values", "formatter": "table", "label": "Inventory", "label_placement": "above", **_TABLE_LINE},
+    ],
+}
+_HEADER_ROW = {"source": "alpha", "n": 3, "blurb": "<b>desc</b>", "second": "two", "values": [{"value": "v"}]}
+
+
+class TestHeaderLineAndCaption:
+    @pytest.mark.spec("req-web-stdpanel-statcards-card-11")
+    def test_the_first_header_line_sits_in_the_head_between_figure_and_unit_and_leaves_the_body(self):
+        html = _render_cards(_HEADER_CONFIG, _HEADER_ROW)
+        head = html[html.index('class="tap-statcard__head"') :]
+        head = head[: head.index("components")]
+        order = [head.index(m) for m in ("tap-statcard__title", "tap-statcard__value", "tap-statcard__headline")]
+        assert order == sorted(order)
+        assert "&lt;b&gt;desc&lt;/b&gt;" in html and "<b>desc</b>" not in html, "escaped, drawn once"
+        assert html.count("&lt;b&gt;desc&lt;/b&gt;") == 1
+        assert head.count("tap-statcard__unit") == 1
+        # The unit is its own element now, not inside the figure's paragraph.
+        assert 'class="tap-statcard__value">3</p>' in html.replace("\n", "").replace("  ", "")
+        # The second header line stays in the body.
+        assert html.count(">two<") == 1 and html.index(">two<") > html.index("tap-statcard__unit")
+
+    @pytest.mark.spec("req-web-stdpanel-statcards-card-11")
+    def test_header_placement_is_opt_in_and_needs_the_figure_right_layout(self):
+        cards = build_cards([_HEADER_ROW], {**_HEADER_CONFIG, "layout": "stacked"})
+        assert cards[0]["header_line"] is None and len(cards[0]["lines"]) == 3
+        plain = build_cards([_HEADER_ROW], {"value_field": "n", "lines": [{"field": "blurb"}]})[0]
+        assert plain["header_line"] is None and len(plain["lines"]) == 1
+        placed = build_cards([_HEADER_ROW], _HEADER_CONFIG)[0]
+        assert placed["header_line"]["cell"]["text"] == "<b>desc</b>" and len(placed["lines"]) == 2
+        assert "tap-statcard__headline" not in _render_cards({**_HEADER_CONFIG, "layout": "stacked"}, _HEADER_ROW)
+
+    @pytest.mark.spec("req-web-stdpanel-statcards-card-12")
+    def test_a_caption_above_is_a_paragraph_over_the_table_and_not_a_dt(self):
+        html = _render_cards(_HEADER_CONFIG, _HEADER_ROW)
+        assert '<p class="tap-statcard__caption">Inventory</p>' in html and "<dt>" not in html
+        assert html.index("tap-statcard__caption") < html.index("<table")
+        beside = _render_cards(
+            {**_HEADER_CONFIG, "lines": [{"field": "values", "label": "Inventory", **_TABLE_LINE}]}, _HEADER_ROW
+        )
+        assert "<dt>Inventory</dt>" in beside and "tap-statcard__caption" not in beside
+
+    @pytest.mark.spec("req-web-stdpanel-statcards-card-11")
+    @pytest.mark.spec("req-web-stdpanel-statcards-card-12")
+    def test_the_schema_bounds_and_describes_the_new_keys(self):
+        for bad in ({"placement": "footer"}, {"label_placement": "below"}):
+            with pytest.raises(ValidationError):
+                _validate_config({"value_field": "n", "lines": [{"field": "a", **bad}]})
+        line = STAT_CARD_CONFIG_SCHEMA["properties"]["lines"]["items"]["properties"]
+        assert line["placement"]["description"] and line["label_placement"]["description"]
+
+    @pytest.mark.spec("req-web-stdpanel-statcards-style-5")
+    def test_the_stylesheet_lays_the_head_out_as_a_grid_with_a_headline_and_caption(self):
+        from pathlib import Path
+
+        import tap_web
+
+        css = (Path(tap_web.__file__).parent / "static" / "tap_web" / "css" / "stat-cards.css").read_text("utf-8")
+        for needle in ("display: grid", ".tap-statcard__headline", ".tap-statcard__caption"):
             assert needle in css

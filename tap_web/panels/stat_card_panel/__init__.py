@@ -47,6 +47,8 @@ COLUMN_FORMATTERS: tuple[str, ...] = FORMATTERS
 LAYOUTS: tuple[str, ...] = ("stacked", "figure_right")
 TITLE_STYLES: tuple[str, ...] = ("normal", "bold")
 ALIGNS: tuple[str, ...] = ("left", "right", "center")
+PLACEMENTS: tuple[str, ...] = ("body", "header")
+LABEL_PLACEMENTS: tuple[str, ...] = ("beside", "above")
 
 _DEFAULT_MAX_CARDS = 24
 _DEFAULT_NULL_TEXT = "not observed"
@@ -135,6 +137,25 @@ STAT_CARD_CONFIG_SCHEMA: dict[str, Any] = {
                         "description": "Text label. Omit it and the value is drawn as plain text with no caption.",
                     },
                     "field": {**_FIELD, "description": "Alias of the row field shown."},
+                    "label_placement": {
+                        "type": "string",
+                        "enum": list(LABEL_PLACEMENTS),
+                        "description": (
+                            "Where the label sits. beside (default): a definition-list row, label left and value "
+                            "right. above: a small caption directly above the value, which then spans the card's "
+                            "width (for example over a table line). Ignored when the line has no label."
+                        ),
+                    },
+                    "placement": {
+                        "type": "string",
+                        "enum": list(PLACEMENTS),
+                        "description": (
+                            "Where the line is drawn. body (default): in the card body under the figure. header: "
+                            "directly under the title, in the left column of the layout figure_right header, on the "
+                            "same row as the unit under the figure; only the FIRST header line is placed there (its "
+                            "label is not drawn) and with any other layout the line stays in the body."
+                        ),
+                    },
                     "formatter": {
                         **_LINE_FORMATTER,
                         "description": (
@@ -487,16 +508,19 @@ def _table_cell(value: Any, config: dict[str, Any], options: dict[str, Any]) -> 
 
 
 def _line_groups(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Runs of consecutive labelled lines (a definition list each) and single unlabelled lines (plain text)."""
+    """Runs of consecutive labelled lines (a definition list each), single unlabelled lines (plain text) and
+    single captioned lines (``label_placement: "above"``: a small caption over the value)."""
     groups: list[dict[str, Any]] = []
     for line in lines:
-        if line["label"]:
+        if line["label"] and line.get("caption"):
+            groups.append({"labelled": False, "captioned": True, "lines": [line]})
+        elif line["label"]:
             if groups and groups[-1]["labelled"]:
                 groups[-1]["lines"].append(line)
             else:
-                groups.append({"labelled": True, "lines": [line]})
+                groups.append({"labelled": True, "captioned": False, "lines": [line]})
         else:
-            groups.append({"labelled": False, "lines": [line]})
+            groups.append({"labelled": False, "captioned": False, "lines": [line]})
     return groups
 
 
@@ -537,10 +561,18 @@ def build_cards(rows: list[dict[str, Any]], config: dict[str, Any]) -> list[dict
         lines = [
             {
                 "label": line.get("label", ""),
+                "caption": line.get("label_placement") == "above",
+                "header": line.get("placement") == "header",
                 "cell": format_cell(row, line["field"], line.get("formatter", "text"), config, line),
             }
             for line in config.get("lines", [])
         ]
+        # Only the figure_right header has room for a line; the FIRST header line moves there, the rest stay.
+        header_line = None
+        if config.get("layout") == "figure_right":
+            header_line = next((line for line in lines if line["header"]), None)
+            if header_line is not None:
+                lines = [line for line in lines if line is not header_line]
         cards.append(
             {
                 "index": index,
@@ -558,6 +590,7 @@ def build_cards(rows: list[dict[str, Any]], config: dict[str, Any]) -> list[dict
                     },
                 ),
                 "unit": config.get("unit", ""),
+                "header_line": header_line,
                 "lines": lines,
                 "line_groups": _line_groups(lines),
                 "tone": tone,

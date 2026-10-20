@@ -214,7 +214,7 @@ All keys except `value_field` are optional.
 | `unit` | string | Fixed unit or label beside the figure (hidden when the figure is a stated state). |
 | `title_field` | string | Row alias shown as the card title. |
 | `title` | string | Fixed title, used when `title_field` is absent or the row has no value for it. |
-| `lines` | array of `{field, label?, formatter?, decimals?, max_lines?, link_template?, columns?, empty_text?}` | Secondary lines, in order. `label` is optional: a line without one is plain text with no caption (`req-web-stdpanel-statcards-card-10`). A line may also use the `longtext` formatter, or `table` (an ARRAY field drawn as a borderless table, `columns` required, `empty_text` default `none`; `req-web-stdpanel-statcards-format-9`); `decimals` is for `percent`, `max_lines` (1..12, default 4) for `longtext`, `link_template` for `link`. |
+| `lines` | array of `{field, label?, label_placement?, placement?, formatter?, decimals?, max_lines?, link_template?, columns?, empty_text?}` | Secondary lines, in order. `label` is optional: a line without one is plain text with no caption (`req-web-stdpanel-statcards-card-10`). `label_placement` is `beside` (default, a definition-list row) or `above` (the label is a small caption directly over the value, which spans the card; `req-web-stdpanel-statcards-card-12`). `placement` is `body` (default) or `header`: with `layout: figure_right` the FIRST `header` line is drawn directly under the title in the header's left column, on the row of the unit under the figure, its label not drawn (`req-web-stdpanel-statcards-card-11`); with any other layout it stays in the body. A line may also use the `longtext` formatter, or `table` (an ARRAY field drawn as a borderless table, `columns` required, `empty_text` default `none`; `req-web-stdpanel-statcards-format-9`); `decimals` is for `percent`, `max_lines` (1..12, default 4) for `longtext`, `link_template` for `link`. |
 | `layout` | `stacked` \| `figure_right` | Card header. `stacked` (default): title, then figure with the unit beside it. `figure_right`: title top left, figure top right, large, the unit underneath it (`req-web-stdpanel-statcards-card-8`). |
 | `title_style` | `normal` \| `bold` | `bold` draws the title bold in the full text colour (`req-web-stdpanel-statcards-card-9`). Default `normal`. |
 | `tone` | tone name, or `{field, map, default?}` | Fixed tone, or the tone chosen by the row value of `field` through `map` (value as text to tone), `default` (else `neutral`) for an unlisted value. Tones: `neutral`, `good`, `warn`, `bad`, `muted` (the Table Panel's `toneBadge` vocabulary, plus `neutral`). |
@@ -266,7 +266,7 @@ Example, one card per scanner (a Search `RETURN s.name AS scanner, s.host AS run
 | req-web-stdpanel-statcards-config-1 | Strict Schema | Implemented | `value_field` is required and any undeclared key is rejected. | |
 | req-web-stdpanel-statcards-config-2 | Closed Vocabulary | Implemented | Formatters are the seven named (`longtext` and `table` also on lines); tones are the five named; `lines`, `tone` and `max_cards` are bounded and malformed values are rejected. | |
 | req-web-stdpanel-statcards-config-3 | Self-Describing | Implemented | The schema and every entry of it, including `lines[]` items and the `tone` object, carry a `description`. | Repo rule: JSON structures require descriptions. |
-| req-web-stdpanel-statcards-config-4 | No Domain Values | Implemented | Nothing in the schema enumerates a domain value, node id or tool name; the only enums are the formatter, tone and presentation (`layout`, `title_style`, column `align`) vocabularies. | |
+| req-web-stdpanel-statcards-config-4 | No Domain Values | Implemented | Nothing in the schema enumerates a domain value, node id or tool name; the only enums are the formatter, tone and presentation (`layout`, `title_style`, `placement`, `label_placement`, column `align`) vocabularies. | |
 
 ### Stat Cards Formatters
 ----
@@ -323,6 +323,8 @@ One card per row, in row order: an optional title (`title_field` value, else the
 | req-web-stdpanel-statcards-card-8 | Figure Right Layout | Implemented | With `layout: "figure_right"` the title is at the top left and the figure at the top right in one header row, with the unit underneath the figure; absent or `stacked`, the markup is unchanged. | Class `tap-statcard--figure-right`, wrapper `tap-statcard__head`. |
 | req-web-stdpanel-statcards-card-9 | Bold Title | Implemented | With `title_style: "bold"` the title is bold (class `tap-statcard--title-bold`); absent or `normal`, it is unchanged. | |
 | req-web-stdpanel-statcards-card-10 | Unlabelled Line | Implemented | A line without a `label` renders its value as plain text with no caption and no empty `<dt>`; labelled lines still form a definition list. | |
+| req-web-stdpanel-statcards-card-11 | Header Line | Implemented | With `layout: "figure_right"`, the first line with `placement: "header"` is drawn in `tap-statcard__headline` inside the header, in the left column directly under the title and on the row of the unit (which is its own element under the figure); it is not repeated in the body, and later header lines and every line under another layout stay in the body. | Header is a two-column grid. |
+| req-web-stdpanel-statcards-card-12 | Caption Above | Implemented | A labelled line with `label_placement: "above"` renders its label as a `<p class="tap-statcard__caption">` directly over the value (no `<dt>`), for any formatter including `table`; default `beside` keeps the definition-list row. | |
 
 ### Stat Cards Rendering
 ----
@@ -384,7 +386,7 @@ Trace: `non-python` — tap_web/static/tap_web/css/stat-cards.css
 | req-web-stdpanel-statcards-style-2 | Light And Dark Tokens | Implemented | Colours are tokens with light and dark values. | |
 | req-web-stdpanel-statcards-style-3 | Null Styled Apart | Implemented | A stated state (null, missing, blank) is italic and muted so it cannot pass for a value. | |
 | req-web-stdpanel-statcards-style-4 | Tone Text Colours | Implemented | Under `tone_text` the text colours are the tone tokens with light and dark values (the left edge's own tokens), clearing 4.5:1 on the card background in both schemes; a zero card is the muted text token, dimmed and still readable. | Computed colours read in a real browser, light and dark. |
-| req-web-stdpanel-statcards-style-5 | Figure Right And Table Styling | Implemented | The `figure_right` header is a flex row (title grows, figure right-aligned, unit as a block under it) and the table line has no borders or background, using the card's colour tokens. | Read in a real browser, light and dark. |
+| req-web-stdpanel-statcards-style-5 | Figure Right And Table Styling | Implemented | The `figure_right` header is a two-column grid (title and figure on the first row, the header line and the unit under them; figure and unit right-aligned) and the table line has no borders or background, using the card's colour tokens. | Read in a real browser, light and dark. |
 
 ## Status Vocabulary
 

@@ -16,7 +16,9 @@ browser (localtime.js / stat-cards.js) and read the exact ISO value without JS.
             {% if card.layout == "figure_right" %}
             <div class="tap-statcard__head">
                 {% if card.title %}<h3 class="tap-statcard__title">{% include "tap_web/panels/_stat_card_cell.html" with cell=card.title %}</h3>{% endif %}
-                <p class="tap-statcard__value">{% include "tap_web/panels/_stat_card_cell.html" with cell=card.value %}{% if card.unit and card.value.kind != "state" %} <span class="tap-statcard__unit">{{ card.unit }}</span>{% endif %}</p>
+                <p class="tap-statcard__value">{% include "tap_web/panels/_stat_card_cell.html" with cell=card.value %}</p>
+                {% if card.header_line %}<div class="tap-statcard__headline">{% include "tap_web/panels/_stat_card_cell.html" with cell=card.header_line.cell %}</div>{% endif %}
+                {% if card.unit and card.value.kind != "state" %}<span class="tap-statcard__unit">{{ card.unit }}</span>{% endif %}
             </div>
             {% else %}
             {% if card.title %}<h3 class="tap-statcard__title">{% include "tap_web/panels/_stat_card_cell.html" with cell=card.title %}</h3>{% endif %}
@@ -33,6 +35,13 @@ browser (localtime.js / stat-cards.js) and read the exact ISO value without JS.
                 </div>
                 {% endfor %}
             </dl>
+            {% elif group.captioned %}
+            {% for line in group.lines %}
+            <div class="tap-statcard__captioned">
+                <p class="tap-statcard__caption">{{ line.label }}</p>
+                <div class="tap-statcard__text">{% include "tap_web/panels/_stat_card_cell.html" with cell=line.cell %}</div>
+            </div>
+            {% endfor %}
             {% else %}
             {% for line in group.lines %}
             <div class="tap-statcard__text">{% include "tap_web/panels/_stat_card_cell.html" with cell=line.cell %}</div>

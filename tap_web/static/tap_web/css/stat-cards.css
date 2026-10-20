@@ -161,16 +161,25 @@
 
 /* layout: "figure_right" (req-web-stdpanel-statcards-layout): the title top left, the figure top right at the
    title's weight or larger, the unit underneath the figure. title_style "bold" makes the title bold in full ink. */
-.tap-statcard__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; }
-.tap-statcard--figure-right .tap-statcard__head .tap-statcard__title { flex: 1 1 auto; min-width: 0; margin: 0; }
-.tap-statcard--figure-right .tap-statcard__head .tap-statcard__value { flex: 0 0 auto; text-align: right; }
+.tap-statcard__head { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 0.75rem; align-items: start; }
+.tap-statcard--figure-right .tap-statcard__head .tap-statcard__title { grid-column: 1; grid-row: 1; margin: 0; }
+.tap-statcard--figure-right .tap-statcard__head .tap-statcard__value { grid-column: 2; grid-row: 1; text-align: right; }
 .tap-statcard--figure-right .tap-statcard__unit { display: block; font-size: 0.8rem; line-height: 1.2; }
+.tap-statcard__head .tap-statcard__unit { grid-column: 2; grid-row: 2; text-align: right; }
+/* placement "header" (req-web-stdpanel-statcards-card-11): the description sits under the title, in the left
+   column, on the row of the unit under the figure. */
+.tap-statcard__headline { grid-column: 1; grid-row: 2; min-width: 0; margin: 0; font-size: 0.85rem; color: var(--statcard-muted); }
 .tap-statcard--title-bold .tap-statcard__title { font-weight: 700; color: var(--statcard-text); }
 .tap-statcard--title-bold.tap-statcard--figure-right .tap-statcard__title { font-size: 1.1rem; line-height: 1.2; }
 .tap-statcard--title-bold.tap-statcard--tone-text .tap-statcard__title { color: var(--statcard-ink); }
 
 /* A line with no label (req-web-stdpanel-statcards-line-label) is plain text with no caption. */
 .tap-statcard__text { margin: 0.5rem 0 0; font-size: 0.85rem; }
+
+/* label_placement "above" (req-web-stdpanel-statcards-card-12): the label is a small caption directly over the value. */
+.tap-statcard__captioned { margin-top: 0.6rem; }
+.tap-statcard__caption { margin: 0 0 0.15rem; font-size: 0.75rem; font-weight: 600; color: var(--statcard-muted); }
+.tap-statcard__captioned .tap-statcard__text { margin-top: 0; }
 
 /* table line (req-web-stdpanel-statcards-table): borderless, no header row, the page background shows through. */
 .tap-statcard__line--table { display: block; }
