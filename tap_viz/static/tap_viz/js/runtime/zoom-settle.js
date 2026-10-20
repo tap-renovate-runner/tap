@@ -27,7 +27,7 @@ const DEFAULT_BAND = {
     arrow: {min_scale: 0.6, max_scale: 1.7},
     icon: {min_scale: 0.6, max_scale: 1.7},
 };
-const EPSILON = 1e-3;
+const EPSILON = 1 / 1024; // 2^-10: a binary fraction is exact (a decimal literal is not)
 const SCRATCH = "_tapZoomSettle";
 
 function _num(v) {
@@ -233,7 +233,7 @@ export function initZoomSettle(cy, rawConfig, hooks = {}) {
     }
 
     const onZoom = () => {
-        if (settledZoom !== null && Math.abs(cy.zoom() - settledZoom) < 0.000001) return;
+        if (settledZoom !== null && Math.abs(cy.zoom() - settledZoom) < 1 / 1048576) return; // 2^-20, exact
         schedule();
     };
     const onLayoutStart = () => {
