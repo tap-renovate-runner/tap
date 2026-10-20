@@ -1,6 +1,6 @@
 """tap_viz models — Viz layout, projection, elevation, and arrangement entities.
 
-TAP-IMPLEMENTS: req-viz-info-window-row-link@48330d75451b/935e9b2fe526 (derivation) — the
+TAP-IMPLEMENTS: req-viz-info-window-row-link@48330d75451b/73fd5f34890d (derivation) — the
     `info_window.row_url_template` property on a projection's badge-set schema; the
     placeholder-fill and same-origin enforcement it authorizes live client-side in
     `tap_viz/static/tap_viz/js/runtime/info-window.js` (`_buildRowUrl`), which `ast`-based
@@ -416,8 +416,49 @@ _PROJECTION_DEFINITION_SCHEMA: dict = {
                                                 },
                                                 "format": {
                                                     "type": "string",
-                                                    "enum": ["text", "number"],
-                                                    "description": "`text` (default) shows the value as given; `number` shows a numeric value with one decimal place.",
+                                                    "enum": ["text", "number", "percent"],
+                                                    "description": (
+                                                        "`text` (default) shows the value as given; `number` shows a numeric value with "
+                                                        "one decimal place; `percent` shows a fraction from 0 to 1 as a percentage "
+                                                        "(0.0004 as 0.04%), with `decimals` places."
+                                                    ),
+                                                },
+                                                "decimals": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "maximum": 6,
+                                                    "description": "Decimal places of a `percent` value. Default 2.",
+                                                },
+                                                "tone_steps": {
+                                                    "type": "array",
+                                                    "minItems": 1,
+                                                    "maxItems": 8,
+                                                    "description": (
+                                                        "Colours a numeric cell by thresholds: the first step, highest `min` first, whose "
+                                                        "`min` is at or below the value gives the cell its tone, drawn as a badge with the "
+                                                        "tone name as its tooltip. A value below every step, or not a number, shows as plain text."
+                                                    ),
+                                                    "items": {
+                                                        "type": "object",
+                                                        "required": ["min", "tone"],
+                                                        "additionalProperties": False,
+                                                        "properties": {
+                                                            "min": {
+                                                                "type": "number",
+                                                                "description": "Lowest value this step covers.",
+                                                            },
+                                                            "tone": {
+                                                                "type": "string",
+                                                                "enum": ["good", "warn", "bad", "muted", "info"],
+                                                                "description": "Badge tone, from the table panel's tone palette (`info` is the muted grey).",
+                                                            },
+                                                        },
+                                                    },
+                                                },
+                                                "zero_tone": {
+                                                    "type": "string",
+                                                    "enum": ["good", "warn", "bad", "muted", "info"],
+                                                    "description": "With `tone_steps`, the tone of a value that is exactly zero, taken instead of any step.",
                                                 },
                                                 "nowrap": {
                                                     "type": "boolean",

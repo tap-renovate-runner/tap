@@ -26,7 +26,7 @@ The first standard panel should be intentionally simple: a text panel that prove
 | req-web-stdpanel-statcards | [Stat Cards Panel](#stat-cards-panel) | Implemented | One metric card per row of the bound Search's `rows` result; `StatCardPanelType`, slug `stat-cards` |
 | req-web-stdpanel-statcards-type | [Stat Cards Panel Type](#stat-cards-panel-type) | Implemented | Registration, assets, defaults; `tap_web/panels/stat_card_panel/` |
 | req-web-stdpanel-statcards-config | [Stat Cards Config](#stat-cards-config) | Implemented | `STAT_CARD_CONFIG_SCHEMA`: fields named by row alias, never values; every entry described |
-| req-web-stdpanel-statcards-format | [Stat Cards Formatters](#stat-cards-formatters) | Implemented | `text`, `number`, `integer`, `datetime`, `age`; null / missing / blank are three stated states |
+| req-web-stdpanel-statcards-format | [Stat Cards Formatters](#stat-cards-formatters) | Implemented | `text`, `number`, `integer`, `datetime`, `age`, `percent`, `link`, `longtext`; null / missing / blank are three stated states |
 | req-web-stdpanel-statcards-card | [Stat Card Anatomy](#stat-card-anatomy) | Implemented | Title, figure, unit, secondary lines, tone chosen fixed or by a field's value |
 | req-web-stdpanel-statcards-render | [Stat Cards Rendering](#stat-cards-rendering) | Implemented | Semantic server-rendered markup; empty state; stated errors; card cap |
 | req-web-stdpanel-statcards-age | [Stat Cards Age And Local Time](#stat-cards-age-and-local-time) | Implemented | Age computed in the browser against now; exact timestamp in the tooltip |
@@ -208,11 +208,13 @@ All keys except `value_field` are optional.
 | Key | Type | Meaning |
 | --- | --- | --- |
 | `value_field` | string, required | Row alias of the main figure. |
-| `value_formatter` | `text` \| `number` \| `integer` \| `datetime` \| `age` | Formatter of the figure; `text` when omitted. |
+| `value_formatter` | `text` \| `number` \| `integer` \| `datetime` \| `age` \| `percent` \| `link` | Formatter of the figure; `text` when omitted. |
+| `value_decimals` | integer 0..6 | Decimal places of the figure under `percent`. Default 2. |
+| `value_link_template` | string (max 300) | URL template of the figure under `link` (`{value}`, `{number}`; see [Stat Cards Formatters](#stat-cards-formatters)). |
 | `unit` | string | Fixed unit or label beside the figure (hidden when the figure is a stated state). |
 | `title_field` | string | Row alias shown as the card title. |
 | `title` | string | Fixed title, used when `title_field` is absent or the row has no value for it. |
-| `lines` | array of `{label, field, formatter?}` | Secondary label/value lines, in order. |
+| `lines` | array of `{label, field, formatter?, decimals?, max_lines?, link_template?}` | Secondary label/value lines, in order. A line may also use the `longtext` formatter; `decimals` is for `percent`, `max_lines` (1..12, default 4) for `longtext`, `link_template` for `link`. |
 | `tone` | tone name, or `{field, map, default?}` | Fixed tone, or the tone chosen by the row value of `field` through `map` (value as text to tone), `default` (else `neutral`) for an unlisted value. Tones: `neutral`, `good`, `warn`, `bad`, `muted` (the Table Panel's `toneBadge` vocabulary, plus `neutral`). |
 | `tone_text` | boolean | The card's title, figure and unit are drawn in the tone colour, not only the left edge (`req-web-stdpanel-statcards-card-7`). Default false. |
 | `zero_tone` | tone name | The tone a card takes INSTEAD of `tone` when its figure (`value_field`) is the number zero, for example `muted` to grey out a count of nothing (`req-web-stdpanel-statcards-card-6`). Absent: a zero keeps its tone. |
@@ -260,7 +262,7 @@ Example, one card per scanner (a Search `RETURN s.name AS scanner, s.host AS run
 | ACID | Title | Status | Description | Notes |
 | --- | --- | :---: | --- | --- |
 | req-web-stdpanel-statcards-config-1 | Strict Schema | Implemented | `value_field` is required and any undeclared key is rejected. | |
-| req-web-stdpanel-statcards-config-2 | Closed Vocabulary | Implemented | Formatters are the five named; tones are the five named; `lines`, `tone` and `max_cards` are bounded and malformed values are rejected. | |
+| req-web-stdpanel-statcards-config-2 | Closed Vocabulary | Implemented | Formatters are the seven named (`longtext` also on lines); tones are the five named; `lines`, `tone` and `max_cards` are bounded and malformed values are rejected. | |
 | req-web-stdpanel-statcards-config-3 | Self-Describing | Implemented | The schema and every entry of it, including `lines[]` items and the `tone` object, carry a `description`. | Repo rule: JSON structures require descriptions. |
 | req-web-stdpanel-statcards-config-4 | No Domain Values | Implemented | Nothing in the schema enumerates a domain value, node id or tool name; the only enums are the formatter and tone vocabularies. | |
 
@@ -276,6 +278,9 @@ A formatter turns one row value into a cell. Every cell is either a value or one
 - `text`: the value as written. `number`: a plain number, thousands separator, trailing zeros dropped (`9.8`, `1,234.5`). `integer`: rounded, thousands separator (`1,234`). A value that is not a number is shown as written with the tooltip `not a number`.
 - `datetime`: a `<time data-tap-localtime datetime="…Z">` that `localtime.js` shows in the viewer's locale and zone with the exact UTC instant in the tooltip (`req-web-time-single-helper`: the same helper the Table Panel's `datetime` column uses; no code is copied).
 - `age`: see `req-web-stdpanel-statcards-age`.
+- `percent`: a fraction from 0 to 1 as a percentage (`0.0004` is `0.04%`), `decimals` places (0 to 6, default 2), the raw value as the tooltip. A value outside 0 to 1, or not a number, is shown as written with the tooltip `not a fraction between 0 and 1`.
+- `link`: the value as text, linked to the URL the template builds. `{value}` is the value, URL-encoded, and `{number}` is the first run of digits in it (`CWE-79` gives `79`), so `https://cwe.mitre.org/data/definitions/{number}.html` links a CWE id. A template naming another placeholder, a `{number}` with no digits, or a result that is not an absolute `http(s)` URL or a same-origin path leaves the plain text. The anchor opens in a new tab (`rel="noopener noreferrer"`).
+- `longtext` (secondary lines only): a long prose value (a CVE description) wrapped and cut to `max_lines` lines (default 4). The cell is a `<details>` whose summary holds the whole text, so every word is in the markup and a click on it expands (and collapses) it with no script; CSS does the cut. `stat-cards.js` hides the "Show all" cue on a value that already fits. A null, missing or blank value is the usual stated state, never an empty cell.
 - A field the row does not carry is `missing` (a Search/config mismatch, `missing_text`); a null is `null` (unobserved, `null_text`); an empty string is `blank` (observed-empty, `blank_text`) — the grid's convention that null means unobserved and `""` means observed-empty. Zero is a value.
 
 #### Acceptance Criteria
@@ -286,6 +291,10 @@ A formatter turns one row value into a cell. Every cell is either a value or one
 | req-web-stdpanel-statcards-format-2 | Date-Time | Implemented | `datetime` normalizes to the exact UTC instant and renders a `<time data-tap-localtime>` for the shared local-time helper. | |
 | req-web-stdpanel-statcards-format-3 | Age Carries The Instant | Implemented | `age` renders the exact UTC instant for the browser to measure; an unparseable value is shown as written. | |
 | req-web-stdpanel-statcards-format-4 | Three Stated States | Implemented | Missing, null and empty-string values each render configured text in a distinct style, never an empty cell; zero is a value. | |
+| req-web-stdpanel-statcards-format-5 | Percent | Implemented | `percent` shows a 0..1 fraction as a percentage with `decimals` places (default 2); any other value is shown as written and flagged. | |
+| req-web-stdpanel-statcards-format-6 | Identifier Link | Implemented | `link` builds an `href` from `link_template` with `{value}` and `{number}`; an unfillable template or an unsafe URL leaves plain text. | |
+| req-web-stdpanel-statcards-format-7 | Long Text | Implemented | `longtext` renders the whole value inside a `<details>` clamped to `max_lines` lines, expandable with no script; a null, missing or blank value is a stated state. | |
+| req-web-stdpanel-statcards-format-8 | Schema Bounds | Implemented | The new keys are described and bounded: `decimals` 0..6, `max_lines` 1..12, `link_template` at most 300 characters. | |
 
 ### Stat Card Anatomy
 ----

@@ -175,6 +175,8 @@ TABLE_CONFIG_SCHEMA: dict[str, Any] = {
                         "passFailBadge",
                         "conclusionBadge",
                         "toneBadge",
+                        "toneThreshold",
+                        "percent",
                         "capitalized",
                         "externalLink",
                         "link",
@@ -192,8 +194,9 @@ TABLE_CONFIG_SCHEMA: dict[str, Any] = {
                 # Per-formatter parameters, handed to the JS formatter as
                 # Tabulator formatterParams. Free-form by design: each
                 # formatter documents its own keys in the spec (link:
-                # href_field | href_template, external; elapsed: start, end;
-                # iconMap: icons, labels, show_text).
+                # href_field | href_template | value_href_template, external;
+                # elapsed: start, end; iconMap: icons, labels, show_text;
+                # toneThreshold: steps, zero_tone, decimals; percent: decimals).
                 "formatter_params": {"type": "object"},
                 # A named sorter for the column. `severityRank` orders severity words
                 # (critical, high, medium, low and the like) by rank, not alphabetically.

@@ -104,3 +104,41 @@ test("nowrap absent or false leaves the output identical to before (columns-12)"
     assert.equal(falsy, plain);
     assert.doesNotMatch(plain, /nowrap/);
 });
+
+test("percent format shows a 0..1 fraction as a percentage with decimals places", () => {
+    const col = (extra) => [{field: "p", label: "P", format: "percent", ...extra}];
+    const cell = (v, extra) => tds(renderInfoTable([{p: v}], {columns: col(extra)}))[0][0];
+    assert.equal(cell(0.0004), "0.04%");
+    assert.equal(cell(0.5), "50.00%");
+    assert.equal(cell(0.12345, {decimals: 1}), "12.3%");
+    assert.equal(cell(1, {decimals: 0}), "100%");
+    assert.equal(cell(0), "0.00%");
+    assert.equal(cell("0.25", {decimals: 0}), "25%");
+    // not a fraction: shown as given, never hidden
+    assert.equal(cell(1.5), "1.5");
+    assert.equal(cell("n/a"), "n/a");
+    assert.equal(cell(null), "");
+});
+
+test("tone_steps draws a numeric cell as a toned badge, highest min first", () => {
+    const steps = [{min: 0.0001, tone: "info"}, {min: 7, tone: "bad"}, {min: 4, tone: "warn"}]; // order must not matter
+    const cols = [{field: "c", label: "CVSS", format: "number", tone_steps: steps, zero_tone: "muted"}];
+    const cell = (v) => tds(renderInfoTable([{c: v}], {columns: cols}))[0][0];
+    assert.equal(cell(9.8), '<span class="tap-info-window__tone tap-info-window__tone--bad" title="bad">9.8</span>');
+    assert.match(cell(7), /tone--bad/);
+    assert.match(cell(5.5), /tone--warn/);
+    assert.match(cell(4), /tone--warn/);
+    assert.match(cell(0.5), /tone--info/);
+    assert.match(cell(0), /tone--muted/);
+    // below every step, negative or not a number: plain text
+    assert.equal(cell(-1), "-1.0");
+    assert.equal(cell("n/a"), "n/a");
+    assert.equal(cell(null), "");
+    assert.equal(cell(""), "");
+});
+
+test("a toned cell keeps the row link inside the badge", () => {
+    const cols = [{field: "c", label: "C", link: true, tone_steps: [{min: 0, tone: "good"}]}];
+    const html = renderInfoTable([{c: 3, finding_id: "f1"}], {columns: cols, row_url_template: "/x?i={finding_id}"});
+    assert.match(tds(html)[0][0], /^<span class="tap-info-window__tone tap-info-window__tone--good" title="good"><a class="tap-info-window__row-link" href="\/x\?i=f1">3<\/a><\/span>$/);
+});

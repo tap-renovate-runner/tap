@@ -263,6 +263,48 @@ class TestInfoWindowColumnsSchema:
         )
         jsonschema.validate(d, _PROJECTION_DEFINITION_SCHEMA)
 
+    @pytest.mark.spec("req-viz-info-window-columns-14")
+    def test_percent_format_and_decimals(self):
+        for decimals in (0, 2, 6):
+            jsonschema.validate(
+                _columns_definition([{"field": "p", "label": "P", "format": "percent", "decimals": decimals}]),
+                _PROJECTION_DEFINITION_SCHEMA,
+            )
+        for bad in ({"decimals": 7}, {"decimals": -1}, {"decimals": 1.5}):
+            with pytest.raises(jsonschema.ValidationError):
+                jsonschema.validate(
+                    _columns_definition([{"field": "p", "label": "P", "format": "percent", **bad}]),
+                    _PROJECTION_DEFINITION_SCHEMA,
+                )
+
+    @pytest.mark.spec("req-viz-info-window-columns-16")
+    def test_tone_steps_and_zero_tone(self):
+        steps = [{"min": 7, "tone": "bad"}, {"min": 4, "tone": "warn"}, {"min": 0.0001, "tone": "info"}]
+        jsonschema.validate(
+            _columns_definition(
+                [{"field": "c", "label": "C", "format": "number", "tone_steps": steps, "zero_tone": "muted"}]
+            ),
+            _PROJECTION_DEFINITION_SCHEMA,
+        )
+
+    @pytest.mark.spec("req-viz-info-window-columns-16")
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            {"tone_steps": []},
+            {"tone_steps": [{"min": 1, "tone": "purple"}]},
+            {"tone_steps": [{"tone": "bad"}]},
+            {"tone_steps": [{"min": "7", "tone": "bad"}]},
+            {"tone_steps": [{"min": 1, "tone": "bad", "extra": 1}]},
+            {"zero_tone": "purple"},
+        ],
+    )
+    def test_bad_tone_steps_are_rejected(self, bad):
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(
+                _columns_definition([{"field": "c", "label": "C", **bad}]), _PROJECTION_DEFINITION_SCHEMA
+            )
+
     @pytest.mark.spec("req-viz-info-window-columns-11")
     def test_nowrap_accepted_true_and_false(self):
         for value in (True, False):

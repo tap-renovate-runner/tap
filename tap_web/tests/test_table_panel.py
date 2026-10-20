@@ -195,6 +195,72 @@ class TestTableConfigSchema:
     def test_tone_badge_is_a_known_formatter(self):
         _validate_table_config({"columns": [{"field": "data.state", "title": "State", "formatter": "toneBadge"}]})
 
+    @pytest.mark.spec("req-web-stdpanel-table-config-19")
+    def test_tone_threshold_takes_steps_and_a_zero_tone(self):
+        _validate_table_config(
+            {
+                "columns": [
+                    {
+                        "field": "cvss",
+                        "title": "CVSS",
+                        "formatter": "toneThreshold",
+                        "formatter_params": {
+                            "steps": [
+                                {"min": 7, "tone": "bad"},
+                                {"min": 4, "tone": "warn"},
+                                {"min": 0.0001, "tone": "info"},
+                            ],
+                            "zero_tone": "muted",
+                        },
+                    }
+                ]
+            }
+        )
+
+    @pytest.mark.spec("req-web-stdpanel-table-config-20")
+    def test_percent_is_a_known_formatter(self):
+        _validate_table_config(
+            {
+                "columns": [
+                    {"field": "epss", "title": "EPSS", "formatter": "percent", "formatter_params": {"decimals": 2}}
+                ]
+            }
+        )
+
+    @pytest.mark.spec("req-web-stdpanel-table-config-21")
+    def test_link_takes_a_value_href_template(self):
+        _validate_table_config(
+            {
+                "columns": [
+                    {
+                        "field": "cwe",
+                        "title": "CWE",
+                        "formatter": "link",
+                        "formatter_params": {
+                            "value_href_template": "https://cwe.mitre.org/data/definitions/{number}.html"
+                        },
+                    }
+                ]
+            }
+        )
+
+    @pytest.mark.spec("req-web-stdpanel-table-config-19")
+    @pytest.mark.spec("req-web-stdpanel-table-config-20")
+    @pytest.mark.spec("req-web-stdpanel-table-config-21")
+    def test_the_shipped_script_has_the_formatters_and_reuses_the_tone_palette(self):
+        from pathlib import Path
+
+        import tap_web
+
+        js = (Path(tap_web.__file__).parent / "static" / "tap_web" / "js" / "panel-table.js").read_text(
+            encoding="utf-8"
+        )
+        for name in ("toneThreshold:", "percent:", "value_href_template", "_TONE_PALETTE[tone]"):
+            assert name in js, name
+        # toneBadge and toneThreshold share one palette, defined once.
+        assert js.count("var _TONE_PALETTE = {") == 1
+        assert js.count("_TONE_PALETTE[tone]") == 2
+
     def test_capitalized_is_a_known_formatter(self):
         _validate_table_config({"columns": [{"field": "data.role", "title": "Role", "formatter": "capitalized"}]})
 
