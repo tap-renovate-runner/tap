@@ -5,8 +5,16 @@
 | Bucket | Count |
 | --- | ---: |
 | mapped | 8 |
-| unaccounted | 1 |
+| excluded | 1 |
 | 0-ACID (payable) | 0 |
+
+## Exclusions
+
+Reasons verbatim from each `Trace:` line; ⚠ marks zero-ACID exempt.
+
+| RID | Category | 0-ACID | Reason |
+| --- | --- | :---: | --- |
+| `req-web-theme-scope` | narrative |  | it states what the theme does not cover; there is no behaviour to test beyond the documentation row |
 
 ## Evidence
 
