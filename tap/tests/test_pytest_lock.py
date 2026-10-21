@@ -5,6 +5,7 @@ Spec: specs/spec-dev-validation.md (req-dev-validation-suite-tiers-7).
 
 from __future__ import annotations
 
+import fcntl
 import os
 import signal
 import subprocess  # nosec B404 — fixed argv: this interpreter + a literal -c program, in a temp dir
@@ -153,3 +154,23 @@ def test_a_killed_holder_cannot_release_the_lock_while_its_pytest_lives(tmp_path
                 os.killpg(pgid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
+
+
+@pytest.mark.spec("req-dev-validation-suite-tiers-7")
+def test_stop_does_not_signal_an_unrelated_process_that_reused_the_recorded_pid(tmp_path: Path) -> None:
+    """A dead holder's pid/pgid can be reused. `stop` must check the process is ours before it signals."""
+    lock = tmp_path / "pytest.lock"
+    bystander = subprocess.Popen(  # nosec B603 B607  # nosemgrep  # noqa: S603
+        [sys.executable, "-c", "import time; time.sleep(120)"]
+    )
+    fd = os.open(lock, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)  # the lock is held, as if by an orphaned pytest
+        os.write(fd, f"old lane pid={bystander.pid} since=00:00:00 pgid={bystander.pid}\n".encode())
+        report = stop(lock)
+        assert bystander.poll() is None, "stop signalled an unrelated process"
+        assert str(bystander.pid) in report or "gone" in report or "no process group" in report
+    finally:
+        bystander.kill()
+        bystander.wait()
+        os.close(fd)

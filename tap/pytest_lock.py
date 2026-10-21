@@ -123,7 +123,10 @@ def hold_pytest_lock(who: str, *, wait: bool = True, path: Path | None = None) -
             fcntl.flock(fd, fcntl.LOCK_EX)
             last_wait_seconds = time.monotonic() - waited_from
         os.ftruncate(fd, 0)
-        os.write(fd, f"{who} pid={os.getpid()} since={time.strftime('%H:%M:%S')}\n".encode())
+        os.write(
+            fd,
+            f"{who} pid={os.getpid()} pstart={_proc_start(os.getpid())} since={time.strftime('%H:%M:%S')}\n".encode(),
+        )
         os.environ[_HELD_ENV] = "1"
         global _lock_fd
         _lock_fd = fd
@@ -175,7 +178,7 @@ def _record_pgid(pgid: int) -> None:
     try:
         text = os.pread(_lock_fd, 512, 0).decode().strip()
         os.ftruncate(_lock_fd, 0)
-        os.pwrite(_lock_fd, f"{text} pgid={pgid}\n".encode(), 0)
+        os.pwrite(_lock_fd, f"{text} pgid={pgid} gstart={_proc_start(pgid)}\n".encode(), 0)
     except OSError:
         pass
 
@@ -210,13 +213,36 @@ def run_group(argv: list[str], env: dict[str, str], *, capture: bool = False) ->
             signal.signal(s, handler)
 
 
+def _proc_start(pid: int) -> int | None:
+    """The process's start time in clock ticks since boot (``/proc/<pid>/stat`` field 22), or None."""
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    try:
+        # comm (field 2) may contain spaces and parentheses: split after the LAST ')'.
+        return int(stat.rsplit(")", 1)[1].split()[19])
+    except IndexError, ValueError:
+        return None
+
+
+def _is_ours(pid: int, recorded_start: int | None) -> bool:
+    """True when ``pid`` is still the process whose start time the lock recorded (guards PID reuse).
+
+    The lock text's pid and pgid are numbers a dead holder left behind; the kernel may have handed them to
+    an unrelated process since, and signalling one without this check would kill the wrong thing. A lock
+    text with no recorded start time cannot be verified and is refused.
+    """
+    return recorded_start is not None and _proc_start(pid) == recorded_start
+
+
 def stop(path: Path | None = None) -> str:
     """TERM the lock holder (which kills its pytest group). Returns a one-line report."""
     if not is_locked(path):
         return "no pytest run holds the lock"
     pid, pgid = holder_pid(path), holder_pgid(path)
     try:
-        if pid is None:
+        if pid is None or not _is_ours(pid, _holder_field("pstart", path)):
             raise ProcessLookupError
         os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
@@ -225,6 +251,8 @@ def stop(path: Path | None = None) -> str:
         if pgid is None:
             return f"the lock is held but holder pid {pid} is gone and no process group is recorded; look for pytest in `ps`"
         try:
+            if not _is_ours(pgid, _holder_field("gstart", path)):
+                raise ProcessLookupError
             os.killpg(pgid, signal.SIGKILL)
         except ProcessLookupError:
             return f"holder pid {pid} and group {pgid} are gone; the lock will clear on its own"
