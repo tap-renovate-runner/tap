@@ -233,6 +233,18 @@ def test_the_lane_report_attributes_wait_run_and_load() -> None:
     assert "waited 612 s" in line and "ran 30 s" in line and "load average" in line and "CPUs" in line
 
 
+@pytest.mark.spec("req-dev-validation-suite-tiers-6")
+def test_a_lane_with_no_core_and_no_plugin_suite_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("TAP_PYTEST_LOCK", str(tmp_path / "lock"))
+    monkeypatch.delenv("TAP_PYTEST_LOCK_HELD", raising=False)
+    monkeypatch.setattr(lane_run, "plugin_suites", lambda: [])
+    monkeypatch.setattr(lane_run, "installed_plugin_slugs", lambda: [])
+    assert lane_run.main(["--root", str(tmp_path), "--no-core", "--no-plugins", "--"]) == 2
+    assert "would run no tests" in capsys.readouterr().err
+
+
 def test_summary_renders_verdict(tmp_path: Path) -> None:
     r = OwnerResult(owner="core", paths=["/app"], collected=10, passed=10)
     text = render_summary([r], [], [], None)

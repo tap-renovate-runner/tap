@@ -343,6 +343,12 @@ def main(argv: list[str] | None = None) -> int:
             + (", ".join(left_out) or "none")
             + " — each plugin's own CI owns its suite; the server gate is the authority.\n"
         )
+    if args.no_core and not owners:
+        sys.stderr.write(
+            "--no-core with no plugin suite selected: the lane would run no tests and report green. "
+            "Name at least one installed suite (--only <slug>) or drop --no-core.\n"
+        )
+        return 2
     results: list[OwnerResult] = []
     load, cpus = os.getloadavg()[0], os.cpu_count() or 1
     if load > cpus:

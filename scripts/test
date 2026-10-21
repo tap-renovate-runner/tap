@@ -94,6 +94,13 @@ while [[ "${1:-}" == "--plugins" || "${1:-}" == --plugins=* || "${1:-}" == "--no
   fi
 done
 
+if [[ "$no_core" -eq 1 && ${#extra_plugins[@]} -eq 0 ]]; then
+  # --no-core means "just these plugin suites". With none named the corpus may still be added by the
+  # relevance gate below, but an empty lane must never be a green one.
+  echo "scripts/test: --no-core needs --plugins <slug> (otherwise the lane could run no tests and still exit 0)." >&2
+  exit 2
+fi
+
 # Decide whether to run the corpus.
 run_gryphon=1
 if [[ "$gryphon_mode" == "on" ]]; then

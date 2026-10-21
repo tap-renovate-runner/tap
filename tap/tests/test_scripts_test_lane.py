@@ -140,3 +140,12 @@ def test_no_core_with_plugins_runs_just_those_suites(lane) -> None:
     assert "--no-core" in flipped.stdout and "--only rampart_20x_playground" in flipped.stdout
     refused = run("--fast", "--no-core")
     assert refused.returncode == 2 and "--fast-relevant only" in refused.stderr
+
+
+@pytest.mark.spec("req-dev-validation-suite-tiers-6")
+def test_no_core_without_plugins_is_refused_not_an_empty_green_lane(lane) -> None:
+    run, touch = lane
+    touch("tap_web/x.py")
+    out = run("--fast-relevant", "--no-core")
+    assert out.returncode == 2 and "--no-core needs --plugins" in out.stderr
+    assert "DC:" not in out.stdout  # it never reached the container
