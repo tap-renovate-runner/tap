@@ -21,7 +21,7 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from xml.etree import ElementTree as ET  # nosec B405 - DOCTYPE/ENTITY refused before parsing; see sanitize_svg
+from xml.etree import ElementTree as ET  # nosemgrep  # nosec B405 - DOCTYPE/ENTITY refused before parsing; see sanitize_svg
 
 from django.conf import settings
 from django.utils.safestring import SafeString, mark_safe
@@ -101,7 +101,7 @@ def sanitize_svg(text: str, *, label: str) -> SafeString:
     if "<!doctype" in lowered or "<!entity" in lowered:
         raise UnsafeGlyphError("a DOCTYPE or ENTITY declaration is not allowed")
     try:
-        root = ET.fromstring(text)  # nosec B314 - DOCTYPE/ENTITY refused above, so no entity expansion
+        root = ET.fromstring(text)  # nosemgrep  # nosec B314 - DOCTYPE/ENTITY refused above, so no entity expansion
     except ET.ParseError as exc:
         raise UnsafeGlyphError(f"not well-formed XML: {exc}") from exc
     if root.tag != f"{{{SVG_NS}}}svg":
@@ -123,7 +123,7 @@ def sanitize_svg(text: str, *, label: str) -> SafeString:
     root.set("class", GLYPH_CSS_CLASS)
     root.set("focusable", "false")
     ET.register_namespace("", SVG_NS)
-    return mark_safe(ET.tostring(root, encoding="unicode"))  # noqa: S308  # nosec B703 B308 - rebuilt from the allow-listed tree above
+    return mark_safe(ET.tostring(root, encoding="unicode"))  # noqa: S308  # nosemgrep  # nosec B703 B308 - rebuilt from the allow-listed tree above
 
 
 @dataclass(frozen=True)

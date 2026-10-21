@@ -215,7 +215,7 @@
       if (cur == null || typeof cur !== "object") return undefined;
       // Own keys only: a path segment can never reach the prototype chain (__proto__, constructor).
       if (!Object.prototype.hasOwnProperty.call(cur, segments[i])) return undefined;
-      cur = cur[segments[i]];
+      cur = Object.getOwnPropertyDescriptor(cur, segments[i]).value;
     }
     return cur;
   }
