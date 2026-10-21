@@ -86,7 +86,7 @@ it.
 
 4. **Run the LANE, not a subset.** This is the step that was skipped.
 
-       scripts/test --fast-relevant     # the promote's own local lane
+       scripts/test --fast-relevant     # the promote's own local lane: core walk + corpus when relevant, no other plugin suite
        scripts/test                     # FULL, the promote gate, ~9-10 min
 
    A green `tap_auth` says nothing about `tap/tests/test_requirement_dispositions.py`.

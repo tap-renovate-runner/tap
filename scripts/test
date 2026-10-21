@@ -21,6 +21,8 @@
 #                           (~7-18 min of scenarios), unconditionally. NOT a gate: a
 #                           local accelerator, so it skips the gryphon guards, which
 #                           the full lane still runs (req-dev-validation-suite-tiers-4).
+#   scripts/test --fast-relevant  The PROMOTE lane: core walk + the corpus when the diff touches
+#                           the executor footprint, and NO other plugin suite (tap#1092).
 #   scripts/test <args...>  Extra args pass through to pytest, e.g.
 #                           scripts/test tap_auth -k login
 #                           scripts/test --fast tap_web
@@ -132,6 +134,17 @@ if [[ "$run_gryphon" -eq 1 ]]; then
   lane_args+=(--require "$GRYPHON_CORPUS_SLUG")
 else
   lane_args+=(--exclude "$GRYPHON_CORPUS_SLUG")
+fi
+# --fast-relevant is the promote's local lane and is SCOPED (tap#1092): the core walk, plus the
+# corpus when the relevance gate chose it, and no other plugin suite. A plugin's own suite belongs
+# to its repo's CI (plugins float; core_ci is fixtures-only), so running every installed one on a
+# core promote cost tens of minutes in the shadow of the server gate. The other lanes keep theirs.
+if [[ "$gryphon_mode" == "relevance" ]]; then
+  if [[ "$run_gryphon" -eq 1 ]]; then
+    lane_args+=(--only "$GRYPHON_CORPUS_SLUG")
+  else
+    lane_args+=(--no-plugins)
+  fi
 fi
 exec scripts/dc exec "${tty_args[@]}" web sh -c \
   'cd /app && exec uv run python -m tap.lane_run "$@"' _ "${lane_args[@]}" -- "${pytest_args[@]}"

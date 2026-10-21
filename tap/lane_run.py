@@ -248,12 +248,18 @@ def render_summary(results: list[OwnerResult], omissions: list[str], reasons: li
     return "\n".join(lines) + "\n"
 
 
-def build_plan(root: Path, suites: list[PluginSuite], exclude: set[str]) -> tuple[OwnerResult, list[OwnerResult]]:
-    """The core walk (root minus every plugin dir under it) and one owner per plugin suite."""
+def build_plan(
+    root: Path, suites: list[PluginSuite], exclude: set[str], only: set[str] | None = None
+) -> tuple[OwnerResult, list[OwnerResult]]:
+    """The core walk (root minus every plugin dir under it) and one owner per plugin suite.
+
+    ``only`` narrows the plugin suites to the named slugs (``None`` = no narrowing, an empty set =
+    no plugin suite at all); ``exclude`` removes named slugs from whatever ``only`` leaves.
+    """
     core = OwnerResult(owner="core", paths=[str(root)])
     owners: list[OwnerResult] = []
     for st in suites:
-        if st.slug in exclude:
+        if st.slug in exclude or (only is not None and st.slug not in only):
             continue
         if st.tests_dir is None:
             owners.append(OwnerResult(owner=st.slug, paths=[], has_test_files=False, notes=["ships no tests/ dir"]))
@@ -286,6 +292,17 @@ def main(argv: list[str] | None = None) -> int:
         help="slug to leave out of this run (repeatable; e.g. the corpus on a fast lane)",
     )
     parser.add_argument(
+        "--only",
+        action="append",
+        default=[],
+        help="run ONLY the named plugin suites (repeatable); every other plugin suite is left out",
+    )
+    parser.add_argument(
+        "--no-plugins",
+        action="store_true",
+        help="run no plugin suite at all (the core walk only); a plugin's suite belongs to its own repo's CI",
+    )
+    parser.add_argument(
         "--summary",
         type=Path,
         default=Path(os.environ["GITHUB_STEP_SUMMARY"]) if os.environ.get("GITHUB_STEP_SUMMARY") else None,
@@ -300,7 +317,15 @@ def main(argv: list[str] | None = None) -> int:
     omissions = (
         membership_omissions(expected_plugin_slugs(args.record), installed_plugin_slugs()) if args.record else []
     )
-    core, owners = build_plan(args.root, suites, set(args.exclude))
+    only = set() if args.no_plugins else (set(args.only) if args.only else None)
+    core, owners = build_plan(args.root, suites, set(args.exclude), only)
+    if only is not None:
+        left_out = sorted(st.slug for st in suites if st.slug not in only)
+        sys.stderr.write(
+            "plugin suites NOT run on this lane (scoped, tap#1092): "
+            + (", ".join(left_out) or "none")
+            + " — each plugin's own CI owns its suite; the server gate is the authority.\n"
+        )
     results: list[OwnerResult] = []
     if not args.no_core:
         results.append(run_owner(core, extra, env))
