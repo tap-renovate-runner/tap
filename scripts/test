@@ -23,6 +23,8 @@
 #                           the full lane still runs (req-dev-validation-suite-tiers-4).
 #   scripts/test --fast-relevant  The PROMOTE lane: core walk + the corpus when the diff touches
 #                           the executor footprint, and NO other plugin suite (tap#1092).
+#   scripts/test --fast-relevant --plugins a,b   ALSO run those installed plugin suites.
+#   scripts/test --stop     Stop the run holding this stack's pytest lock (whole process group).
 #   scripts/test <args...>  Extra args pass through to pytest, e.g.
 #                           scripts/test tap_auth -k login
 #                           scripts/test --fast tap_web
@@ -50,6 +52,11 @@ cd "$(git rev-parse --show-toplevel)"
 GRYPHON_CORPUS_SLUG="gryphon_playground"
 GRYPHON_FOOTPRINT_RE='^(tap_grid/|tap_api/routers/gryphon\.py)'
 
+# `--stop` kills the run holding this stack's pytest lock (its whole process group), then exits.
+if [[ "${1:-}" == "--stop" ]]; then
+  exec scripts/dc exec -T web uv run python -m tap.pytest_lock stop
+fi
+
 gryphon_mode=""  # "", "on" (force-run), "off" (force-skip via --fast), "relevance" (--fast-relevant)
 if [[ "${1:-}" == "--gryphon" ]]; then
   gryphon_mode="on"
@@ -65,6 +72,19 @@ elif [[ "${1:-}" == "--fast-relevant" ]]; then
   # instead of ten minutes later from the cloud gate as a failed round-trip.
   gryphon_mode="relevance"
   shift
+fi
+
+# `--plugins a,b` (with --fast-relevant only): ALSO run these installed plugin suites on the scoped
+# lane. For a core change a plugin's own tests pin (tap_web / tap_viz behaviour), and for plugin
+# repos that have no CI of their own. A slug that is not installed is a red, not a skip.
+extra_plugins=()
+if [[ "${1:-}" == "--plugins" || "${1:-}" == --plugins=* ]]; then
+  if [[ "$gryphon_mode" != "relevance" ]]; then
+    echo "scripts/test: --plugins applies to --fast-relevant only (the other lanes already run what they run)." >&2
+    exit 2
+  fi
+  if [[ "$1" == --plugins=* ]]; then plugin_list="${1#--plugins=}"; shift; else plugin_list="${2:-}"; shift $(( $# > 1 ? 2 : 1 )); fi
+  IFS=',' read -r -a extra_plugins <<< "$plugin_list"
 fi
 
 # Decide whether to run the corpus.
@@ -111,6 +131,10 @@ fi
 # mismatch signature (observed 2026-08-09, five stacks / 7.75GiB VM). Resolved
 # host-side, so it works through `dc exec` without env propagation.
 pytest_args=(-n "${TAP_TEST_JOBS:-auto}")
+# TAP_TEST_REUSE_DB=1 reuses each worker's test DB instead of rebuilding it (pytest-django --reuse-db):
+# under load the per-worker DB build can dominate a small lane. Opt-in — drop it (or pass --create-db)
+# after a migration or model change, or the lane runs against a stale schema.
+[[ "${TAP_TEST_REUSE_DB:-0}" == "1" ]] && pytest_args+=(--reuse-db)
 
 # Allocate a TTY when run interactively (colours, live output); use -T when piped
 # or run under automation (the promote gate) so it does not require one.
@@ -127,7 +151,7 @@ tty_args=()
 # relevance gate decides in between. An uninstalled corpus is a loud skip, never silent.
 if [[ $# -gt 0 ]]; then
   exec scripts/dc exec "${tty_args[@]}" web sh -c \
-    'cd /app && exec uv run pytest "$@"' _ "${pytest_args[@]}" "$@"
+    'cd /app && exec uv run python -m tap.pytest_lock run -- "$@"' _ "${pytest_args[@]}" "$@"
 fi
 lane_args=(--root /app)
 if [[ "$run_gryphon" -eq 1 ]]; then
@@ -140,8 +164,10 @@ fi
 # to its repo's CI (plugins float; core_ci is fixtures-only), so running every installed one on a
 # core promote cost tens of minutes in the shadow of the server gate. The other lanes keep theirs.
 if [[ "$gryphon_mode" == "relevance" ]]; then
-  if [[ "$run_gryphon" -eq 1 ]]; then
-    lane_args+=(--only "$GRYPHON_CORPUS_SLUG")
+  only_slugs=(${extra_plugins[@]+"${extra_plugins[@]}"})
+  [[ "$run_gryphon" -eq 1 ]] && only_slugs+=("$GRYPHON_CORPUS_SLUG")
+  if [[ ${#only_slugs[@]} -gt 0 ]]; then
+    for slug in "${only_slugs[@]}"; do lane_args+=(--only "$slug"); done
   else
     lane_args+=(--no-plugins)
   fi

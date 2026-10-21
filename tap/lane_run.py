@@ -28,11 +28,11 @@ from __future__ import annotations
 import argparse
 import os
 import re
-import subprocess  # nosec B404 — one fixed argv (this interpreter + validated paths): the lane's own invocation, never a shell
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from tap.pytest_lock import hold_pytest_lock, run_group
 from tap.plugin_testing import (
     PluginSuite,
     expected_plugin_slugs,
@@ -173,12 +173,11 @@ def _run_pytest(paths: list[str], extra: list[str], env: dict[str, str]) -> tupl
     # path that exists, so nothing free-form can arrive here. The analyzers do not follow the
     # check across the call; the repo pairs both markers for exactly this case
     # (tap/git_invocation.py:55). argv[0] is this interpreter — an absolute path, not a name.
-    proc = subprocess.run(  # nosec B603  # nosemgrep  # NOSONAR (S8705)
-        [sys.executable, "-m", "pytest", *args], text=True, capture_output=True, env=env, check=False, shell=False
-    )  # noqa: S603 — this interpreter + a tail validated at the sink by _checked_args
-    out = proc.stdout + proc.stderr
+    # The child runs in its own process group (tap.pytest_lock.run_group), so a TERM to this process
+    # kills the pytest and every xdist worker it started instead of orphaning them (tap#1092).
+    rc, out = run_group([sys.executable, "-m", "pytest", *args], env, capture=True)
     sys.stdout.write(out)
-    return proc.returncode, out
+    return rc, out
 
 
 def run_owner(result: OwnerResult, extra: list[str], env: dict[str, str]) -> OwnerResult:
@@ -314,6 +313,14 @@ def main(argv: list[str] | None = None) -> int:
     env = dict(os.environ)
 
     suites = plugin_suites()
+    unknown = sorted(set(args.only) - {st.slug for st in suites})
+    if unknown:
+        sys.stderr.write(
+            f"--only names plugin suites that are not installed in this profile: {', '.join(unknown)} "
+            f"(installed: {', '.join(st.slug for st in suites) or 'none'}). Refusing to report a green lane "
+            "for a suite that never ran.\n"
+        )
+        return 2
     omissions = (
         membership_omissions(expected_plugin_slugs(args.record), installed_plugin_slugs()) if args.record else []
     )
@@ -327,13 +334,21 @@ def main(argv: list[str] | None = None) -> int:
             + " — each plugin's own CI owns its suite; the server gate is the authority.\n"
         )
     results: list[OwnerResult] = []
-    if not args.no_core:
-        results.append(run_owner(core, extra, env))
-    for owner in owners:
-        if owner.paths:
-            results.append(run_owner(owner, extra, env))
-        else:
-            results.append(owner)
+    load, cpus = os.getloadavg()[0], os.cpu_count() or 1
+    if load > cpus:
+        sys.stderr.write(
+            f"load average {load:.1f} exceeds {cpus} CPUs: each xdist worker builds its own test DB, which "
+            "dominates a small lane under load — consider fewer workers (TAP_TEST_JOBS) or a quieter moment.\n"
+        )
+    with hold_pytest_lock("tap.lane_run"):
+        env = dict(os.environ)  # taken AFTER the lock so children inherit TAP_PYTEST_LOCK_HELD
+        if not args.no_core:
+            results.append(run_owner(core, extra, env))
+        for owner in owners:
+            if owner.paths:
+                results.append(run_owner(owner, extra, env))
+            else:
+                results.append(owner)
     reasons = judge(results, omissions, args.require)
     text = render_summary(results, omissions, reasons, args.record)
     sys.stdout.write("\n" + text)
