@@ -69,6 +69,14 @@ The authoritative schema is `TABLE_CONFIG_SCHEMA` in `tap_web/panels/table_panel
       "maximum": 500,
       "description": "Default rows per page before the user selects another size. Clamped to the linked Search's max_limit; defaults to 100 when absent."
     },
+    "show_all_rows": {
+      "type": "boolean",
+      "description": "Whether the Rows (page size) selector offers an `All` entry. Default true. False omits it: the table stays paged, and a stored or requested `All` falls back to `default_page_size`."
+    },
+    "empty_text": {
+      "type": "string", "minLength": 1, "maxLength": 200,
+      "description": "Plain text shown when the table has no rows, in place of the generic `No results.`."
+    },
     "quick_filter": {
       "type": "boolean",
       "description": "When true, render a quick-filter search box top-right of the table that live-filters the loaded rows client-side across all displayed columns. Filters the current page's rows only — pair with a page size that loads the full set when whole-table filtering is intended."
@@ -208,6 +216,10 @@ Every cell is **vertically centred** and **left-aligned** by default, so a one-l
 
 `striped: true` is the alternating-row look: a subtle stripe on every even row from the `--tap-table-stripe` / `--tap-table-stripe-hover` tokens in `theme.css` (light and dark values, so no colour is a literal; `req-web-stdpanel-table-config-27`). It is a panel-level option and is off by default.
 
+#### Rows Selector And Empty Table
+
+The Rows selector lists the page-size steps below the row count and, by default, an `All (N)` entry. `show_all_rows: false` drops the `All` entry for a table that must stay paged (`req-web-stdpanel-table-config-29`): a request for `page_size=0`, or a stored `All` choice, falls back to `default_page_size`, and when no step is below the row count the selector is not drawn. A table-level `empty_text` (1..200 characters, plain text, escaped) is what the table says when it has no rows, in place of the generic `No results.`; it is distinct from a column's `empty_text`, which fills a single empty cell (`req-web-stdpanel-table-config-30`).
+
 #### Chrome
 
 `chrome: minimal` draws no nav bars and no quick filter — the heading, the refresh status and the table alone. For a table that is one row of facts (a repository's identity row) rather than a list to page through; `full` (the default) is unchanged.
@@ -254,6 +266,8 @@ Every future Table Panel option (per-type split mode, row actions, richer render
 | req-web-stdpanel-table-config-26 | Plain Links | Implemented | `formatter_params.style` (`default` or `plain`) applies to `link`, `externalLink` and `linkList`: `plain` adds `tap-cell-link--plain`, which draws the anchor in the cell's own text colour with no underline and no hover highlight, yet it remains an anchor (clickable, with the `:focus-visible` ring, and the row's clickable wash is untouched). Absent or `default` is exactly `req-web-stdpanel-table-config-16`. | `tap_web/tests/test_table_polish.py`, `tap_web/tests/js/table_columns.test.mjs`; measured in a real browser in both schemes. |
 | req-web-stdpanel-table-config-27 | Striped Rows | Implemented | `striped: true` puts `tap-table--striped` on the table mount: every even row is drawn on `--tap-table-stripe` and a hovered row on `--tap-table-stripe-hover` (theme tokens with light and dark values; group bands are not striped, a clickable row keeps its own hover wash). Absent or `false`: uniform rows. Text, secondary text and links reach 4.5:1 on both stripe tokens in both schemes. | `tap_web/tests/test_table_polish.py`, `tap_web/tests/test_table_panel.py`; measured in a real browser in both schemes. |
 | req-web-stdpanel-table-config-28 | Joined Field Paths | Implemented | A column may declare `field_paths` (an array of path-segment arrays, the `field_path` reading, own keys only) with an optional `joiner` (default `, `) instead of `field` or `field_path` (exactly one of the three; `joiner` only with `field_paths`): the non-empty scalar values are joined in the order given, null, missing, blank, list and object values are skipped, and when none is left the cell is empty so `empty_text` applies. The joined text is what the column sorts, filters and formats by. | `tap_web/tests/test_table_panel.py`, `tap_web/tests/js/table_columns.test.mjs`; measured in a real browser. |
+| req-web-stdpanel-table-config-29 | Optional All Rows | Implemented | `show_all_rows` (boolean, default true) set to false leaves the `All` entry out of the Rows selector, ignores `page_size=0` in favour of `default_page_size`, and draws no selector when no step is below the row count; unset or true behaves as before. | `tap_web/tests/test_table_panel.py`. |
+| req-web-stdpanel-table-config-30 | Table Empty Text | Implemented | A table-level `empty_text` (string, 1..200 characters) replaces the generic `No results.` when the table has no rows: the server puts it on the mount as `data-tap-table-empty-text` (escaped) and the client escapes it into the Tabulator placeholder; absent, the generic message stays. | `tap_web/tests/test_table_panel.py`, `tap_web/tests/test_table_polish.py`; proven in a real browser. |
 
 #### Future
 Add `per_node_type_tables` (separate tables per entity type) and per-row actions as config keys once each is specced and approved. (Explicit `columns` with named formatters, declarative `group_by` row sections, and the `quick_filter` search box are implemented above.)

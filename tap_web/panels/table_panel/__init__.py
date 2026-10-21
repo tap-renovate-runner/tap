@@ -55,6 +55,24 @@ TABLE_CONFIG_SCHEMA: dict[str, Any] = {
             "minimum": 1,
             "maximum": 500,
         },
+        # The Rows selector ends with an "All (N)" entry by default. False drops
+        # it, so a table that must stay paged (a long list) cannot be asked for
+        # every row at once (req-web-stdpanel-table-config-29).
+        "show_all_rows": {
+            "description": (
+                "Whether the Rows (page size) selector offers an `All` entry. Default true. False omits it: the "
+                "table stays paged, and a stored or requested `All` falls back to `default_page_size`."
+            ),
+            "type": "boolean",
+        },
+        # Shown in place of Tabulator's generic "No results." when the table has no rows
+        # (req-web-stdpanel-table-config-30). Plain text, escaped.
+        "empty_text": {
+            "description": "Plain text shown when the table has no rows, in place of the generic `No results.`.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+        },
         # When true, render a quick-filter search box top-right of the table that
         # live-filters the loaded rows client-side (matches across all columns).
         # Note: filters the current page's rows only — pair with a page size that
@@ -424,7 +442,8 @@ class TablePanelType:
 
         # page_size=0 means "show all" (passed by the JS selector).
         raw_ps = request.GET.get("page_size")
-        if raw_ps is not None and raw_ps == "0":
+        show_all = config.get("show_all_rows", True)
+        if raw_ps is not None and raw_ps == "0" and show_all:
             page_size = 0  # sentinel: no limit
         else:
             page_size = _safe_int(raw_ps, default_ps)
@@ -480,7 +499,7 @@ class TablePanelType:
             total_count = result.get("info", {}).get("total_count", len(nodes))
 
         showing = len(nodes)
-        page_size_options = _build_page_size_options(total_count, page_size)
+        page_size_options = _build_page_size_options(total_count, page_size, show_all=show_all)
 
         meta: dict[str, Any] = {
             "total_count": total_count,
@@ -502,6 +521,7 @@ class TablePanelType:
             "table_columns": custom_columns,
             "table_height": config.get("height"),
             "table_striped": bool(config.get("striped")),
+            "table_empty_text": config.get("empty_text"),
             "table_refresh_seconds": config.get("refresh_seconds"),
             "table_group_by": group_by,
             "table_initial_sort": config.get("initial_sort"),
@@ -680,11 +700,12 @@ def _with_row_urls(rows: list[dict[str, Any]], template: str | None) -> list[dic
     return out
 
 
-def _build_page_size_options(total_count: int, current_page_size: int) -> list[dict[str, Any]]:
+def _build_page_size_options(total_count: int, current_page_size: int, *, show_all: bool = True) -> list[dict[str, Any]]:
     """Build dynamic page-size selector options based on total row count.
 
     Only includes step values that are less than total_count.
-    Always appends an "All" option (value=0) representing the full set.
+    Appends an "All" option (value=0) representing the full set unless ``show_all`` is false
+    (``show_all_rows: false``; req-web-stdpanel-table-config-29).
     """
     options: list[dict[str, Any]] = []
     for step in _PAGE_SIZE_STEPS:
@@ -692,8 +713,9 @@ def _build_page_size_options(total_count: int, current_page_size: int) -> list[d
             options.append({"value": step, "label": str(step), "selected": current_page_size == step})
 
     # "All" option — selected when page_size is 0 or >= total_count.
-    all_selected = current_page_size == 0 or current_page_size >= total_count
-    options.append({"value": 0, "label": f"All ({total_count})", "selected": all_selected})
+    if show_all:
+        all_selected = current_page_size == 0 or current_page_size >= total_count
+        options.append({"value": 0, "label": f"All ({total_count})", "selected": all_selected})
 
     # If current_page_size doesn't match any option, mark the closest as selected
     # (this handles the initial load when localStorage hasn't been set yet).

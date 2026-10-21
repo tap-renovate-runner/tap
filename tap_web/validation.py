@@ -160,6 +160,7 @@ _LAYOUT_SCHEMA: dict = {
                                         "80vh",
                                         "90vh",
                                         "100vh",
+                                        "fill",
                                         "1fr",
                                         "2fr",
                                         "3fr",

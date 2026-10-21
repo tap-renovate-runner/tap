@@ -150,12 +150,16 @@ def group_bands(columns: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Group processed columns (already band-ordered) into ``[{"band": n, "columns": [...]}]``.
 
     Each band renders as its own grid; bands stack top to bottom (req-web-page-bands-2).
+    A band holding a ``fill`` row carries ``has_fill`` so the template can let it take the
+    remaining viewport height (req-web-page-row-heights-4).
     """
     bands: list[dict[str, Any]] = []
     for col in columns:
         if not bands or bands[-1]["band"] != col["band"]:
-            bands.append({"band": col["band"], "columns": []})
+            bands.append({"band": col["band"], "columns": [], "has_fill": False})
         bands[-1]["columns"].append(col)
+        if any(row.get("is_fill") for row in col.get("rows", [])):
+            bands[-1]["has_fill"] = True
     return bands
 
 

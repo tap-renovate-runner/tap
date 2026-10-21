@@ -897,6 +897,10 @@
       pagination: false, // Server handles pagination; disable Tabulator's own.
       placeholder: "No results.",
     };
+    // config.empty_text (req-web-stdpanel-table-config-30): the table's own words for "no rows".
+    // Tabulator reads a string placeholder as HTML, so the configured text is escaped.
+    var emptyText = mountEl.getAttribute("data-tap-table-empty-text");
+    if (emptyText) tableOptions.placeholder = _escapeHtml(emptyText);
     // config.refresh_seconds: re-fetch this panel's fragment on a timer via
     // the enclosing page slot's hx-get (htmx:afterSettle remounts the table),
     // with a countdown pill and a pause toggle so the reader knows the table is

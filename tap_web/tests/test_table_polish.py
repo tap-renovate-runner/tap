@@ -144,3 +144,11 @@ class TestStripedRows:
     def test_the_stripe_rule_skips_group_bands_and_keeps_the_clickable_wash(self) -> None:
         assert ".tabulator.tap-table--striped .tabulator-row.tabulator-row-even:not(.tabulator-group) { background: rgb(var(--tap-table-stripe)); }" in _CSS
         assert ".tap-row--clickable:not(.tabulator-group):hover { background: var(--tap-table-row-link-hover); }" in _CSS
+
+
+class TestTableEmptyText:
+    @pytest.mark.spec("req-web-stdpanel-table-config-30")
+    def test_the_client_escapes_the_mount_attribute_into_the_placeholder(self) -> None:
+        assert 'mountEl.getAttribute("data-tap-table-empty-text")' in _JS
+        assert "tableOptions.placeholder = _escapeHtml(emptyText);" in _JS
+        assert 'placeholder: "No results."' in _JS  # the default stays
