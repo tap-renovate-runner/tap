@@ -112,3 +112,44 @@ def test_term_kills_the_whole_process_group_not_just_the_leader(tmp_path: Path) 
 
 def test_module_has_no_import_time_side_effects() -> None:
     assert pytest_lock._child is None
+
+
+@pytest.mark.spec("req-dev-validation-suite-tiers-7")
+def test_a_killed_holder_cannot_release_the_lock_while_its_pytest_lives(tmp_path: Path) -> None:
+    """kill -9 of the holder (an OOM, a crash) must not free the lock under a running pytest: the child
+    inherits the lock, and `stop` can still kill the orphaned group from the recorded pgid."""
+    lock = tmp_path / "pytest.lock"
+    runner = subprocess.Popen(  # nosec B603  # nosemgrep  # noqa: S603
+        [
+            sys.executable,
+            "-c",
+            "import os, sys, time; from pathlib import Path; "
+            "from tap.pytest_lock import hold_pytest_lock, run_group; "
+            "cm = hold_pytest_lock('crashing lane', path=Path(sys.argv[1])); cm.__enter__(); "
+            "run_group([sys.executable, '-c', 'import time; time.sleep(120)'], dict(os.environ))",
+            str(lock),
+        ]
+    )
+    pgid = None
+    try:
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline and pgid is None:
+            pgid = pytest_lock.holder_pgid(lock)
+            time.sleep(0.1)
+        assert pgid is not None, "the child's process group was never recorded"
+        runner.kill()  # SIGKILL: no handler runs, nothing cleans up
+        runner.wait(timeout=10)
+        assert is_locked(lock), "the lock was released while the orphaned pytest still runs"
+        assert "orphaned pytest group" in stop(lock)
+        for _ in range(100):
+            if not is_locked(lock):
+                break
+            time.sleep(0.1)
+        assert not is_locked(lock)
+    finally:
+        runner.kill()
+        if pgid is not None:
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass

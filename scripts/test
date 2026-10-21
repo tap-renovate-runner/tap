@@ -23,7 +23,8 @@
 #                           the full lane still runs (req-dev-validation-suite-tiers-4).
 #   scripts/test --fast-relevant  The PROMOTE lane: core walk + the corpus when the diff touches
 #                           the executor footprint, and NO other plugin suite (tap#1092).
-#   scripts/test --fast-relevant --plugins a,b   ALSO run those installed plugin suites.
+#   scripts/test --fast-relevant --plugins a,b [--no-core]   ALSO run those installed plugin suites
+#                           (--no-core: skip the core walk, just those suites).
 #   scripts/test --stop     Stop the run holding this stack's pytest lock (whole process group).
 #   scripts/test <args...>  Extra args pass through to pytest, e.g.
 #                           scripts/test tap_auth -k login
@@ -75,17 +76,23 @@ elif [[ "${1:-}" == "--fast-relevant" ]]; then
 fi
 
 # `--plugins a,b` (with --fast-relevant only): ALSO run these installed plugin suites on the scoped
-# lane. For a core change a plugin's own tests pin (tap_web / tap_viz behaviour), and for plugin
+# lane; add `--no-core` for JUST those suites (and the corpus when relevant), under the lock. For a core change a plugin's own tests pin (tap_web / tap_viz behaviour), and for plugin
 # repos that have no CI of their own. A slug that is not installed is a red, not a skip.
 extra_plugins=()
-if [[ "${1:-}" == "--plugins" || "${1:-}" == --plugins=* ]]; then
+no_core=0
+while [[ "${1:-}" == "--plugins" || "${1:-}" == --plugins=* || "${1:-}" == "--no-core" ]]; do
   if [[ "$gryphon_mode" != "relevance" ]]; then
-    echo "scripts/test: --plugins applies to --fast-relevant only (the other lanes already run what they run)." >&2
+    echo "scripts/test: ${1%%=*} applies to --fast-relevant only (the other lanes already run what they run)." >&2
     exit 2
   fi
-  if [[ "$1" == --plugins=* ]]; then plugin_list="${1#--plugins=}"; shift; else plugin_list="${2:-}"; shift $(( $# > 1 ? 2 : 1 )); fi
-  IFS=',' read -r -a extra_plugins <<< "$plugin_list"
-fi
+  if [[ "$1" == "--no-core" ]]; then
+    no_core=1; shift
+  else
+    if [[ "$1" == --plugins=* ]]; then plugin_list="${1#--plugins=}"; shift; else plugin_list="${2:-}"; shift $(( $# > 1 ? 2 : 1 )); fi
+    IFS=',' read -r -a plugin_slugs <<< "$plugin_list"
+    extra_plugins+=(${plugin_slugs[@]+"${plugin_slugs[@]}"})
+  fi
+done
 
 # Decide whether to run the corpus.
 run_gryphon=1
@@ -154,6 +161,7 @@ if [[ $# -gt 0 ]]; then
     'cd /app && exec uv run python -m tap.pytest_lock run -- "$@"' _ "${pytest_args[@]}" "$@"
 fi
 lane_args=(--root /app)
+[[ "$no_core" -eq 1 ]] && lane_args+=(--no-core)
 if [[ "$run_gryphon" -eq 1 ]]; then
   lane_args+=(--require "$GRYPHON_CORPUS_SLUG")
 else

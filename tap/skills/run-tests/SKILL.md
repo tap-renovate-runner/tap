@@ -82,7 +82,7 @@ unarmed PR gets no merge and then falls behind a moved base (tap#893 sat that wa
 
 **A core change can break a plugin's own tests** that only that plugin's suite sees (the playground
 suites pin `tap_web` / `tap_viz` behaviour), because the server's `core_ci` is fixtures-only. The scoped
-lane does not run them unless you ask: `scripts/test --fast-relevant --plugins <slug>[,<slug>]` adds the named installed suites (an uninstalled slug is refused, not skipped). See the `tap_viz` / `tap_web` row in section 1.
+lane does not run them unless you ask: `scripts/test --fast-relevant --plugins <slug>[,<slug>]` adds the named installed suites (an uninstalled slug is refused, not skipped); add `--no-core` for just those suites, under the lock, without paying for the core walk. For a plugin repo with no CI of its own this one command is the gate. See the `tap_viz` / `tap_web` row in section 1.
 
 **A plugin PR is a different path.** A plugin repo has no promote; its PRs are opened by hand with
 `gh`. Run the targeted tests from the core root, run your own plugin's suite, merge `origin/main`
@@ -114,10 +114,14 @@ that merge there), push, and read the plugin's CI (if it has any).
 
 Stopping the host-side `promote-to-main.sh` (or a `scripts/dc exec` client) does **not** stop the run:
 `docker exec` does not forward the signal, so `tap.lane_run` keeps launching suites in the container.
-Use `scripts/test --stop`: it TERMs the process holding the stack's pytest lock, which kills its pytest
+Use `scripts/test --stop` BEFORE killing by pid: it TERMs the process holding the stack's pytest lock, which kills its pytest
 and every xdist worker as one process group. Stale `test_tap*` DBs may remain, so use `--create-db` on
 the next run. Only a run started through `scripts/test`, `tap.lane_run` or `scripts/pytest-serial` holds
 the lock; a hand-typed `pytest` has to be killed by pid inside the container.
+
+If the holder itself dies (`kill -9`, an OOM), its pytest child inherits the lock and keeps it held, so a
+second run still waits instead of starting on top of the orphan; `scripts/test --stop` then notices the
+holder is gone and kills the orphaned process group.
 
 ## 6. Reds that are not your code
 

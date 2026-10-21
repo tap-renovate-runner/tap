@@ -78,14 +78,24 @@ def is_locked(path: Path | None = None) -> bool:
         os.close(fd)
 
 
-def holder_pid(path: Path | None = None) -> int | None:
+def _holder_field(name: str, path: Path | None = None) -> int | None:
+    prefix = f"{name}="
     for token in holder_text(path).split():
-        if token.startswith("pid="):
+        if token.startswith(prefix):
             try:
-                return int(token[4:])
+                return int(token[len(prefix) :])
             except ValueError:
                 return None
     return None
+
+
+def holder_pid(path: Path | None = None) -> int | None:
+    return _holder_field("pid", path)
+
+
+def holder_pgid(path: Path | None = None) -> int | None:
+    """The process group of the pytest the holder started (written once it is running), if any."""
+    return _holder_field("pgid", path)
 
 
 @contextmanager
@@ -111,15 +121,22 @@ def hold_pytest_lock(who: str, *, wait: bool = True, path: Path | None = None) -
         os.ftruncate(fd, 0)
         os.write(fd, f"{who} pid={os.getpid()} since={time.strftime('%H:%M:%S')}\n".encode())
         os.environ[_HELD_ENV] = "1"
+        global _lock_fd
+        _lock_fd = fd
         try:
             yield
         finally:
+            _lock_fd = None
             os.environ.pop(_HELD_ENV, None)
     finally:
         os.close(fd)  # closing releases the flock
 
 
 _child: subprocess.Popen[str] | None = None
+# The held lock's fd. The pytest child INHERITS it (pass_fds), so the flock — which belongs to the open
+# file description, not to a process — lives as long as any descendant: a `kill -9` of the holder (an
+# OOM, a crash) cannot release the lock while its pytest is still running and sharing the test DB.
+_lock_fd: int | None = None
 
 
 def _kill_group(sig: int = signal.SIGTERM, grace: float = 5.0) -> None:
@@ -145,6 +162,18 @@ def _on_stop(signum: int, _frame: object) -> None:
     raise SystemExit(128 + signum)
 
 
+def _record_pgid(pgid: int) -> None:
+    """Append the child's process group to the lock text so `stop` can reach it if the holder dies."""
+    if _lock_fd is None:
+        return
+    try:
+        text = os.pread(_lock_fd, 512, 0).decode().strip()
+        os.ftruncate(_lock_fd, 0)
+        os.pwrite(_lock_fd, f"{text} pgid={pgid}\n".encode(), 0)
+    except OSError:
+        pass
+
+
 def run_group(argv: list[str], env: dict[str, str], *, capture: bool = False) -> tuple[int, str]:
     """Run ``argv`` in its own process group; TERM/INT to this process kills the whole group.
 
@@ -163,8 +192,10 @@ def run_group(argv: list[str], env: dict[str, str], *, capture: bool = False) ->
             stdout=subprocess.PIPE if capture else None,
             stderr=subprocess.STDOUT if capture else None,
             start_new_session=True,
+            pass_fds=(_lock_fd,) if _lock_fd is not None else (),
             shell=False,
         )  # noqa: S603 — fixed argv head, validated tail
+        _record_pgid(_child.pid)
         out, _ = _child.communicate()
         return _child.returncode, out or ""
     finally:
@@ -175,13 +206,23 @@ def run_group(argv: list[str], env: dict[str, str], *, capture: bool = False) ->
 
 def stop(path: Path | None = None) -> str:
     """TERM the lock holder (which kills its pytest group). Returns a one-line report."""
-    pid = holder_pid(path) if is_locked(path) else None
-    if pid is None:
+    if not is_locked(path):
         return "no pytest run holds the lock"
+    pid, pgid = holder_pid(path), holder_pgid(path)
     try:
+        if pid is None:
+            raise ProcessLookupError
         os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
-        return f"holder pid {pid} is already gone (stale lock file); nothing to stop"
+        # The holder is gone but the lock is still held: its pytest outlived it (a kill -9) and
+        # inherited the lock. Kill that group directly.
+        if pgid is None:
+            return f"the lock is held but holder pid {pid} is gone and no process group is recorded; look for pytest in `ps`"
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            return f"holder pid {pid} and group {pgid} are gone; the lock will clear on its own"
+        return f"holder pid {pid} was already dead; killed its orphaned pytest group {pgid}. Stale test_tap* DBs may remain — use --create-db."
     return (
         f"sent TERM to {holder_text(path)}; it kills its pytest group. "
         "Stale test_tap* DBs may remain — use --create-db on the next run."

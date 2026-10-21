@@ -126,3 +126,16 @@ def test_a_focused_run_goes_through_the_lock(lane) -> None:
     run, _ = lane
     out = run("tap/tests/test_x.py")
     assert "tap.pytest_lock run --" in out.stdout and "tap/tests/test_x.py" in out.stdout
+
+
+@pytest.mark.spec("req-dev-validation-suite-tiers-6")
+def test_no_core_with_plugins_runs_just_those_suites(lane) -> None:
+    run, touch = lane
+    touch("tap_web/x.py")
+    out = run("--fast-relevant", "--no-core", "--plugins", "rampart_20x_playground")
+    assert out.returncode == 0, out.stderr
+    assert "--no-core" in out.stdout and "--only rampart_20x_playground" in out.stdout
+    flipped = run("--fast-relevant", "--plugins=rampart_20x_playground", "--no-core")
+    assert "--no-core" in flipped.stdout and "--only rampart_20x_playground" in flipped.stdout
+    refused = run("--fast", "--no-core")
+    assert refused.returncode == 2 and "--fast-relevant only" in refused.stderr
