@@ -39,7 +39,7 @@ def test_a_second_run_cannot_take_a_held_lock(tmp_path: Path) -> None:
 @pytest.mark.spec("req-dev-validation-suite-tiers-7")
 def test_a_non_waiting_attempt_names_the_holder(tmp_path: Path) -> None:
     lock = tmp_path / "pytest.lock"
-    holder = subprocess.Popen(  # nosec B603
+    holder = subprocess.Popen(  # nosec B603  # nosemgrep  # noqa: S603
         [
             sys.executable,
             "-c",
@@ -81,7 +81,7 @@ def test_term_kills_the_whole_process_group_not_just_the_leader(tmp_path: Path) 
         "g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)']); "
         f"open({str(pidfile)!r}, 'w').write(str(g.pid)); time.sleep(120)"
     )
-    runner = subprocess.Popen(  # nosec B603
+    runner = subprocess.Popen(  # nosec B603  # nosemgrep  # noqa: S603
         [
             sys.executable,
             "-c",

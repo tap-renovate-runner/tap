@@ -10,7 +10,7 @@ Two things sessions kept doing by hand, both unreliable:
   ``run_group`` starts pytest in its own process group and, on TERM or INT, kills the whole group;
   ``stop`` signals whoever holds the lock.
 
-The lock file lives inside the container (``/tmp``), so its scope is one stack — the same scope as
+The lock file lives inside the container (``~/.cache/tap/pytest.lock``), so its scope is one stack — the same scope as
 the shared test database. A child started under a holder inherits ``TAP_PYTEST_LOCK_HELD`` and does not
 try to take the lock again.
 
@@ -36,7 +36,6 @@ from pathlib import Path
 
 _HELD_ENV = "TAP_PYTEST_LOCK_HELD"
 _PATH_ENV = "TAP_PYTEST_LOCK"
-_DEFAULT_PATH = "/tmp/tap-pytest.lock"  # nosec B108 # noqa: S108 — container-local by design: one lock per stack
 
 
 class LockBusy(RuntimeError):
@@ -44,7 +43,13 @@ class LockBusy(RuntimeError):
 
 
 def lock_path() -> Path:
-    return Path(os.environ.get(_PATH_ENV, _DEFAULT_PATH))
+    """The stack's lock file: under the container user's own cache dir (not a shared, publicly writable one).
+
+    The home directory is container-local, so the scope is one stack — the same scope as the shared
+    test database. ``TAP_PYTEST_LOCK`` overrides it (the tests do).
+    """
+    override = os.environ.get(_PATH_ENV)
+    return Path(override) if override else Path.home() / ".cache" / "tap" / "pytest.lock"
 
 
 def holder_text(path: Path | None = None) -> str:
@@ -90,7 +95,8 @@ def hold_pytest_lock(who: str, *, wait: bool = True, path: Path | None = None) -
         yield
         return
     target = path or lock_path()
-    fd = os.open(target, os.O_CREAT | os.O_RDWR, 0o666)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(target, os.O_CREAT | os.O_RDWR, 0o600)
     try:
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)

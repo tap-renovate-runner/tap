@@ -40,7 +40,9 @@ def lane(tmp_path: Path):
     }
 
     def git(*args: str) -> None:
-        subprocess.run(["git", *args], cwd=tmp_path, env=env, check=True, capture_output=True)  # nosec B603 B607
+        subprocess.run(
+            ["git", *args], cwd=tmp_path, env=env, check=True, capture_output=True
+        )  # nosec B603 B607  # nosemgrep  # noqa: S603 S607
 
     git("init", "-q", "-b", "main")
     git("add", "-A")
@@ -48,7 +50,7 @@ def lane(tmp_path: Path):
     git("update-ref", "refs/remotes/origin/main", "HEAD")
 
     def run(*args: str, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(  # nosec B603
+        return subprocess.run(  # nosec B603  # nosemgrep  # noqa: S603
             [str(BASH), "scripts/test", *args],
             cwd=tmp_path,
             env={**env, **(extra_env or {})},
