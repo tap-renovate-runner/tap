@@ -343,7 +343,7 @@ Patch semantics:
 
 - omitted fields remain unchanged
 - explicit nulls clear values only where schema/model rules allow
-- nested JSON payloads use deep merge semantics
+- nested JSON payloads use deep merge semantics: an object patched over an object merges; an array, string, number or boolean, or an object patched over a value that is not an object, replaces
 
 Replace semantics:
 
@@ -361,6 +361,7 @@ Replace semantics:
 | req-grid-service-write-patch-2 | Edge Replace Does Not Change Type | Implemented | Replace operations for edges do not allow `edge_type` changes. | |
 | req-grid-service-write-patch-3 | Internal Flip Map Not User Writable | Implemented | `flip_map` is not part of the user-writeable payload contract. | |
 | req-grid-service-write-patch-4 | Replace Node Covers User-Writable Model Fields | Implemented | `replace_node` replaces all user-writable fields on the `BaseModel`-derived class. Fields on the Entity spine (id, entity_type, originating_grid_id, created_at) are not part of the replace payload. | |
+| req-grid-service-write-patch-5 | Only Objects Merge | Implemented | A patch deep-merges a JSONField value only when both the incoming value and the stored value are objects; an array, string, number or boolean replaces what was stored, and so does an object patched over a value that is not an object. An explicit `null` still clears (`req-grid-service-write-observation-4`). | `patch_node` of a list into a list-valued JSONField (`compliance_vulnerability.cwes`) used to raise `'list' object has no attribute 'items'` (tap#1094). |
 
 
 ### Observation-Aware Writes
