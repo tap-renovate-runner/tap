@@ -29,7 +29,7 @@
   --tap-table-link: rgb(var(--tap-blue-700));
   --tap-table-link-hover: rgb(var(--tap-blue-900));
   --tap-table-link-focus: rgb(var(--tap-blue-700));
-  --tap-table-row-link-hover: rgb(var(--tap-indigo-100));
+  --tap-table-row-link-hover: rgb(var(--tap-table-stripe-hover));
 }
 .tabulator .tap-cell-link { color: var(--tap-table-link); text-decoration: underline; text-underline-offset: 2px; }
 .tabulator .tap-cell-link:hover { color: var(--tap-table-link-hover); text-decoration-thickness: 2px; }
