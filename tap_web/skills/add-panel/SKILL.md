@@ -343,6 +343,8 @@ real one (git-serious's status wall, `tap_plugin/git_serious/grift/landing.grift
   `conclusionBadge`), `header_tooltip` for the heading's pop-over, `width` / `widthGrow`, `headerSort`.
   Panel-level: `height` (px, Tabulator-owned scroll with a sticky header), `refresh_seconds` (↻ button
   + interval selector — never a countdown the reader can watch), `quick_filter`.
+  `show_all_rows: false` drops the `All` entry from the Rows selector (a long table stays paged);
+  table-level `empty_text` replaces the generic "No results." when there are no rows.
 - **Split what sorts.** A derived number a reader would sort by (a ratio, a sample size) is its own
   column; a decoration (▲) never carries the only copy of a number.
 - **The third state names its window.** A table whose rows mean "not observed" states, in its panel

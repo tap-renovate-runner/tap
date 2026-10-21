@@ -1371,6 +1371,62 @@ class TestStripedConfig:
         assert (b"tap-table--striped" in response.content) is expected
 
 
+@pytest.mark.django_db
+class TestRowsSelectorAndEmptyText:
+    """`show_all_rows` and table-level `empty_text` (req-web-stdpanel-table-config-29, -30)."""
+
+    @pytest.mark.spec("req-web-stdpanel-table-config-29")
+    def test_show_all_rows_is_a_described_boolean(self):
+        prop = TABLE_CONFIG_SCHEMA["properties"]["show_all_rows"]
+        assert prop["type"] == "boolean" and prop["description"]
+        _validate_table_config({"show_all_rows": False})
+        for bad in ("no", 0, None):
+            with pytest.raises(ValidationError):
+                _validate_table_config({"show_all_rows": bad})
+
+    @pytest.mark.spec("req-web-stdpanel-table-config-29")
+    def test_the_all_entry_is_kept_by_default_and_dropped_on_request(self):
+        from tap_web.panels.table_panel import _build_page_size_options
+
+        assert [o["label"] for o in _build_page_size_options(217, 100)][-1] == "All (217)"
+        dropped = _build_page_size_options(217, 100, show_all=False)
+        assert [o["value"] for o in dropped] == [25, 50, 100, 200]
+        assert [o["value"] for o in dropped if o["selected"]] == [100]
+        assert _build_page_size_options(10, 100, show_all=False) == []
+
+    @pytest.mark.spec("req-web-stdpanel-table-config-29")
+    @pytest.mark.parametrize(("config", "has_all"), [({"show_all_rows": False}, False), ({"show_all_rows": True}, True), ({}, True)])
+    def test_the_rendered_selector_follows_the_option(self, config, has_all):
+        panel = _create_table_panel(config=config)
+        _link_search(panel, _create_search())  # type: ignore[no-untyped-call]
+        envelope: dict[str, Any] = {"nodes": [], "edges": [], "info": {"total_count": 217}, "warnings": {}}
+        with patch("tap_grid.search.execute_search", return_value=envelope):
+            content = make_admin_client(username="table-admin").get(_panel_url(panel) + "?page_size=0").content.decode()
+        assert ("All (217)" in content) is has_all
+        assert 'value="25"' in content
+
+    @pytest.mark.spec("req-web-stdpanel-table-config-30")
+    def test_table_empty_text_is_a_described_bounded_string(self):
+        prop = TABLE_CONFIG_SCHEMA["properties"]["empty_text"]
+        assert prop["type"] == "string" and prop["description"]
+        _validate_table_config({"empty_text": "No component carries a CWE-506 vulnerability."})
+        for bad in ("", "x" * 201, 5):
+            with pytest.raises(ValidationError):
+                _validate_table_config({"empty_text": bad})
+
+    @pytest.mark.spec("req-web-stdpanel-table-config-30")
+    @pytest.mark.parametrize(("config", "expected"), [({"empty_text": 'Nothing <b>here</b> "yet"'}, True), ({}, False)])
+    def test_the_mount_carries_the_escaped_empty_text_only_when_set(self, config, expected):
+        panel = _create_table_panel(config=config)
+        _link_search(panel, _create_search())  # type: ignore[no-untyped-call]
+        envelope: dict[str, Any] = {"nodes": [], "edges": [], "info": {}, "warnings": {}}
+        with patch("tap_grid.search.execute_search", return_value=envelope):
+            content = make_admin_client(username="table-admin").get(_panel_url(panel)).content.decode()
+        assert ("data-tap-table-empty-text" in content) is expected
+        if expected:
+            assert 'data-tap-table-empty-text="Nothing &lt;b&gt;here&lt;/b&gt; &quot;yet&quot;"' in content
+
+
 class TestFieldPathsColumn:
     """`field_paths` + `joiner`: several values in one cell (req-web-stdpanel-table-config-28)."""
 
