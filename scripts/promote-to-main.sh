@@ -267,7 +267,10 @@ run_local_gates() {
   else
     # Cloud owns the full corpus incl. gryphon; local runs the fast fail-fast subset.
     info "Local pytest — FAST-RELEVANT lane (scripts/test --fast-relevant; corpus runs locally when the diff touches the executor footprint — #254; the cloud gate re-runs the full corpus regardless) ..."
-    scripts/test --fast-relevant || return 1
+    # Capped (tap#1092): `-n auto` sizes workers by CPU count and ignores that several stacks share
+    # this machine. 3 workers keep the lane useful without starving the other sessions; export
+    # TAP_TEST_JOBS to override (scripts/test reads it host-side).
+    TAP_TEST_JOBS="${TAP_TEST_JOBS:-3}" scripts/test --fast-relevant || return 1
   fi
   # Boot gates: since 2026-08-10 the cold-boot + lean-boot gates run as REQUIRED
   # CI jobs (product-lines.yml, aggregated into `gate`) — the server owns boot

@@ -248,7 +248,8 @@ session's stack instead of the primary one.
 | --- | --- |
 | Full test lane (the promote gate, ~9-10 min) | `scripts/test` |
 | Inner-loop lane (skips the gryphon corpus) | `scripts/test --fast` |
-| The promote's local lane (corpus runs only if the diff touches the executor) | `scripts/test --fast-relevant` |
+| The promote's local lane (core walk, plus the corpus only if the diff touches the executor; no other plugin suite; the promote caps it at 3 workers; `--plugins a,b` adds named suites) | `scripts/test --fast-relevant` |
+| One heavy pytest at a time per stack, and stopping it | `scripts/pytest-serial <args>`, `scripts/test --stop` (skill: `run-tests`) |
 | One test, serially — avoids the xdist worker/DB tax | `scripts/dc exec web uv run pytest <path>::<test>` |
 | Format / lint / type | `scripts/dc exec web uv run black .` · `ruff check --fix .` · `mypy .` |
 | Migrations | `scripts/dc exec web uv run python manage.py makemigrations` · `migrate` |
