@@ -1,5 +1,6 @@
 """Tests for tap_grid.services — the canonical mutation API."""
 
+import importlib
 import uuid
 from typing import Any
 
@@ -279,7 +280,7 @@ class TestPatchNode:
     def test_json_patch_merges_objects_and_replaces_everything_else(self, existing, value, expected):
         """req-grid-service-write-patch-5: only an object patched over an object deep-merges."""
         from tap_grid.models import Search
-        from tap_grid.services._impl import _apply_patch
+        _apply_patch = importlib.import_module("tap_grid.services._impl")._apply_patch
 
         instance = Search(definition=existing)
         _apply_patch(instance, {"definition": value})
@@ -288,7 +289,7 @@ class TestPatchNode:
     @pytest.mark.spec("req-grid-service-write-patch-5")
     def test_json_patch_null_still_clears(self):
         from tap_grid.models import Search
-        from tap_grid.services._impl import _apply_patch
+        _apply_patch = importlib.import_module("tap_grid.services._impl")._apply_patch
 
         instance = Search(definition=["x"])
         _apply_patch(instance, {"definition": None})
