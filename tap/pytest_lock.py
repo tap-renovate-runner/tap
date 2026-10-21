@@ -107,6 +107,8 @@ def hold_pytest_lock(who: str, *, wait: bool = True, path: Path | None = None) -
     target = path or lock_path()
     target.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(target, os.O_CREAT | os.O_RDWR, 0o600)
+    global last_wait_seconds
+    last_wait_seconds = 0.0
     try:
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -117,7 +119,9 @@ def hold_pytest_lock(who: str, *, wait: bool = True, path: Path | None = None) -
                 ) from None
             sys.stderr.write(f"waiting for another pytest run in this stack to finish: {holder_text(target)}\n")
             sys.stderr.flush()
+            waited_from = time.monotonic()
             fcntl.flock(fd, fcntl.LOCK_EX)
+            last_wait_seconds = time.monotonic() - waited_from
         os.ftruncate(fd, 0)
         os.write(fd, f"{who} pid={os.getpid()} since={time.strftime('%H:%M:%S')}\n".encode())
         os.environ[_HELD_ENV] = "1"
@@ -137,6 +141,8 @@ _child: subprocess.Popen[str] | None = None
 # file description, not to a process — lives as long as any descendant: a `kill -9` of the holder (an
 # OOM, a crash) cannot release the lock while its pytest is still running and sharing the test DB.
 _lock_fd: int | None = None
+# Seconds the most recent hold_pytest_lock spent waiting for another run (0.0 when it took the lock at once).
+last_wait_seconds: float = 0.0
 
 
 def _kill_group(sig: int = signal.SIGTERM, grace: float = 5.0) -> None:

@@ -29,9 +29,11 @@ import argparse
 import os
 import re
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import tap.pytest_lock as pytest_lock
 from tap.pytest_lock import hold_pytest_lock, run_group
 from tap.plugin_testing import (
     PluginSuite,
@@ -247,6 +249,15 @@ def render_summary(results: list[OwnerResult], omissions: list[str], reasons: li
     return "\n".join(lines) + "\n"
 
 
+def timing_line(waited: float, ran: float) -> str:
+    """Attribute a slow lane: time queued behind another run, time running, and the stack's load."""
+    load, cpus = os.getloadavg()[0], os.cpu_count() or 1
+    return (
+        f"**Timing:** waited {waited:.0f} s for the stack's pytest lock; ran {ran:.0f} s; "
+        f"load average {load:.1f} on {cpus} CPUs."
+    )
+
+
 def build_plan(
     root: Path, suites: list[PluginSuite], exclude: set[str], only: set[str] | None = None
 ) -> tuple[OwnerResult, list[OwnerResult]]:
@@ -340,7 +351,9 @@ def main(argv: list[str] | None = None) -> int:
             f"load average {load:.1f} exceeds {cpus} CPUs: each xdist worker builds its own test DB, which "
             "dominates a small lane under load — consider fewer workers (TAP_TEST_JOBS) or a quieter moment.\n"
         )
+    started = time.monotonic()
     with hold_pytest_lock("tap.lane_run"):
+        ran_from = time.monotonic()
         env = dict(os.environ)  # taken AFTER the lock so children inherit TAP_PYTEST_LOCK_HELD
         if not args.no_core:
             results.append(run_owner(core, extra, env))
@@ -351,6 +364,7 @@ def main(argv: list[str] | None = None) -> int:
                 results.append(owner)
     reasons = judge(results, omissions, args.require)
     text = render_summary(results, omissions, reasons, args.record)
+    text += timing_line(waited=ran_from - started, ran=time.monotonic() - ran_from) + "\n"
     sys.stdout.write("\n" + text)
     if args.summary is not None:
         with args.summary.open("a", encoding="utf-8") as fh:

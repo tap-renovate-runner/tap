@@ -21,7 +21,7 @@ rules were in memory notes and nowhere a session reads before running a suite (t
 
 - **stack**: this session's own containers (`web` + `db`), started with `scripts/dc up -d`.
 - **`-n0`**: pytest-xdist with zero workers, i.e. serial. Right for a handful of files (no per-worker test-DB build).
-- **`TAP_TEST_JOBS`**: caps the workers of `scripts/test` only. It is read host-side by that script and does nothing for a hand-run `scripts/dc exec ... pytest`, which takes `-n0` or `-n 3` directly.
+- **`TAP_TEST_JOBS`**: caps the workers of `scripts/test` only; `TAP_TEST_JOBS=0` means no workers at all (`-n 0`, serial in one process), the right setting for a small plugin lane because each worker builds its own test DB. It is read host-side by that script and does nothing for a hand-run `scripts/dc exec ... pytest`, which takes `-n0` or `-n 3` directly.
 - **the guard trio**: three fast guard checks, listed in section 1.
 
 ## What requests nothing
@@ -85,7 +85,10 @@ suites pin `tap_web` / `tap_viz` behaviour), because the server's `core_ci` is f
 lane does not run them unless you ask: `scripts/test --fast-relevant --plugins <slug>[,<slug>]` adds the named installed suites (an uninstalled slug is refused, not skipped); add `--no-core` for just those suites, under the lock, without paying for the core walk. For a plugin repo with no CI of its own this one command is the gate. See the `tap_viz` / `tap_web` row in section 1.
 
 **A plugin PR is a different path.** A plugin repo has no promote; its PRs are opened by hand with
-`gh`. Run the targeted tests from the core root, run your own plugin's suite, merge `origin/main`
+`gh`. Run the targeted tests from the core root, run your own plugin's suite with
+`scripts/test --fast-relevant --no-core --plugins <slug>` (the variant that takes the lock; the tooling
+lives in the stack's own tap checkout, so a plugin workspace on an older checkout must merge `main` first
+or `--plugins` is simply not there), merge `origin/main`
 immediately before opening (`open-a-pr` step 5 makes the author own the derived-artifact checks and
 that merge there), push, and read the plugin's CI (if it has any).
 
@@ -103,12 +106,19 @@ that merge there), push, and read the plugin's CI (if it has any).
    worker builds and migrates its own test DB, which can dominate a small lane — when the load
    average exceeds the CPU count, use fewer workers or `-n0` (the lane prints a warning), or set
    `TAP_TEST_REUSE_DB=1` to reuse each worker's DB — and drop it after a model or migration change.
-3. **Check load first** (`docker stats --no-stream`). If another stack is above ~300% CPU, wait or
-   push and use CI.
+3. **Check load first** (`docker stats --no-stream`). For a HEAVY run (full lane, guard suite, ratchet):
+   if another stack is above ~300% CPU, wait or push and use CI. For a SHORT lane (one plugin, under
+   a minute) do not wait for a quiet machine — one stack can sit at 700% all day: run it serial and
+   capped (`TAP_TEST_JOBS=0 scripts/test --fast-relevant --no-core --plugins <slug>`).
 4. **`--create-db` only when the test DB is stale** (after a migration reset). It rebuilds every time.
 5. **Never `timeout` a lane** — it leaves stale test DBs behind.
 6. **No edits while a promote lane runs**; they void its verdict.
-7. **Stop your stack when you are not testing** (`scripts/dc stop`; volumes survive).
+7. **Stop your stack when you are not testing** (`scripts/dc stop`; volumes survive). `scripts/dc down -v`
+   is the expensive one: it drops the volumes, and the rebuild cost about 3 minutes of image install and
+   boot on the shared VM. Use it only to clear data you must clear.
+8. **Plugin CI is slow and review rounds multiply it.** A plugin's server-side boot-and-test took 4–5
+   minutes per push, and AI-review rounds meant 4–5 pushes per PR. One local plugin lane before each
+   push (rule 3, the short-lane form) is what saves the CPU there.
 
 ## 5. Stopping a lane
 

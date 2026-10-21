@@ -110,6 +110,7 @@ def test_jobs_cap_and_reuse_db_are_read_host_side(lane) -> None:
     run, touch = lane
     touch("tap_web/x.py")
     assert "-n 3" in run("--fast-relevant", extra_env={"TAP_TEST_JOBS": "3"}).stdout
+    assert "-n 0" in run("--fast-relevant", extra_env={"TAP_TEST_JOBS": "0"}).stdout  # serial: no per-worker DB build
     assert "--reuse-db" in run("--fast-relevant", extra_env={"TAP_TEST_REUSE_DB": "1"}).stdout
     assert "--reuse-db" not in run("--fast-relevant").stdout
 

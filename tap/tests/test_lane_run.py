@@ -227,6 +227,12 @@ def test_the_lane_holds_the_stack_lock_while_it_runs(monkeypatch: pytest.MonkeyP
     assert seen == [True] and not is_locked(lock)
 
 
+@pytest.mark.spec("req-dev-validation-suite-tiers-7")
+def test_the_lane_report_attributes_wait_run_and_load() -> None:
+    line = lane_run.timing_line(waited=612.4, ran=30.2)
+    assert "waited 612 s" in line and "ran 30 s" in line and "load average" in line and "CPUs" in line
+
+
 def test_summary_renders_verdict(tmp_path: Path) -> None:
     r = OwnerResult(owner="core", paths=["/app"], collected=10, passed=10)
     text = render_summary([r], [], [], None)
