@@ -31,7 +31,7 @@ Future:
 | req-web-page-layout-sanitize.sec | [Page Layout Sanitization](#page-layout-sanitization) | Implemented | Security-focused layout schema validation for page layout input |
 | req-web-page-sanitize.sec | [Page Object Sanitization](#page-object-sanitization) | Implemented | Schema-first input hardening plus safe HTML output escaping |
 | req-web-page-plink | [Page to Panel Links](#page-to-panel-links) | Implemented | `USES_PANEL` links bind `panel-id` slots to panel nodes |
-| req-web-page-row-heights | [Row Heights](#page-layout-sanitization) | Implemented | A row's `height` drives its flex basis: `auto` intrinsic, `vh` definite everywhere, `Nfr` a share of the remaining height — which exists only on a `full_bleed` page, so elsewhere an `fr` row falls back to intrinsic height and does not clip. A row never both lacks a height and clips to it. | tap#416; `tap_web/tests/test_page_row_heights.py`. |
+| req-web-page-row-heights | [Row Heights](#page-layout-sanitization) | Implemented | A row's `height` drives its flex basis: `auto` intrinsic, `vh` definite everywhere, `Nfr` a share of the remaining height — which exists only on a `full_bleed` page, so elsewhere an `fr` row falls back to intrinsic height and does not clip. A row never both lacks a height and clips to it. `fill` takes the viewport height left under the page chrome and the other bands, on any page, without scrolling the document (see Fill Rows). | tap#416; `tap_web/tests/test_page_row_heights.py`. |
 | req-web-page-bands | [Layout Bands](#page-layout-bands) | Implemented | An optional integer `band` (>= 1, default 1) on a column groups columns into horizontal bands: each band is its own grid, bands stack top to bottom, so full-width content can sit under side-by-side columns. A page with no `band` renders exactly as before. | `tap_web/tests/test_page_bands.py` |
 | req-web-page-landing | [Landing Pages](#landing-pages) | Implemented | The root is the operator's decision: `web.landing_entity_id` (identity) + `web.landing_slug` (verified assertion) in the boot profile, carried by settings, verified fail-closed at boot; one resolver feeds the 302 redirect, the placeholder and a structured `web.landing` probe; the `LandingPage` node + `USES_LANDING_PAGE` edge are DROPPED with row cleanup (tap#340) |
 | req-web-page-synthetic | [Synthetic Pages](#synthetic-pages) | Implemented | GRIFT-subgraph-driven page rendering without persisting Page or Panel objects |
@@ -232,7 +232,7 @@ Layout validation and output-safety requirements extracted from `req-web-page-ob
     - `panel-id` (required, defined by `req-web-page-panel-id`)
     - `row_span` (optional integer >= 1, default 1)
     - `col_span` (optional integer >= 1, default 1)
-    - `height` (optional) — the column `width` allowlist (`auto`, `1fr`..`12fr`) plus viewport fractions (`25vh`, `33vh`, `40vh`, `50vh`, `60vh`, `66vh`, `75vh`, `80vh`, `90vh`, `100vh`). `Nfr` rows share the column's remaining height; a `vh` row is a definite height regardless of siblings — what a graph needs on a page whose other rows are `auto` and let the document scroll (the landing pattern: graph `75vh`, tables `auto` with their own scroll). A `vh` row always clips and scrolls its own content; an `fr` row does so only on a `full_bleed` page, because only there does it have a height to clip to (see below). When omitted, rows take their intrinsic (content-driven) height — the legacy default.
+    - `height` (optional) — the column `width` allowlist (`auto`, `1fr`..`12fr`) plus viewport fractions (`25vh`, `33vh`, `40vh`, `50vh`, `60vh`, `66vh`, `75vh`, `80vh`, `90vh`, `100vh`), plus `fill` (the viewport height remaining after the page chrome and the page's other bands; see Fill Rows). `Nfr` rows share the column's remaining height; a `vh` row is a definite height regardless of siblings — what a graph needs on a page whose other rows are `auto` and let the document scroll (the landing pattern: graph `75vh`, tables `auto` with their own scroll). A `vh` row always clips and scrolls its own content; an `fr` row does so only on a `full_bleed` page, because only there does it have a height to clip to (see below). When omitted, rows take their intrinsic (content-driven) height — the legacy default.
     - `tags` (optional object map with kebab-case keys/values)
 - Ordering and identity semantics:
   - Ordering is implied by numeric key prefix in `col-<n>` and `row-<n>`.
@@ -258,6 +258,20 @@ For `Nfr` rows to distribute meaningfully, the page grid must have a **definite*
 So off a `full_bleed` page an `fr` row falls back to its intrinsic height and does **not** clip. `_process_layout` derives this once as `row.unbounded_fr` and the template reads it; the condition is never re-spelled. A percentage `min-height` does not rescue the grid — it resolves against the same indefinite parent (measured). `vh` rows are definite on any page and are unaffected, which is why a graph on a non-full-bleed page uses `60vh` rather than `1fr`.
 
 Pages without any `Nfr` rows render identically to the legacy layout.
+
+#### Fill Rows
+
+`fill` is a row `height` for the one band that should take whatever viewport height the rest of the page leaves: a graph under a row of cards, sized to the window rather than to a fixed `vh` guess. It works on any page, `full_bleed` or not, and with any number of bands, because the page itself becomes a viewport-height flex column when (and only when) a row declares it.
+
+When a page has a `fill` row, `_process_layout` derives `fills_viewport` once and the view passes it as `fill_viewport` to `base.html`. The base template then treats the page as it treats a `full_bleed` one for height (body `h-full`; `main` and the content container `flex-1 min-h-0`), but keeps the centered `max-w` container unless the page is also `full_bleed`. The band holding the `fill` row takes `flex: 1 1 0` of the column that holds the bands and the other bands keep their intrinsic height. Inside that band the `fill` slot takes `flex: 1 1 0` of its column and its panel body is `h-full`, as an `Nfr` row's is on a `full_bleed` page. The slot has a minimum height of `24rem` (`--tap-fill-min`), so a very short window scrolls the document rather than crushing the panel; at any window that fits the other bands and 24rem the document does not scroll. Because the slot is a definite-height flex item, a graph panel (`tap_viz`) sizes its canvas to the slot and its resize observer refits it when the window changes.
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-web-page-row-heights-1 | Fill Is An Accepted Height | Implemented | The layout schema accepts `fill` as a row `height`; a value outside the allowlist (`calc(100vh - 8rem)`, `fill2`, `Fill`, `0`) is still rejected with `PageLayoutValidationError`. | `test_page_row_heights.py::TestFillValidation` |
+| req-web-page-row-heights-2 | A Fill Row Is Bounded On Any Page | Implemented | A `fill` row is never `unbounded_fr`: on a `full_bleed` or an ordinary page, with one band or several, it renders as a flex-growing slot with a minimum height and clips to its own box, never to a share of zero. | `test_page_row_heights.py::TestFillProcessing` |
+| req-web-page-row-heights-3 | The Page Is A Viewport Column | Implemented | A page with a `fill` row renders with a definite-height body (`h-full`), a `flex-1 min-h-0` main and content container, while a page without one renders as before; the centered max-width container is kept unless the page is `full_bleed`. | `test_page_row_heights.py::TestFillRender` |
+| req-web-page-row-heights-4 | Only The Fill Band Grows | Implemented | The band holding a `fill` row takes the remaining height of the page (`flex: 1 1 0`, `min-height: 0`); every other band keeps its intrinsic height. | `test_page_row_heights.py::TestFillRender` |
+| req-web-page-row-heights-5 | Fill Does Not Scroll The Document | Implemented | In a real browser at 1280x720, 1440x900 and 1920x1080 a page with a card band and a `fill` band has `document.scrollHeight <= innerHeight`, and the fill slot ends at the window bottom less the page padding. | Observed with Playwright (session verification), not an automated test. |
 
 #### Layout JSON Schema (Draft)
 
@@ -324,7 +338,7 @@ Pages without any `Nfr` rows render identically to the legacy layout.
                 },
                 "height": {
                   "type": "string",
-                  "enum": ["auto", "25vh", "33vh", "40vh", "50vh", "60vh", "66vh", "75vh", "80vh", "90vh", "100vh", "1fr", "2fr", "3fr", "4fr", "5fr", "6fr", "7fr", "8fr", "9fr", "10fr", "11fr", "12fr"]
+                  "enum": ["auto", "25vh", "33vh", "40vh", "50vh", "60vh", "66vh", "75vh", "80vh", "90vh", "100vh", "fill", "1fr", "2fr", "3fr", "4fr", "5fr", "6fr", "7fr", "8fr", "9fr", "10fr", "11fr", "12fr"]
                 },
                 "tags": {
                   "type": "object",

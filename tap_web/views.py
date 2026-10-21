@@ -645,10 +645,10 @@ def _render_page(
 ) -> HttpResponse:
     """Render a Page using the page template.
 
-    TAP-IMPLEMENTS: req-web-render-process@4b4b75d90752/5c977e66123d (derivation) — the one
+    TAP-IMPLEMENTS: req-web-render-process@4b4b75d90752/7e71ee9bceca (derivation) — the one
         page-rendering pipeline, riding Django's own machinery end to end:
         layout processing, panel-type asset collection, template render.
-    TAP-IMPLEMENTS: req-web-rendering-pagesan.sec@6982e35b4c0b/5c977e66123d (enforcement) —
+    TAP-IMPLEMENTS: req-web-rendering-pagesan.sec@6982e35b4c0b/7e71ee9bceca (enforcement) —
         every page renders through Django's autoescaping template pipeline
         (render → page.html); no page content path bypasses it.
     """
@@ -680,6 +680,7 @@ def _render_page(
     full_bleed = bool(layout.get("full_bleed", False))
     processed_columns = _process_layout(layout, panels_by_id, query_params, inputs_by_id, full_bleed=full_bleed)
     bands = group_bands(processed_columns)
+    fill_viewport = any(band["has_fill"] for band in bands)
 
     context = {
         "page": page,
@@ -693,6 +694,8 @@ def _render_page(
         # max-width container so the page fills the viewport width. base.html
         # honors this; non-page views leave it unset and stay centered.
         "full_bleed": full_bleed,
+        # A `fill` row makes the page a viewport-height column (req-web-page-row-heights-3).
+        "fill_viewport": fill_viewport,
     }
     return render(request, "tap_web/page.html", context)
 
@@ -742,6 +745,11 @@ def _process_layout(
                     # fall back to intrinsic height instead. Derived here, once, rather
                     # than re-spelled in template conditions.
                     "unbounded_fr": height.endswith("fr") and (multi_band or not full_bleed),
+                    # `fill` takes the viewport height left under the chrome and the other
+                    # bands. It is bounded on every page because the page itself becomes a
+                    # viewport-height flex column when any row asks for it
+                    # (req-web-page-row-heights-2/-3).
+                    "is_fill": height == "fill",
                 }
             )
 
