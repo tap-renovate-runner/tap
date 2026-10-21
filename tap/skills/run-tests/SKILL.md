@@ -158,7 +158,37 @@ Verify serially (one test, `-n0`) before believing a red.
 | edited grift batches skipped on a plain boot | batch identity | re-import with `import_plugin_grift --force-batches` |
 | playground CI fails with `cannot import name` after a core merge | "rerun failed jobs" reuses the first run's pinned core ref | dispatch a fresh run, or close and reopen the PR |
 
-## 7. Say what you ran
+## 7. A red PR: watch it, and work it when it goes red
+
+CI is where the heavy tests run now, so a red PR has to reach you without you polling for it. A
+background loop that prints a summary "wakes nobody": #1093 sat red on an unused import because its
+watcher was exactly that. The repo's standard watcher is the one to arm (`open-a-pr` step 7,
+`close-out-pr` step 1):
+
+1. **Arm it as a Monitor, on open and after every push** (a push is a new head), from a trusted
+   checkout of the upstream repo, never the PR's own branch worktree:
+
+       scripts/pr-review-triage <pr> --watch 300
+
+   It emits one line per event: `CHECKFAIL` the moment an individual check fails (a Sonar, Codacy or
+   lane red is workable before the whole run ends), `CONFLICT` when the base moves, reviews and bot
+   comments, and every merge-state change. At most two watchers at once; stop one when its PR merges.
+2. **On a `CHECKFAIL`, work it in this order:**
+   - Read the failure itself (`gh run view <run> --log-failed`, or the check's annotations for Codacy;
+     SonarCloud's PR issues are public at `sonarcloud.io/api/issues/search?...&pullRequest=<n>`).
+     Do not guess from the check's name.
+   - Match it against section 6. An infrastructure red (CI boot, DNS, OOM, stale cache) is
+     `gh run rerun <id> --failed`, nothing else.
+   - A code red: fix it on the PR branch, run the targeted tests and the guard trio (section 1), push,
+     and re-arm the watcher.
+3. **Stop after two failed rounds** on the same red and say what you tried: a third guess is the
+   expensive one. A red the author cannot fix (a required review, a ruleset, a permission) goes to the
+   human, not around them.
+4. **What this does and does not do.** The Monitor wakes the session that armed it; a session that has
+   ended will not act on a later red. Nothing here starts work unattended. An always-on watcher that
+   opens or resumes a session on red is a larger design (a scheduled or remote trigger), not built.
+
+## 8. Say what you ran
 
 A PR body names the commands and counts, and what was left to CI and why. "Tests pass" without the
 command is the claim `AGENTS.md` says to name the method behind.

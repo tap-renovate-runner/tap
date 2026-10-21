@@ -33,8 +33,6 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import tap.pytest_lock as pytest_lock
-from tap.pytest_lock import hold_pytest_lock, run_group
 from tap.plugin_testing import (
     PluginSuite,
     expected_plugin_slugs,
@@ -42,6 +40,7 @@ from tap.plugin_testing import (
     membership_omissions,
     plugin_suites,
 )
+from tap.pytest_lock import hold_pytest_lock, run_group
 
 # Alternations are anchored on a word boundary and share no prefix, so the engine never
 # retries one branch against another across the line (Sonar: super-linear backtracking).
