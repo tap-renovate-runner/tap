@@ -28,10 +28,24 @@ def _contrast(a: str, b: str) -> float:
     return (hi + 0.05) / (lo + 0.05)
 
 
-def _token(name: str) -> str:
-    match = re.search(rf"{re.escape(name)}:\s*(#[0-9a-fA-F]{{6}})\s*;", _CSS)
+_THEME = (Path(__file__).resolve().parents[1] / "static" / "tap_web" / "css" / "theme.css").read_text(encoding="utf-8")
+
+
+def _palette(dark: bool) -> dict[str, str]:
+    """Palette name to hex, from the light block of theme.css or its forced-dark block."""
+    start = _THEME.index(':root[data-theme="dark"] {' if dark else ":root {")
+    block = _THEME[start : _THEME.index("}", start)]
+    return {
+        k: "#" + "".join(f"{int(x):02x}" for x in v.split())
+        for k, v in re.findall(r"(--tap-[a-z0-9-]+):\s*(\d+ \d+ \d+);", block)
+    }
+
+
+def _token(name: str, dark: bool = False) -> str:
+    """A table token as hex: a literal, or a `rgb(var(--tap-...))` palette reference resolved for the theme."""
+    match = re.search(rf"{re.escape(name)}:\s*(#[0-9a-fA-F]{{6}}|rgb\(var\((--tap-[a-z0-9-]+)\)\))\s*;", _CSS)
     assert match, f"token {name} is not defined in tabulator-minimal.css"
-    return match.group(1)
+    return _palette(dark)[match.group(2)] if match.group(2) else match.group(1)
 
 
 class TestLinkAffordance:
@@ -41,7 +55,8 @@ class TestLinkAffordance:
         assert link_rule, "no base rule for .tap-cell-link"
         assert "color: var(--tap-table-link)" in link_rule.group(1)
         assert "text-decoration: underline" in link_rule.group(1)
-        assert "text-decoration: none" not in _CSS
+        # the default link is never undecorated; only the opt-in plain modifier (config-26) is
+        assert "text-decoration: none" not in _CSS.split("/* Plain links")[0]
         assert ".tabulator .tap-cell-link:hover" in _CSS
         focus = re.search(r"\.tap-cell-link:focus-visible \{([^}]*)\}", _CSS)
         assert focus and "outline: 2px solid" in focus.group(1)
@@ -50,7 +65,7 @@ class TestLinkAffordance:
     def test_every_anchor_the_script_builds_carries_the_link_class(self) -> None:
         anchors = [_JS[m.start() : m.start() + 260] for m in re.finditer(r"<a href=", _JS)]
         assert len(anchors) >= 4  # externalLink, link, the icon link, linkList items
-        assert all('class="tap-cell-link"' in a for a in anchors)
+        assert all('class="tap-cell-link"' in a or "class=\"' + _linkClass(params) + '\"" in a for a in anchors)
 
     @pytest.mark.spec("req-web-stdpanel-table-config-17")
     def test_row_url_rows_get_a_class_not_an_inline_style(self) -> None:
@@ -64,7 +79,7 @@ class TestLinkAffordance:
     @pytest.mark.spec("req-web-stdpanel-table-config-17")
     def test_tables_without_row_urls_are_not_restyled(self) -> None:
         # Only the class on a row changes its cursor or hover; the base row rules are untouched.
-        assert ".tabulator .tabulator-row:hover { background: #f8fafc; }" in _CSS
+        assert ".tabulator .tabulator-row:hover { background: rgb(var(--tap-slate-50)); }" in _CSS
         assert ".tabulator .tabulator-row { cursor" not in _CSS
 
     @pytest.mark.spec("req-web-stdpanel-table-config-18")
@@ -76,3 +91,12 @@ class TestLinkAffordance:
         assert _contrast(_token("--tap-table-link"), wash) >= 4.5
         assert _contrast(_token("--tap-table-link-hover"), wash) >= 4.5
         assert _contrast(_token("--tap-table-link-focus"), row) >= 3.0
+
+    @pytest.mark.spec("req-web-theme-contrast-1")
+    def test_link_colours_reach_4_5_to_1_in_the_dark_theme_too(self) -> None:
+        dark = _palette(True)
+        row = dark["--tap-white"]
+        wash = _token("--tap-table-row-link-hover", dark=True)
+        for name in ("--tap-table-link", "--tap-table-link-hover"):
+            assert _contrast(_token(name, dark=True), row) >= 4.5
+            assert _contrast(_token(name, dark=True), wash) >= 4.5

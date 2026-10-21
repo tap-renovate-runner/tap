@@ -212,12 +212,14 @@ class TestBreadcrumbRendering:
         assert 'data-tap-segment-url="/samsite"' in body
         assert 'data-tap-segment-url="/samsite/compliance"' in body
 
-    def test_tap_renders_at_home_even_without_root_page(self):
+    def test_tap_renders_at_home_even_without_root_page(self, monkeypatch):
         """req-web-nav-auto-parent-4 in template form: TAP renders + links to /
         on every deep page, even when no Page is registered at slug `/`.
         Regression for the bug where unregistered home fell through to an
         empty-label `<span>`.
         """
+        # The text mark: no profile glyph, whatever profile the host stack boots (req-web-chrome-branding-glyph-fallback).
+        monkeypatch.delenv("TAP_BOOT_PROFILE", raising=False)
         # Create a deep page with NO Page at `/` registered.
         _create_page("Samsite", "/samsite")
         _create_page("Samsite Compliance", "/samsite/compliance")
@@ -395,7 +397,7 @@ class TestDiscoverableGateInBreadcrumb:
         body = _auth_client().get("/top/cve/leaf").content.decode()
         assert 'data-tap-segment-url="/top/cve">CVE</span>' in body
         assert '<a href="/top/cve"' not in body
-        assert '<a href="/top" class="text-slate-300' in body
+        assert '<a href="/top" class="tap-nav-link' in body
 
     def test_discoverable_page_is_a_link_and_no_page_prefix_is_title_cased(self):
         _create_page("Final Page", "/foo/bar/final-page")

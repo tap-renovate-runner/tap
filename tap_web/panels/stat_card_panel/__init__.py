@@ -41,7 +41,14 @@ logger = logging.getLogger(__name__)
 TONES: tuple[str, ...] = ("neutral", "good", "warn", "bad", "muted")
 FORMATTERS: tuple[str, ...] = ("text", "number", "integer", "datetime", "age", "percent", "link")
 # A secondary line may also be a long prose value (`longtext`); the card's main figure may not.
-LINE_FORMATTERS: tuple[str, ...] = (*FORMATTERS, "longtext")
+LINE_FORMATTERS: tuple[str, ...] = (*FORMATTERS, "longtext", "table")
+# Formatters a table column may use: the single-value ones (no longtext, no nested table).
+COLUMN_FORMATTERS: tuple[str, ...] = FORMATTERS
+LAYOUTS: tuple[str, ...] = ("stacked", "figure_right")
+TITLE_STYLES: tuple[str, ...] = ("normal", "bold")
+ALIGNS: tuple[str, ...] = ("left", "right", "center")
+PLACEMENTS: tuple[str, ...] = ("body", "header")
+LABEL_PLACEMENTS: tuple[str, ...] = ("beside", "above")
 
 _DEFAULT_MAX_CARDS = 24
 _DEFAULT_NULL_TEXT = "not observed"
@@ -49,6 +56,8 @@ _DEFAULT_MISSING_TEXT = "not returned by the search"
 _DEFAULT_BLANK_TEXT = "(empty)"
 _DEFAULT_PERCENT_DECIMALS = 2
 _DEFAULT_MAX_LINES = 4
+_DEFAULT_TABLE_EMPTY_TEXT = "none"
+_MAX_TABLE_ROWS = 200
 # Words that carry a tone in text, so colour is never the only signal. `neutral`
 # and `muted` carry none: they are the absence of a verdict.
 _DEFAULT_TONE_LABELS: dict[str, str] = {"good": "Good", "warn": "Warning", "bad": "Problem"}
@@ -116,17 +125,93 @@ STAT_CARD_CONFIG_SCHEMA: dict[str, Any] = {
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["label", "field"],
-                "description": "One secondary line: a label and the row field it shows.",
+                "required": ["field"],
+                "description": "One secondary line: the row field it shows and, optionally, a label for it.",
+                "if": {"properties": {"formatter": {"const": "table"}}, "required": ["formatter"]},
+                "then": {"required": ["columns"]},
                 "properties": {
-                    "label": {"type": "string", "minLength": 1, "maxLength": 80, "description": "Text label."},
+                    "label": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80,
+                        "description": "Text label. Omit it and the value is drawn as plain text with no caption.",
+                    },
                     "field": {**_FIELD, "description": "Alias of the row field shown."},
+                    "label_placement": {
+                        "type": "string",
+                        "enum": list(LABEL_PLACEMENTS),
+                        "description": (
+                            "Where the label sits. beside (default): a definition-list row, label left and value "
+                            "right. above: a small caption directly above the value, which then spans the card's "
+                            "width (for example over a table line). Ignored when the line has no label."
+                        ),
+                    },
+                    "placement": {
+                        "type": "string",
+                        "enum": list(PLACEMENTS),
+                        "description": (
+                            "Where the line is drawn. body (default): in the card body under the figure. header: "
+                            "directly under the title, in the left column of the layout figure_right header, on the "
+                            "same row as the unit under the figure; only the FIRST header line is placed there (its "
+                            "label is not drawn) and with any other layout the line stays in the body."
+                        ),
+                    },
                     "formatter": {
                         **_LINE_FORMATTER,
                         "description": (
                             "Formatter for this line; text by default. longtext shows long prose wrapped and cut "
-                            "to max_lines, expandable in place."
+                            "to max_lines, expandable in place. table draws an ARRAY field as a borderless "
+                            "table, one row per element (see columns)."
                         ),
+                    },
+                    "columns": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 8,
+                        "description": (
+                            "Columns of a table line, left to right. Each names a key of the array's elements "
+                            "(objects). Required when the formatter is table; ignored otherwise."
+                        ),
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["field"],
+                            "description": "One table column: the element key it shows, and how it is drawn.",
+                            "properties": {
+                                "field": {**_FIELD, "description": "Key of each array element shown in this column."},
+                                "formatter": {
+                                    "type": "string",
+                                    "enum": list(COLUMN_FORMATTERS),
+                                    "description": "Formatter for this column's cells; text by default.",
+                                },
+                                "decimals": {
+                                    **_DECIMALS,
+                                    "description": "Decimal places when the column formatter is percent. Default 2.",
+                                },
+                                "link_template": {
+                                    **_LINK_TEMPLATE,
+                                    "description": (
+                                        "URL template when the column formatter is link: {value} and {number} "
+                                        "as for a link line."
+                                    ),
+                                },
+                                "align": {
+                                    "type": "string",
+                                    "enum": list(ALIGNS),
+                                    "description": "Horizontal alignment of the column's cells. Default left.",
+                                },
+                                "bold": {
+                                    "type": "boolean",
+                                    "description": "When true the column's cells are drawn in bold. Default false.",
+                                },
+                            },
+                        },
+                    },
+                    "empty_text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80,
+                        "description": "Text a table line shows when its array is empty. Default: 'none'.",
                     },
                     "decimals": {
                         **_DECIMALS,
@@ -147,6 +232,20 @@ STAT_CARD_CONFIG_SCHEMA: dict[str, Any] = {
                     },
                 },
             },
+        },
+        "layout": {
+            "type": "string",
+            "enum": list(LAYOUTS),
+            "description": (
+                "Card header layout. stacked (default): title, then figure with its unit beside it. "
+                "figure_right: the title at the top left and the figure at the top right, large, with the unit "
+                "underneath the figure."
+            ),
+        },
+        "title_style": {
+            "type": "string",
+            "enum": list(TITLE_STYLES),
+            "description": "normal (default) or bold: how the card title is drawn.",
         },
         "tone": {
             "description": (
@@ -339,6 +438,8 @@ def format_cell(
         return {"kind": "state", "state": "blank", "text": config.get("blank_text", _DEFAULT_BLANK_TEXT)}
 
     options = options or {}
+    if formatter == "table":
+        return _table_cell(value, config, options)
     if formatter == "longtext":
         text = str(value)
         if not text.strip():
@@ -370,6 +471,57 @@ def format_cell(
         iso = instant.astimezone(UTC).isoformat().replace("+00:00", "Z")
         return {"kind": "time" if formatter == "datetime" else "age", "text": iso, "iso": iso}
     return {"kind": "text", "text": str(value)}
+
+
+def _table_cell(value: Any, config: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
+    """A borderless table cell from an ARRAY row value, one table row per element.
+
+    Each element is an object read by the line's ``columns``; a non-object element has no keys, so its
+    cells state ``missing`` rather than guessing. A value that is not an array is shown as written and
+    flagged; an empty array is a stated state (the line's ``empty_text``), never an empty table. Cell
+    text is plain and auto-escaped by the template. At most 200 rows are drawn; the rest are counted.
+    """
+    if not isinstance(value, list):
+        return {"kind": "text", "text": str(value), "title": "not an array"}
+    columns = options.get("columns") or []
+    if not value or not columns:
+        text = options.get("empty_text", _DEFAULT_TABLE_EMPTY_TEXT)
+        return {"kind": "state", "state": "empty", "text": text}
+    rows = []
+    for element in value[:_MAX_TABLE_ROWS]:
+        item = element if isinstance(element, dict) else {}
+        rows.append(
+            [
+                {
+                    "cell": format_cell(item, col["field"], col.get("formatter", "text"), config, col),
+                    "align": col.get("align", "left"),
+                    "bold": bool(col.get("bold")),
+                }
+                for col in columns
+            ]
+        )
+    return {
+        "kind": "table",
+        "rows": rows,
+        "omitted": max(0, len(value) - _MAX_TABLE_ROWS),
+    }
+
+
+def _line_groups(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Runs of consecutive labelled lines (a definition list each), single unlabelled lines (plain text) and
+    single captioned lines (``label_placement: "above"``: a small caption over the value)."""
+    groups: list[dict[str, Any]] = []
+    for line in lines:
+        if line["label"] and line.get("caption"):
+            groups.append({"labelled": False, "captioned": True, "lines": [line]})
+        elif line["label"]:
+            if groups and groups[-1]["labelled"]:
+                groups[-1]["lines"].append(line)
+            else:
+                groups.append({"labelled": True, "captioned": False, "lines": [line]})
+        else:
+            groups.append({"labelled": False, "captioned": False, "lines": [line]})
+    return groups
 
 
 def _tone_for(row: dict[str, Any], tone: Any) -> str:
@@ -406,10 +558,27 @@ def build_cards(rows: list[dict[str, Any]], config: dict[str, Any]) -> list[dict
         zero = bool(config.get("zero_tone")) and _is_zero(row, config["value_field"])
         if zero:
             tone = config["zero_tone"]
+        lines = [
+            {
+                "label": line.get("label", ""),
+                "caption": line.get("label_placement") == "above",
+                "header": line.get("placement") == "header",
+                "cell": format_cell(row, line["field"], line.get("formatter", "text"), config, line),
+            }
+            for line in config.get("lines", [])
+        ]
+        # Only the figure_right header has room for a line; the FIRST header line moves there, the rest stay.
+        header_line = None
+        if config.get("layout") == "figure_right":
+            header_line = next((line for line in lines if line["header"]), None)
+            if header_line is not None:
+                lines = [line for line in lines if line is not header_line]
         cards.append(
             {
                 "index": index,
                 "title": title,
+                "layout": config.get("layout", "stacked"),
+                "title_bold": config.get("title_style") == "bold",
                 "value": format_cell(
                     row,
                     config["value_field"],
@@ -421,13 +590,9 @@ def build_cards(rows: list[dict[str, Any]], config: dict[str, Any]) -> list[dict
                     },
                 ),
                 "unit": config.get("unit", ""),
-                "lines": [
-                    {
-                        "label": line["label"],
-                        "cell": format_cell(row, line["field"], line.get("formatter", "text"), config, line),
-                    }
-                    for line in config.get("lines", [])
-                ],
+                "header_line": header_line,
+                "lines": lines,
+                "line_groups": _line_groups(lines),
                 "tone": tone,
                 "zero": zero,
                 "tone_text": bool(config.get("tone_text")),

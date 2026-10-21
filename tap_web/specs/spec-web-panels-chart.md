@@ -289,7 +289,7 @@ Status: `Implemented`
 - Colours are read from the `--tap-chart-*` custom properties on the panel root into an ECharts theme (text, axis, grid, tooltip, series palette `accent-1..8`), so a chart follows the page's light or dark tokens.
 - `color_map` resolves tokens to colours and colours series named by a mapped value and, for bar, pie, scatter, funnel, treemap and sunburst series driven by `encode`, each data item by the row's `field` value (or its name); `series_by` defaults `field` to its `series` field. A series with its own `itemStyle.color` is left alone.
 - `aria` is switched on, with the server's label as its description (ECharts' generated text misreads dataset-encoded series).
-- The chart is redrawn when the viewer's colour scheme changes or `data-theme` / `class` on `<html>` change, and resized by a `ResizeObserver` on the mount and on window resize. It is initialised after an HTMX settle, and disposed once its element leaves the page.
+- The chart is redrawn when the viewer's colour scheme changes or `data-theme` / `class` on `<html>` change (the page-wide switch that sets `data-theme` is `spec-web-theme.md`), and resized by a `ResizeObserver` on the mount and on window resize. It is initialised after an HTMX settle, and disposed once its element leaves the page.
 - A failure (library missing, bad JSON) shows `This chart could not be drawn: ...` in the frame and sets `data-tap-chart-ready="error"`.
 - Proven in a real browser; the repo has no JS test runner. Test-side, the colour map travels as data (`req-web-panels-chart-theme-1`).
 

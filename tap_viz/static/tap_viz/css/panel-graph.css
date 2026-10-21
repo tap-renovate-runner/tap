@@ -6,10 +6,14 @@
    the cy viewport — it's just a fixed backdrop pattern at the container
    level — so there's no sync window to get wrong. Spacing (40px) and
    color (slate-300) match the previous drawn grid for visual continuity. */
+/* THEME-INVARIANT (req-web-theme-graph-1): the canvas is one fixed light ground in every theme, because node
+   colours are data and lose fidelity against a dark one. Everything drawn inside it (labels, lines, toolbar,
+   scope boxes) keeps its light-mode colours; the panel chrome around it follows the theme. */
 .tap-cy-static-grid {
+    background-color: rgb(var(--tap-graph-bg));
     background-image:
-        linear-gradient(to right, #cbd5e1 1px, transparent 1px),
-        linear-gradient(to bottom, #cbd5e1 1px, transparent 1px);
+        linear-gradient(to right, rgb(var(--tap-graph-grid)) 1px, transparent 1px),
+        linear-gradient(to bottom, rgb(var(--tap-graph-grid)) 1px, transparent 1px);
     background-size: 40px 40px;
 }
 
@@ -282,6 +286,7 @@
 }
 
 .tap-info-window__table td {
+    vertical-align: middle;
     padding: 4px 0;
     border-bottom: 1px solid var(--tap-info-divider);
     line-height: 1.35;
@@ -334,7 +339,7 @@
 
 .tap-info-window__table--columns td {
     padding: 4px 8px 4px 0;
-    vertical-align: top;
+    vertical-align: middle;
 }
 
 .tap-info-window__table--columns th:last-child,

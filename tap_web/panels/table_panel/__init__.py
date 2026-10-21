@@ -88,6 +88,15 @@ TABLE_CONFIG_SCHEMA: dict[str, Any] = {
         # `(?![\s\S])` is a true end of string (`$` also matches before a final
         # newline), in both Python's and ECMAScript's regex dialects.
         "row_url_template": {"type": "string", "minLength": 2, "pattern": ROW_URL_TEMPLATE_PATTERN},
+        # Alternating row background (a stripe on every even row), from the theme's
+        # `--tap-table-stripe` tokens: light and dark values, text contrast-checked.
+        "striped": {
+            "description": (
+                "When true, every even row gets a subtle alternating background (the `--tap-table-stripe` theme "
+                "tokens, readable in light and dark). Default false: uniform rows."
+            ),
+            "type": "boolean",
+        },
         # Optional custom column specs — overrides column_mode in the JS.
         # Each spec maps to a Tabulator column; `formatter` selects one of the
         # JS preset formatters (panel-table.js) so column logic is declarable.
@@ -156,9 +165,54 @@ TABLE_CONFIG_SCHEMA: dict[str, Any] = {
         "column": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["field", "title"],
+            "required": ["title"],
+            # Exactly one way to name the value: `field` (dotted path), `field_path` (explicit segments) or
+            # `field_paths` (several explicit paths joined into one cell). `joiner` only goes with `field_paths`.
+            "oneOf": [{"required": ["field"]}, {"required": ["field_path"]}, {"required": ["field_paths"]}],
+            "dependentRequired": {"joiner": ["field_paths"]},
             "properties": {
                 "field": {"type": "string", "minLength": 1},
+                # An explicit path as an ARRAY of segments, for a key that itself contains a dot:
+                # ["dimensions", "dataclass.customer"] reads row.dimensions["dataclass.customer"]. Each
+                # segment is one key, never split. Use `field` instead for an ordinary dotted path.
+                "field_path": {
+                    "description": (
+                        "The value's location as an array of path segments, each one key even if it contains a "
+                        "dot (['dimensions', 'dataclass.customer']). Use instead of `field`, never with it."
+                    ),
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"type": "string", "minLength": 1},
+                },
+                # Several values in ONE cell: each item is a path as an array of segments (the `field_path`
+                # reading, own keys only), the non-empty values are joined with `joiner`, in the order given.
+                "field_paths": {
+                    "description": (
+                        "Several values in one cell: an array of paths, each an array of segments exactly as "
+                        "`field_path` (each one key even if it contains a dot, own keys only). The non-empty "
+                        "scalar values are joined with `joiner` in the order given; null, missing, blank text, "
+                        "lists and objects are skipped; when nothing is left the cell shows `empty_text`. Use "
+                        "instead of `field` and `field_path`, never with them."
+                    ),
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                },
+                "joiner": {
+                    "description": "The text between the values of a `field_paths` column. Default ', '.",
+                    "type": "string",
+                    "maxLength": 20,
+                },
+                # Text shown (plain, escaped) when the cell's value is null, missing or an empty string,
+                # with any formatter. Absent: the formatter's own rendering of an empty value.
+                "empty_text": {
+                    "description": (
+                        "Plain text shown in place of a null, missing or empty-string value, with any formatter."
+                    ),
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80,
+                },
                 "title": {"type": "string"},
                 "width": {"type": "integer", "minimum": 20, "maximum": 800},
                 "widthGrow": {"type": "integer", "minimum": 1, "maximum": 5},
@@ -197,7 +251,24 @@ TABLE_CONFIG_SCHEMA: dict[str, Any] = {
                 # href_field | href_template | value_href_template, external;
                 # elapsed: start, end; iconMap: icons, labels, show_text;
                 # toneThreshold: steps, zero_tone, decimals; percent: decimals).
-                "formatter_params": {"type": "object"},
+                "formatter_params": {
+                    "description": (
+                        "Per-formatter parameters, handed to the formatter; each formatter documents its keys in "
+                        "the spec. `style` applies to every link formatter (link, externalLink, linkList)."
+                    ),
+                    "type": "object",
+                    "properties": {
+                        "style": {
+                            "description": (
+                                "Link appearance. `default` (absent): accent colour, underlined, highlighted on "
+                                "hover. `plain`: the cell's own text colour, no underline, no hover highlight; "
+                                "still clickable, with the keyboard focus ring."
+                            ),
+                            "type": "string",
+                            "enum": ["default", "plain"],
+                        }
+                    },
+                },
                 # A named sorter for the column. `severityRank` orders severity words
                 # (critical, high, medium, low and the like) by rank, not alphabetically.
                 "sorter": {"type": "string", "enum": ["severityRank"]},
@@ -208,8 +279,16 @@ TABLE_CONFIG_SCHEMA: dict[str, Any] = {
                 "headerSort": {"type": "boolean"},
                 # Horizontal alignment of the cell AND its heading, so a value
                 # sits under its title (a one-row identity table reads as
-                # label-over-value). Default is Tabulator's left.
-                "align": {"type": "string", "enum": ["left", "center", "right"]},
+                # label-over-value). Default left; cells are always vertically
+                # centred (req-web-stdpanel-table-config-25).
+                "align": {
+                    "description": (
+                        "Horizontal alignment of the cell and its heading together, so a value sits under its "
+                        "title. Default left. Every cell is vertically centred whatever this says."
+                    ),
+                    "type": "string",
+                    "enum": ["left", "center", "right"],
+                },
             },
         },
     },
@@ -422,6 +501,7 @@ class TablePanelType:
             "table_search": search,
             "table_columns": custom_columns,
             "table_height": config.get("height"),
+            "table_striped": bool(config.get("striped")),
             "table_refresh_seconds": config.get("refresh_seconds"),
             "table_group_by": group_by,
             "table_initial_sort": config.get("initial_sort"),

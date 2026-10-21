@@ -495,9 +495,16 @@ function initGraph(panelId) {
         });
 
     const placement = container.dataset.placement || "cytoscape:cose";
+    // Opt-in settle mode (spec-viz-label-sizing § Settle Mode): present only when the panel config enables it.
+    var zoomSettleRaw = null;
+    if (container.dataset.zoomSettle) {
+        try { zoomSettleRaw = JSON.parse(container.dataset.zoomSettle); } catch (err) { console.warn("[TAP zoom-settle] bad config", err); }
+    }
     const cy = cytoscape({
         container: cyEl,
         elements: cyNodes.concat(cyEdges),
+        // A constructor-only Cytoscape option: motion frames draw from a bitmap (cheap, but soft while moving).
+        textureOnViewport: !!(zoomSettleRaw && zoomSettleRaw.texture_on_viewport === true),
         style: [
             {
                 // Base node style — solid colour, used when no icon resolves.
@@ -921,6 +928,11 @@ function initGraph(panelId) {
         userPanningEnabled: true,
         boxSelectionEnabled: true,
     });
+    if (zoomSettleRaw) {
+        import("/static/tap_viz/js/runtime/zoom-settle.js")
+            .then(function (mod) { cy.scratch("_tapZoomSettleHandle", mod.initZoomSettle(cy, zoomSettleRaw)); })
+            .catch(function (err) { console.error("[TAP zoom-settle] init failed", err); });
+    }
 
     // Background grid is drawn by CSS on the container (see panel-graph.css
     // `.tap-cy-static-grid`). The cytoscape-grid-guide extension was
