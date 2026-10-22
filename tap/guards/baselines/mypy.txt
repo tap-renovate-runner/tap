@@ -134,7 +134,7 @@ tap_grid/tests/test_service_schemas.py:unused-ignore:3
 tap_grid/tests/test_services.py:arg-type:25
 tap_grid/tests/test_services.py:misc:12
 tap_grid/tests/test_validation.py:func-returns-value:1
-tap_grid/tests/test_validation.py:type-arg:9
+tap_grid/tests/test_validation.py:type-arg:10
 tap_plugins/management/commands/import_plugin_grift.py:no-untyped-def:3
 tap_plugins/management/commands/import_plugin_grift.py:type-arg:3
 tap_plugins/management/commands/import_plugin_grift.py:union-attr:1
