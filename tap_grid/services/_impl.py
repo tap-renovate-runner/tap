@@ -104,7 +104,11 @@ def _flip_touched_for_verb(verb: str, payload: dict[str, Any]) -> list[str] | No
 
 
 def _apply_patch(instance: Any, payload: dict[str, Any]) -> None:
-    """Apply patch payload to an instance. JSONFields deep-merge; scalars replace."""
+    """Apply patch payload to an instance. JSON objects deep-merge; every other value replaces.
+
+    A JSONField holding an object takes an object patch by deep merge. A list, string, number or boolean
+    has nothing to merge into, so it replaces what was there (req-grid-service-write-patch-5), as does an
+    object patched over a value that is not an object."""
     for field_name, value in payload.items():
         if value is None:
             # Explicit null clears the field; never deep-merge None into a JSONField
@@ -118,8 +122,11 @@ def _apply_patch(instance: Any, payload: dict[str, Any]) -> None:
             is_json = False
 
         if is_json:
-            existing = getattr(instance, field_name) or {}
-            setattr(instance, field_name, _deep_merge(existing, value))
+            existing = getattr(instance, field_name)
+            if isinstance(value, dict) and (existing is None or isinstance(existing, dict)):
+                setattr(instance, field_name, _deep_merge(existing or {}, value))
+            else:
+                setattr(instance, field_name, value)
         else:
             setattr(instance, field_name, value)
 
