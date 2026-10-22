@@ -295,6 +295,15 @@ TABLE_CONFIG_SCHEMA: dict[str, Any] = {
                 # pop-over on hover. Plain text.
                 "header_tooltip": {"type": "string", "maxLength": 600},
                 "headerSort": {"type": "boolean"},
+                # Wrap a long text value onto several lines (the row grows) instead of an ellipsis
+                # (req-web-stdpanel-table-config-31).
+                "wrap": {
+                    "description": (
+                        "true wraps a long text value onto several lines and lets the row grow to fit it, instead of "
+                        "cutting it with an ellipsis. Default false."
+                    ),
+                    "type": "boolean",
+                },
                 # Horizontal alignment of the cell AND its heading, so a value
                 # sits under its title (a one-row identity table reads as
                 # label-over-value). Default left; cells are always vertically

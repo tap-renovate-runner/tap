@@ -730,6 +730,9 @@
       // `align` places the cell and its heading together, so a value sits
       // under its title (the one-row identity table reads label-over-value).
       if (spec.align) { col.hozAlign = spec.align; col.headerHozAlign = spec.align; }
+      // `wrap` lets a long text value flow onto several lines and the row grow, instead of an ellipsis
+      // (req-web-stdpanel-table-config-31); the class is the whole mechanism (tabulator-minimal.css).
+      if (spec.wrap === true) col.cssClass = "tap-col-wrap";
       if (spec.width != null) col.width = spec.width;
       if (spec.widthGrow != null) col.widthGrow = spec.widthGrow;
       if (spec.minWidth != null) col.minWidth = spec.minWidth;
