@@ -5,6 +5,8 @@
 [![Python](https://img.shields.io/badge/python-3.14%2B-blue)](pyproject.toml)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14019/badge)](https://www.bestpractices.dev/projects/14019)
 
+**[Join the TAP community on Discord](https://discord.gg/adhvj2mFS)** — questions, ideas, and show-and-tell. Bugs and proposals still go through an [issue](../../issues).
+
 TAP is a general-purpose platform for mastering the systems you are responsible
 for — accounts, pipelines, fleets, data flows, the organization
 itself — by modeling each as a live, queryable, visual representation called **the grid**:
