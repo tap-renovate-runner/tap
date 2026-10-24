@@ -20,6 +20,7 @@ parser reads, and a test holds `seed_text_from_tree` to its exact output. No val
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +41,26 @@ done
 _SEED_WHEEL_LINE = re.compile(r"(Tag|Root-Is-Purelib):")
 _SEED_METADATA_LINE = re.compile(r"(License-Expression:|License:|Classifier: License ::)")
 _SEED_LINE_WIDTH = 200
+#: The image under scan is not trusted, so no file is read whole: at most this many lines per file, each read in chunks
+#: of this size (the rest of a longer line is dropped unread into memory). Real WHEEL and METADATA headers are a few dozen
+#: short lines.
+_SEED_MAX_LINES = 2000
+_SEED_READ_CHUNK = 4096
+
+
+def _header_lines(path: Path) -> Iterator[str]:
+    """Lines of `path` split on newline only (as `sh` does), bounded in count and in memory per line."""
+    with path.open("r", errors="replace") as handle:
+        for _ in range(_SEED_MAX_LINES):
+            line = handle.readline(_SEED_READ_CHUNK)
+            if not line:
+                return
+            if not line.endswith("\n"):
+                while True:
+                    rest = handle.readline(_SEED_READ_CHUNK)
+                    if not rest or rest.endswith("\n"):
+                        break
+            yield line.rstrip("\n")
 
 
 def _inside(root_real: Path, path: Path) -> bool:
@@ -68,12 +89,12 @@ def seed_text_from_tree(root: Path) -> str:
         out.append(f"@@ {dist.name}")
         wheel = dist / "WHEEL"
         if wheel.is_file() and _inside(root_real, wheel):
-            for line in wheel.read_text(errors="replace").splitlines():
+            for line in _header_lines(wheel):
                 if _SEED_WHEEL_LINE.match(line):
                     out.append(line[:_SEED_LINE_WIDTH])
         metadata = dist / "METADATA"
         if metadata.is_file() and _inside(root_real, metadata):
-            for line in metadata.read_text(errors="replace").splitlines():
+            for line in _header_lines(metadata):
                 if not line:
                     break
                 if _SEED_METADATA_LINE.match(line):

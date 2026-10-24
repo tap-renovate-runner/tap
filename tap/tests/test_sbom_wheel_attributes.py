@@ -255,3 +255,28 @@ def test_a_link_in_the_copied_seed_is_never_followed(tmp_path):
     assert "host-" not in text
     assert "@@ ok-1.0.dist-info" in text and "License: MIT" in text
     assert "linked_dir" not in text
+
+
+@pytest.mark.spec("req-cicd-sbom-33-1")
+def test_no_seed_file_is_read_whole(tmp_path):
+    """An untrusted image can ship a huge METADATA. Reading is bounded: a very long line costs one chunk of memory and
+    the lines after it still parse; a file of endless header lines stops at the line cap."""
+    seed = tmp_path / "seed"
+    long_line = "X-Padding: " + "p" * 3_000_000
+    _write_dist(
+        seed,
+        "h/big-1.0.dist-info",
+        wheel="Tag: py3-none-any\n",
+        metadata=long_line + "\nLicense: MIT\n",
+    )
+    _write_dist(
+        seed,
+        "h/endless-2.0.dist-info",
+        wheel="Tag: py3-none-any\n",
+        metadata="License: A\n" * (wa._SEED_MAX_LINES + 500),
+    )
+    text = wa.seed_text_from_tree(seed)
+    big = text.split("@@ endless-2.0.dist-info")[0]
+    assert "License: MIT" in big and "ppp" not in text
+    endless = text.split("@@ endless-2.0.dist-info")[1]
+    assert endless.count("License: A") == wa._SEED_MAX_LINES
