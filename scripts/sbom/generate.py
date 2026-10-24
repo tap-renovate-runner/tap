@@ -368,13 +368,26 @@ def _sibling(name: str) -> Any:
 
 
 def read_wheel_seed(subject: str) -> str:
-    """The WHEEL and METADATA headers of every wheel in the image's cache seed (req-cicd-sbom-33), printed by the fixed
-    script `wheel_attributes.SEED_SCRIPT` run inside the image under test."""
-    completed = _run(
-        ["docker", "run", "--rm", "--entrypoint", "sh", subject, "-c", _sibling("wheel_attributes").SEED_SCRIPT],
-        capture=True,
-    )
-    return completed.stdout.decode("utf-8", errors="replace")
+    """The WHEEL and METADATA headers of every wheel in the image's cache seed (req-cicd-sbom-33), read from a copy of
+    the seed directory. The image is created and copied from, never run: the arm64 image cannot execute on the amd64
+    runner (`docker run` exits 255), while `docker cp` reads either architecture's filesystem."""
+    wheels = _sibling("wheel_attributes")
+    container = subprocess.run(["docker", "create", subject], check=True, capture_output=True, text=True).stdout.strip()
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            dest = Path(td) / "seed"
+            copied = subprocess.run(
+                ["docker", "cp", f"{container}:{wheels.SEED_DIR}", str(dest)], capture_output=True, check=False
+            )
+            if copied.returncode != 0:
+                # An image with no seed prints nothing, as the old in-image script did when its `cd` failed; any other
+                # failure is real and stops the run.
+                if b"Could not find the file" in copied.stderr:
+                    return ""
+                raise subprocess.CalledProcessError(copied.returncode, copied.args, copied.stdout, copied.stderr)
+            return str(wheels.seed_text_from_tree(dest))
+    finally:
+        subprocess.run(["docker", "rm", container], check=True, capture_output=True)
 
 
 #: A release version as these fields spell it: 3.0.22, 3.1.2a.

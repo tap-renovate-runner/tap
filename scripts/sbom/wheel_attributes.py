@@ -11,16 +11,22 @@ seed is available bytes, not running software). A component with no matching whe
 reason, never left silent (req-cicd-sbom-33-5). The purl is never changed: it is the identity and the join key for
 Grype and the grid (req-cicd-sbom-33-4).
 
-Everything here is a pure function over text and dicts except SEED_SCRIPT, the fixed script `generate.py` runs inside
-the image under test to print the headers. No value from a document reaches a command.
+Everything here is a pure function over text and dicts, and over a directory `generate.py` has copied out of the image
+(`seed_text_from_tree`). The image is never RUN: an arm64 image cannot execute on the amd64 runner that generates both
+architectures' SBOMs, and `docker run` of it exits 255. `SEED_SCRIPT` stays as the reference definition of the text the
+parser reads, and a test holds `seed_text_from_tree` to its exact output. No value from a document reaches a command.
 """
 
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Any
 
-#: Run by `sh -c` inside the image being scanned. It prints, for each unpacked wheel in the seed, the headers this module
+#: Where the image keeps the unpacked wheels, and the path `generate.py` copies out of it.
+SEED_DIR = "/opt/uv-cache-seed/archive-v0"
+
+#: The reference definition of the seed text, no longer run in an image (see the module docstring). It prints, for each unpacked wheel in the seed, the headers this module
 #: reads: `@@ <dist-info dir>`, then WHEEL's Tag and Root-Is-Purelib lines and METADATA's license headers. Header lines
 #: only (METADATA's body ends at the first blank line) and each cut to 200 columns.
 SEED_SCRIPT = r"""cd /opt/uv-cache-seed/archive-v0 2>/dev/null || exit 0
@@ -30,6 +36,43 @@ find . -maxdepth 3 -name '*.dist-info' | sort | while read -r d; do
   sed '/^$/q' "$d/METADATA" 2>/dev/null | grep -E '^(License-Expression:|License:|Classifier: License ::)' | cut -c1-200
 done
 """
+
+_SEED_WHEEL_LINE = re.compile(r"(Tag|Root-Is-Purelib):")
+_SEED_METADATA_LINE = re.compile(r"(License-Expression:|License:|Classifier: License ::)")
+_SEED_LINE_WIDTH = 200
+
+
+def seed_text_from_tree(root: Path) -> str:
+    """The text `SEED_SCRIPT` prints, read from a copy of the seed directory instead of from inside the image.
+
+    Same selection as the script: every `*.dist-info` at most three levels below `root`, in the order `sort` gives the
+    `./`-prefixed paths; per directory `@@ <name>`, WHEEL's Tag and Root-Is-Purelib lines, then METADATA's license
+    headers up to its first blank line, each line cut to 200 columns. A missing directory prints nothing, as the script
+    does when its `cd` fails."""
+    if not root.is_dir():
+        return ""
+    found = sorted(
+        (f"./{path.relative_to(root).as_posix()}", path)
+        for path in root.rglob("*.dist-info")
+        if path.is_dir() and len(path.relative_to(root).parts) <= 3
+    )
+    out: list[str] = []
+    for _, dist in found:
+        out.append(f"@@ {dist.name}")
+        wheel = dist / "WHEEL"
+        if wheel.is_file():
+            for line in wheel.read_text(errors="replace").splitlines():
+                if _SEED_WHEEL_LINE.match(line):
+                    out.append(line[:_SEED_LINE_WIDTH])
+        metadata = dist / "METADATA"
+        if metadata.is_file():
+            for line in metadata.read_text(errors="replace").splitlines():
+                if not line:
+                    break
+                if _SEED_METADATA_LINE.match(line):
+                    out.append(line[:_SEED_LINE_WIDTH])
+    return "\n".join(out) + "\n" if out else ""
+
 
 _MACHINE = re.compile(r"(aarch64|arm64|x86_64|amd64|i686|i386|ppc64le|s390x|armv7l)$")
 _MACHINE_NAME = {"arm64": "aarch64", "amd64": "x86_64", "i386": "i686"}
