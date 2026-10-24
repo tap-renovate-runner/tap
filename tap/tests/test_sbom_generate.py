@@ -616,21 +616,20 @@ def test_the_reconciliation_gate_defines_no_parser_of_its_own() -> None:
 def test_the_wheel_seed_is_copied_out_of_the_image_never_run(monkeypatch, tmp_path):
     """An arm64 image cannot execute on the amd64 runner (`docker run` exits 255, which failed every publish from 10-20).
     The seed is read with create + cp + rm, so it works for either architecture."""
-    import subprocess
+    from types import SimpleNamespace
 
     calls: list[list[str]] = []
 
     def fake_run(cmd, **kwargs):
         calls.append(list(cmd))
         if cmd[:2] == ["docker", "create"]:
-            return subprocess.CompletedProcess(cmd, 0, stdout="ctr1\n", stderr="")
+            return SimpleNamespace(stdout=b"ctr1\n", stderr=b"")
         if cmd[:2] == ["docker", "cp"]:
             dist = Path(cmd[3]) / "h" / "idna-3.10.dist-info"
             dist.mkdir(parents=True)
             (dist / "WHEEL").write_text("Tag: py3-none-any\n")
             (dist / "METADATA").write_text("License-Expression: BSD-3-Clause\n")
-            return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
-        return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+        return SimpleNamespace(stdout=b"", stderr=b"")
 
     monkeypatch.setattr(gen.subprocess, "run", fake_run)
     text = gen.read_wheel_seed("ghcr.io/example/tap-web@sha256:" + "0" * 64)
@@ -642,14 +641,15 @@ def test_the_wheel_seed_is_copied_out_of_the_image_never_run(monkeypatch, tmp_pa
 @pytest.mark.spec("req-cicd-sbom-33-1")
 def test_an_image_with_no_seed_reads_as_empty_but_other_copy_failures_stop_the_run(monkeypatch):
     import subprocess
+    from types import SimpleNamespace
 
     def make(stderr: bytes):
         def fake_run(cmd, **kwargs):
             if cmd[:2] == ["docker", "create"]:
-                return subprocess.CompletedProcess(cmd, 0, stdout="ctr1\n", stderr="")
+                return SimpleNamespace(stdout=b"ctr1\n", stderr=b"")
             if cmd[:2] == ["docker", "cp"]:
-                return subprocess.CompletedProcess(cmd, 1, stdout=b"", stderr=stderr)
-            return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+                raise subprocess.CalledProcessError(1, cmd, stderr=stderr)
+            return SimpleNamespace(stdout=b"", stderr=b"")
 
         return fake_run
 

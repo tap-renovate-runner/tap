@@ -42,30 +42,37 @@ _SEED_METADATA_LINE = re.compile(r"(License-Expression:|License:|Classifier: Lic
 _SEED_LINE_WIDTH = 200
 
 
+def _inside(root_real: Path, path: Path) -> bool:
+    """True when `path` is not a link and really lives under `root_real`. `docker cp` copies links as links, and an image
+    under scan is not trusted: a `WHEEL` or `METADATA` linked to a runner path must never be read as seed content."""
+    return not path.is_symlink() and path.resolve().is_relative_to(root_real)
+
+
 def seed_text_from_tree(root: Path) -> str:
     """The text `SEED_SCRIPT` prints, read from a copy of the seed directory instead of from inside the image.
 
     Same selection as the script: every `*.dist-info` at most three levels below `root`, in the order `sort` gives the
     `./`-prefixed paths; per directory `@@ <name>`, WHEEL's Tag and Root-Is-Purelib lines, then METADATA's license
     headers up to its first blank line, each line cut to 200 columns. A missing directory prints nothing, as the script
-    does when its `cd` fails."""
+    does when its `cd` fails. A link anywhere in the copy is skipped, never followed (see `_inside`)."""
     if not root.is_dir():
         return ""
+    root_real = root.resolve()
     found = sorted(
         (f"./{path.relative_to(root).as_posix()}", path)
         for path in root.rglob("*.dist-info")
-        if path.is_dir() and len(path.relative_to(root).parts) <= 3
+        if len(path.relative_to(root).parts) <= 3 and path.is_dir() and _inside(root_real, path)
     )
     out: list[str] = []
     for _, dist in found:
         out.append(f"@@ {dist.name}")
         wheel = dist / "WHEEL"
-        if wheel.is_file():
+        if wheel.is_file() and _inside(root_real, wheel):
             for line in wheel.read_text(errors="replace").splitlines():
                 if _SEED_WHEEL_LINE.match(line):
                     out.append(line[:_SEED_LINE_WIDTH])
         metadata = dist / "METADATA"
-        if metadata.is_file():
+        if metadata.is_file() and _inside(root_real, metadata):
             for line in metadata.read_text(errors="replace").splitlines():
                 if not line:
                     break

@@ -224,7 +224,9 @@ def test_the_tree_reader_prints_exactly_what_the_in_image_script_printed(tmp_pat
 
     _sample_seed(tmp_path)
     script = wa.SEED_SCRIPT.replace(wa.SEED_DIR, str(tmp_path))
-    shell = subprocess.run(["sh", "-c", script], check=True, capture_output=True, text=True).stdout
+    shell = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit — the reference script IS the oracle; argv list, no shell metacharacters from input  # nosec B603 B607  # noqa: S603, S607
+        ["sh", "-c", script], check=True, capture_output=True, text=True
+    ).stdout
     assert wa.seed_text_from_tree(tmp_path) == shell
     assert "@@ pydantic_core-2.46.4.dist-info" in shell and "too_deep" not in shell
 
@@ -233,3 +235,23 @@ def test_the_tree_reader_prints_exactly_what_the_in_image_script_printed(tmp_pat
 def test_a_missing_seed_directory_prints_nothing(tmp_path):
     assert wa.seed_text_from_tree(tmp_path / "absent") == ""
     assert wa.parse_seed_records(wa.seed_text_from_tree(tmp_path / "absent")) == []
+
+
+@pytest.mark.spec("req-cicd-sbom-33-1")
+def test_a_link_in_the_copied_seed_is_never_followed(tmp_path):
+    """`docker cp` copies links as links and the image is untrusted: a WHEEL, METADATA or dist-info linked to a runner
+    path must not be read, or runner bytes could reach the SBOM."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret").write_text("Tag: host-secret\nLicense: host-secret\n")
+    _write_dist(outside, "real-9.9.dist-info", wheel="Tag: host-dist\n", metadata="License: host-dist\n")
+    seed = tmp_path / "seed"
+    _write_dist(seed, "h/ok-1.0.dist-info", wheel="Tag: py3-none-any\n", metadata="License: MIT\n")
+    _write_dist(seed, "h/linked_files-2.0.dist-info", wheel=None, metadata=None)
+    (seed / "h" / "linked_files-2.0.dist-info" / "WHEEL").symlink_to(outside / "secret")
+    (seed / "h" / "linked_files-2.0.dist-info" / "METADATA").symlink_to(outside / "secret")
+    (seed / "h" / "linked_dir-3.0.dist-info").symlink_to(outside / "real-9.9.dist-info", target_is_directory=True)
+    text = wa.seed_text_from_tree(seed)
+    assert "host-" not in text
+    assert "@@ ok-1.0.dist-info" in text and "License: MIT" in text
+    assert "linked_dir" not in text
