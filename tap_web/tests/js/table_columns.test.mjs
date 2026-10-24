@@ -179,3 +179,17 @@ test("a field_paths column and a field_path column get distinct keys", () => {
     assert.notEqual(specs[0].field, specs[1].field);
     assert.deepEqual([rows[0][specs[0].field], rows[0][specs[1].field]], [1, "1, 2"]);
 });
+
+// Wrapping text column (req-web-stdpanel-table-config-31).
+test("wrap: true marks the column's cells, and only that column; the text stays escaped", () => {
+    const [a, b, c] = buildCustomColumns([
+        {field: "a", title: "A", wrap: true},
+        {field: "b", title: "B"},
+        {field: "c", title: "C", wrap: false},
+    ]);
+    assert.equal(a.cssClass, "tap-col-wrap");
+    assert.equal(b.cssClass, undefined);
+    assert.equal(c.cssClass, undefined);
+    assert.equal(a.formatter(cellOf("x <b>y</b>"), {}), TEXT("x &lt;b&gt;y&lt;/b&gt;"));
+    assert.equal(a.headerSort, true);
+});
