@@ -100,8 +100,8 @@ RUN for i in 1 2 3; do \
     postgresql-16 \
     postgresql-16-client \
     postgresql-16-oci-entrypoint \
-    libpq-18=18.6-r4 \
-    krb5-libs=1.22.2-r4 \
+    libpq-18=18.6-r6 \
+    krb5-libs=1.22.2-r5 \
     gosu \
     openssl-3.6=3.6.5-r1 \
     bash \

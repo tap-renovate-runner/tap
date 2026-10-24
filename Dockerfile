@@ -206,13 +206,13 @@ WORKDIR /app
 # bumped to "whatever's current" without re-checking the SONAME each depends on.
 RUN for i in 1 2 3; do \
       if apk add --no-cache \
-    python-3.14=3.14.8_git20261001-r0 \
-    python-3.14-base=3.14.8_git20261001-r0 \
+    python-3.14=3.14.8_git20261021-r2 \
+    python-3.14-base=3.14.8_git20261021-r2 \
     git \
     bash \
-    postgresql-18-client=18.6-r4 \
-    libpq-18=18.6-r4 \
-    krb5-libs=1.22.2-r4 \
+    postgresql-18-client=18.6-r6 \
+    libpq-18=18.6-r6 \
+    krb5-libs=1.22.2-r5 \
     curl \
     tzdata \
     openssl-3.6=3.6.5-r1 \
@@ -220,8 +220,8 @@ RUN for i in 1 2 3; do \
     rust \
     openssl-3.6-dev=3.6.5-r1 \
     pkgconf \
-    python-3.14-dev=3.14.8_git20261001-r0 \
-    postgresql-18-dev=18.6-r4 \
+    python-3.14-dev=3.14.8_git20261021-r2 \
+    postgresql-18-dev=18.6-r6 \
       ; then break; fi; \
       echo "apk add failed (attempt $i/3)" >&2; \
       if [ "$i" -eq 3 ]; then exit 1; fi; \
