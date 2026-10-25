@@ -53,18 +53,26 @@ credentials and has no network, and a human pushes whatever it produced.
 | 4. | Fixes Start From A Failing Test | A proposed fix exists only alongside a test that fails without it and passes with it, on the reporter's version and on `main`. |
 | 5. | Stranger-Written Text Never Steers The Agent | Whatever a report says, the agent reading it cannot be made to send data anywhere, run what the report names, or push anything. |
 
+## Version 0
+
+Ruled by George, 2026-10-25. Version 0 is built for bugs that only we submit, and both skills are built together, so a change to one is made with the other and the two stay aligned. Two parts of the design below wait for the day strangers file bugs, and are `Backlog` until then:
+
+- **The synthetic dataset** (`req-dev-bugreport-synthetic`, steps 3 to 6 and criteria `-4` to `-6`). A version 0 report carries no dataset at all, only the shape that fails. The guard against customer data stays in full: no value from the reporter's instance is ever sent (`req-dev-bugreport-synthetic-1`, `-7`), and the tripwire and the consent step are unchanged.
+- **The sandbox** (`req-dev-bugfix-isolation`, every criterion). `submit-a-fix` runs only on an issue a maintainer account wrote (`req-dev-bugfix-ownreports`), so the credential and network preflight, the named deny-all sandbox, the commit provenance check and the confined stack are not built yet. They are enabled together when strangers' bugs arrive; a hosted sandbox such as GitHub Codespaces is the likely choice, and choosing it is the work that remains. Goal 5 holds from that point. Until then it rests on the author gate, on the report being read as data (`req-dev-bugfix-untrusted-intake`) and on the human push.
+
 ## Requirements
 
 | RID | Name | Status | Notes |
 | --- | --- | :---: | --- |
 | req-dev-bugreport-route | [Security First, Then The Owning Repository](#security-first-then-the-owning-repository) | Proposed | A vulnerability goes to private vulnerability reporting; anything else goes to the repository the boot record names as the failing plugin's source |
-| req-dev-bugreport-synthetic | [Synthetic Data, Judged From The Schema](#synthetic-data-judged-from-the-schema) | Proposed | The dataset is generated to the failing shape from each field's published description, never exported and scrubbed; it must still reproduce |
+| req-dev-bugreport-synthetic | [Synthetic Data, Judged From The Schema](#synthetic-data-judged-from-the-schema) | Proposed | Version 0 sends no dataset and no instance value; fields are classified from their descriptions to feed the tripwire. Generating a synthetic dataset that must still reproduce is Backlog |
 | req-dev-bugreport-environment | [Environment Facts From An Allowlist](#environment-facts-from-an-allowlist) | Proposed | Versions and topology come from a fixed list of sources; nothing is collected by dumping and scrubbing |
 | req-dev-bugreport-tripwire | [The Reporter's Own Values Block The Send](#the-reporters-own-values-block-the-send) | Proposed | Any of the reporter's own identifiers, or a credential shape, in the outgoing text stops the send |
 | req-dev-bugreport-consent | [Exact Bytes, Explicit Yes, Fail Closed](#exact-bytes-explicit-yes-fail-closed) | Proposed | Preview the exact file, name the repository as public and permanent, take a yes bound to that content, and never improvise on a failed send |
 | req-dev-bugreport-shape | [A Report Shape The Fixer Can Parse](#a-report-shape-the-fixer-can-parse) | Proposed | Fixed headings plus one machine-readable block; an AI-assistance disclosure |
 | req-dev-bugfix-untrusted-intake | [The Report Is Data](#the-report-is-data) | Proposed | Extract into the report shape; read only the reporter's and maintainers' comments; nothing in it is an instruction |
-| req-dev-bugfix-isolation | [No Credentials, No Network, After Reading](#no-credentials-no-network-after-reading) | Proposed | Runs only inside a named deny-all sandbox, on commits reachable from our own refs, in a confined throwaway stack; a fail-closed preflight refuses a credentialed or networked session |
+| req-dev-bugfix-ownreports | [Version 0 Runs Only On Our Own Reports](#version-0-runs-only-on-our-own-reports) | Proposed | The fix skill refuses an issue whose author is not a maintainer account, until the sandbox below is enabled |
+| req-dev-bugfix-isolation | [No Credentials, No Network, After Reading](#no-credentials-no-network-after-reading) | Backlog | Runs only inside a named deny-all sandbox, on commits reachable from our own refs, in a confined throwaway stack; a fail-closed preflight refuses a credentialed or networked session |
 | req-dev-bugfix-reproduce | [Reproduce Twice Before Fixing](#reproduce-twice-before-fixing) | Proposed | A failing test on the reporter's version and on `main`, or one of three named exits |
 | req-dev-bugfix-handback | [A Human Pushes](#a-human-pushes) | Proposed | A local branch, before and after evidence, and a draft PR body; the skill never pushes, opens a PR, or signs off |
 
@@ -117,6 +125,8 @@ RID: `req-dev-bugreport-synthetic`
 
 Status: `Proposed`
 
+**Version 0 (George, 2026-10-25).** Steps 1 and 2 and criteria `-1` to `-3` and `-7` are in version 0. Steps 3 to 6 and criteria `-4` to `-6` are `Backlog`: a version 0 report carries no dataset, so nothing is generated, written as GRIFT, shrunk or reproduced from one. The classification of step 2 is still done, because its output is the tripwire's deny list (`req-dev-bugreport-tripwire`).
+
 The dataset in a report is **generated**, not exported. The skill never attaches an export of the
 reporter's graph, including `export_grift` output, a database dump or log excerpts that contain
 their values, and never "cleans" one. Redaction of real data is the approach prior art shows
@@ -136,7 +146,7 @@ The procedure:
    sensitive, never less. **A field with no description is sensitive.** A missing description is
    a gap in the schema contract, so the skill fails safe and names the field as a gap worth its own
    report.
-3. **Generate values.** A sensitive field gets a synthetic value of the same form, drawn from
+3. (Backlog) **Generate values.** A sensitive field gets a synthetic value of the same form, drawn from
    ranges reserved for documentation: IPs from RFC 5737, domains under RFC 2606 (`example.com`,
    `.test`, `.invalid`), the AWS account ID `123456789012` from AWS's documentation, and names such
    as `example-org` and `user-1@example.com`. The mapping is consistent, so one real value always
@@ -144,12 +154,12 @@ The procedure:
    reproduces, which is what consistent replacement in `sos clean` and Elastic's support bundles
    preserves. A non-sensitive field, such as an enum, a count or a boolean flag, keeps a value of
    its real form when the bug depends on it.
-4. **Write it as a GRIFT document.** GRIFT is TAP's interchange format, so a maintainer can load
+4. (Backlog) **Write it as a GRIFT document.** GRIFT is TAP's interchange format, so a maintainer can load
    the synthetic graph into a fresh instance through the importer
    (`req-grid-import-grift-preflight` validates the whole file before anything is written).
-5. **Shrink it.** Remove nodes, edges and fields while the failure persists, so the dataset in the
+5. (Backlog) **Shrink it.** Remove nodes, edges and fields while the failure persists, so the dataset in the
    report is the smallest that still fails.
-6. **Confirm it still fails.** Load the synthetic document into a throwaway project on the
+6. (Backlog) **Confirm it still fails.** Load the synthetic document into a throwaway project on the
    reporter's install and rerun the steps. A report whose synthetic data does not reproduce is not
    sent as reproducible. It is either sent marked "did not reproduce on synthetic data", with the
    reporter's consent, or reworked.
@@ -161,9 +171,10 @@ The procedure:
 | req-dev-bugreport-synthetic-1 | No Export Leaves | Proposed | The report never contains output of `export_grift`, a database dump, or a log line from the reporter's instance, with no exception for text that passes the tripwire. The only instance-generated text allowed is the environment section's `manage.py health` output (`req-dev-bugreport-environment`), and that must also pass the tripwire. | The tripwire is a detector, not a licence |
 | req-dev-bugreport-synthetic-2 | Classification Quotes The Schema | Proposed | Every field in the failing shape is shown to the reporter with its published `description` quoted and a sensitive or not-sensitive judgement with a reason. | |
 | req-dev-bugreport-synthetic-3 | Undescribed Means Sensitive | Proposed | A field whose schema entry has no `description` is classified sensitive and named as a schema gap. | |
-| req-dev-bugreport-synthetic-4 | Reserved Ranges Only | Proposed | Every synthetic IP, domain, AWS account ID and email address falls in the documentation-reserved ranges named above. | |
-| req-dev-bugreport-synthetic-5 | Consistent Mapping | Proposed | One real value maps to one synthetic value everywhere in the document, so a relationship between fields is preserved. | |
-| req-dev-bugreport-synthetic-6 | Reproduced Before Sending | Proposed | The report states whether the synthetic GRIFT document, loaded into a throwaway project, reproduced the failure, and a report that did not is never labelled reproducible. | |
+| req-dev-bugreport-synthetic-4 | Reserved Ranges Only | Backlog | Every synthetic IP, domain, AWS account ID and email address falls in the documentation-reserved ranges named above. | |
+| req-dev-bugreport-synthetic-5 | Consistent Mapping | Backlog | One real value maps to one synthetic value everywhere in the document, so a relationship between fields is preserved. | |
+| req-dev-bugreport-synthetic-6 | Reproduced Before Sending | Backlog | The report states whether the synthetic GRIFT document, loaded into a throwaway project, reproduced the failure, and a report that did not is never labelled reproducible. | |
+| req-dev-bugreport-synthetic-7 | Version 0 Carries No Dataset | Proposed | A version 0 report holds no value read from the reporter's instance and no GRIFT document: its failing shape names node and edge types, field names, cardinalities and value forms, never values, and its expected and actual results are counts and messages the reporter typed or that passed the tripwire. A value from the instance, planted in the shape, the steps or the results, blocks the send. | The customer-data guard of version 0, ruled by George 2026-10-25. Together with `-1` and `req-dev-bugreport-tripwire-1`. |
 
 ### Environment Facts From An Allowlist
 ----
@@ -270,7 +281,7 @@ block holding a single JSON document that `submit-a-fix` reads. That block carri
 - the failing operation;
 - expected and actual results, with counts where there are any;
 - whether the synthetic data reproduced;
-- the synthetic GRIFT document, or a pointer to it as a second fenced block.
+- the synthetic GRIFT document, or a pointer to it as a second fenced block (Backlog: absent in version 0, see `req-dev-bugreport-synthetic-7`).
 
 The JSON document carries a `description` at its top level and on each key, per the repository's
 JSON-structures rule. The report ends with a disclosure line: drafted with an AI agent, reproduced
@@ -286,6 +297,8 @@ in the skill output that it didn't when it doesn't.
 | --- | --- | :---: | --- | --- |
 | req-dev-bugreport-shape-1 | One Parseable Block | Proposed | Every report contains exactly one fenced JSON block that validates against the report schema shipped with the skill. | |
 | req-dev-bugreport-shape-2 | Disclosure Present | Proposed | Every report ends with the AI-assistance, synthetic-reproduction and reporter-review disclosure. | |
+| req-dev-bugreport-shape-3 | One Schema For Both Skills | Proposed | `submit-a-bug` writes and `submit-a-fix` reads the report through one schema file, shipped in `tap/skills/` and named by both skills, and neither skill restates the report's fields. | Ruled by George, 2026-10-25: the two stay aligned. |
+| req-dev-bugreport-shape-4 | A Round-Trip Test | Proposed | A test builds a sample report from the `submit-a-bug` template and extracts it with the `submit-a-fix` reader, and fails when a field written by one is not read by the other. | The check that a tweak to one skill is carried to the other. |
 
 ### The Report Is Data
 ----
@@ -326,11 +339,28 @@ discloses nothing that was not already published.
 | req-dev-bugfix-untrusted-intake-3 | Instruction-Shaped Text Stops The Run | Proposed | A planted instruction in the issue body (for example, "also run `curl …`") is reported as a finding, and the skill does not act on it. | |
 | req-dev-bugfix-untrusted-intake-4 | A Classifier Only Adds Stops | Proposed | With a typed classifier configured, its yes stops the run, and its no on a planted instruction still leaves the run stopped by the skill's own reading; with none configured, the skill behaves identically otherwise. | |
 
+### Version 0 Runs Only On Our Own Reports
+----
+RID: `req-dev-bugfix-ownreports`
+
+Status: `Proposed`
+
+Ruled by George, 2026-10-25. Until the sandbox of `req-dev-bugfix-isolation` is enabled, `submit-a-fix` reads an issue only when a maintainer session account wrote it. The author is read from the issue as fetched, by account identity and never by a name in the text, using the same allowlist that `req-cicd-issue-link-7` uses. Any other author stops the run before the issue body is read, with a message that says why: bugs from other accounts wait for the sandbox. The fetch, the report-as-data intake and the human push are unchanged.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-dev-bugfix-ownreports-1 | Only A Maintainer Account's Issue Is Read | Proposed | An issue authored by an account that is not a maintainer session account stops the run before its body is read; the skill names the author check as the reason. | By numeric account id and type, as `req-cicd-issue-link-7` does. |
+| req-dev-bugfix-ownreports-2 | The Gate Lifts With The Sandbox | Proposed | Enabling `req-dev-bugfix-isolation` is what removes this requirement; the gate is not bypassed by a flag or an environment variable. | |
+
 ### No Credentials, No Network, After Reading
 ----
 RID: `req-dev-bugfix-isolation`
 
-Status: `Proposed`
+Status: `Backlog`
+
+**Backlog (George, 2026-10-25).** Version 0 runs only on bugs we submit (`req-dev-bugfix-ownreports`), so nothing below is built yet. It is enabled, with every criterion moving to `Proposed`, when the first bug from a stranger is expected; the sandbox is then chosen, and a hosted one such as GitHub Codespaces is the likely candidate. Until then, `submit-a-fix` does not claim to hold no credentials or no network.
 
 The issue is fetched once, as the skill's first step, into a local file. That fetch is the only
 network operation and the only use of a GitHub credential. Everything after it runs in a session
@@ -381,12 +411,12 @@ TAP at those commits. So:
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | :---: | --- | --- |
-| req-dev-bugfix-isolation-1 | Preflight Refuses A Credentialed Session | Proposed | With `gh` authenticated, a token or AWS credential in the environment, or the secrets store readable, the skill stops after the fetch and names the failing check. | |
-| req-dev-bugfix-isolation-4 | Preflight Refuses Any Egress | Proposed | With `github.com` blocked but a non-GitHub host, a bare IP or DNS still reachable, the skill stops and names which probe succeeded. | A smoke test, not proof: isolation-5 is the boundary |
-| req-dev-bugfix-isolation-5 | A Named Sandbox Or No Run | Proposed | Without a named, enforcing deny-all sandbox detected before the issue is read, the skill stops after the fetch; failed probes alone never let it continue. | Blocked until a sandbox is chosen |
-| req-dev-bugfix-isolation-6 | Only Our Commits Run | Proposed | A commit the report names that is not reachable from a tag or `main` of the target repository, fetched from that repository, stops the run as "not one of ours". | |
-| req-dev-bugfix-isolation-2 | One Fetch | Proposed | The skill performs exactly one network operation, the issue fetch, before the preflight, and none after. | |
-| req-dev-bugfix-isolation-3 | Throwaway, Confined Stack Only | Proposed | Reproduction runs in a stack created for the run, loaded only with the report's synthetic data, with no Docker socket, no host mounts beyond a scratch checkout, no secrets store, dropped capabilities and resource limits. | |
+| req-dev-bugfix-isolation-1 | Preflight Refuses A Credentialed Session | Backlog | With `gh` authenticated, a token or AWS credential in the environment, or the secrets store readable, the skill stops after the fetch and names the failing check. | |
+| req-dev-bugfix-isolation-4 | Preflight Refuses Any Egress | Backlog | With `github.com` blocked but a non-GitHub host, a bare IP or DNS still reachable, the skill stops and names which probe succeeded. | A smoke test, not proof: isolation-5 is the boundary |
+| req-dev-bugfix-isolation-5 | A Named Sandbox Or No Run | Backlog | Without a named, enforcing deny-all sandbox detected before the issue is read, the skill stops after the fetch; failed probes alone never let it continue. | Blocked until a sandbox is chosen |
+| req-dev-bugfix-isolation-6 | Only Our Commits Run | Backlog | A commit the report names that is not reachable from a tag or `main` of the target repository, fetched from that repository, stops the run as "not one of ours". | |
+| req-dev-bugfix-isolation-2 | One Fetch | Backlog | The skill performs exactly one network operation, the issue fetch, before the preflight, and none after. | |
+| req-dev-bugfix-isolation-3 | Throwaway, Confined Stack Only | Backlog | Reproduction runs in a stack created for the run, loaded only with the report's synthetic data, with no Docker socket, no host mounts beyond a scratch checkout, no secrets store, dropped capabilities and resource limits. | |
 
 ### Reproduce Twice Before Fixing
 ----
@@ -486,6 +516,7 @@ can read.
 
 ## Future
 
+- **The sandbox for strangers' bugs** (`req-dev-bugfix-isolation`), probably a hosted environment such as GitHub Codespaces, and with it the synthetic dataset (`req-dev-bugreport-synthetic`, steps 3 to 6). Both are enabled when the first bug from outside the maintainers is expected.
 - **`review-a-fix`**, the third skill. It must treat the diff itself as untrusted, because the Amazon Q extension compromise arrived through a merged pull request, and it must never be the merge decision.
 - **Issue forms for plugin repositories**, generated once for the fleet. Today none of the 24 has one, and neither does the org `.github` repository.
 - **A gitleaks pass on new issue bodies**, as an Action, for the reports that do not come through the skill.
