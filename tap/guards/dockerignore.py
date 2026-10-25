@@ -66,7 +66,7 @@ def _pattern_regex(pattern: str) -> re.Pattern[str]:
 def lint_dockerignore(text: str, reasons: set[str], paths: Iterable[str]) -> list[str]:
     """Return one message per defect in a `.dockerignore` text; an empty list means it conforms.
 
-    TAP-IMPLEMENTS: req-cicd-image-context@634a87edbeb7/b3befa9aa15d (enforcement) — the one predicate
+    TAP-IMPLEMENTS: req-cicd-image-context@634a87edbeb7/de10a7d209d6 (enforcement) — the one predicate
         deciding whether a `.dockerignore` line has its reason and spec line, names a Reason Register
         row, carries no trailing `#`, and matches a path of the tree.
 
@@ -128,7 +128,7 @@ def lint_dockerignore(text: str, reasons: set[str], paths: Iterable[str]) -> lis
 
     for number, raw in enumerate(text.splitlines(), start=1):
         line = raw.strip()
-        if not line or line.startswith("#") or line.startswith("!") or "#" in line:
+        if not line or line.startswith("#") or "#" in line:
             continue
         regex = _pattern_regex(line)
         if not any(regex.match(p) for p in path_list):

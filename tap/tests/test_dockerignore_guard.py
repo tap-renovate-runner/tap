@@ -42,8 +42,18 @@ def test_conforming_file_passes():
         ),
         (GOOD.replace("sbom/\n", "sbom/ # why\n"), "'#' on pattern line"),
         (GOOD + "\n# Nothing here.\n# spec: req-cicd-image-context-reason-1\nno/such/path/\n", "matches no path"),
+        (GOOD + "\n# Reinclude.\n# spec: req-cicd-image-context-reason-1\n!no/such/path\n", "matches no path"),
     ],
-    ids=["no-reason", "no-reason-sentence", "no-spec-line", "unknown-row", "non-reason-row", "trailing-hash", "stale"],
+    ids=[
+        "no-reason",
+        "no-reason-sentence",
+        "no-spec-line",
+        "unknown-row",
+        "non-reason-row",
+        "trailing-hash",
+        "stale",
+        "stale-negation",
+    ],
 )
 def test_each_defect_fails_naming_itself(text, needle):
     defects = lint_dockerignore(text, REASONS, PATHS)

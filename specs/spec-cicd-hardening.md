@@ -110,10 +110,7 @@ cheap-edge doctrine; the rest are the larger deploy-half build, rightly deferred
 | req-cicd-security-scanning | [Shift-Left Security Scanning](#shift-left-security-scanning) | Partial | SAST + dependency audit + declared-component scan + secret scan + container scan as a standing CI layer. All four live: gitleaks, Dependabot alerts, CodeQL, and Trivy (publish-time + nightly, report-only — the gate flip is the open tail). |
 | req-cicd-dep-automation | [Automate Dependency Updates](#automate-dependency-updates) | Proposed | Dependabot/Renovate on `uv.lock` — pinned deps rot without it. |
 | req-cicd-build-once-artifact | [Build Once, Promote The Artifact](#build-once-promote-the-artifact) | Partial | Immutable multi-arch images published to GHCR on main push (publish-images.yml); dev + CI pull instead of rebuilding. Deploy-side promote-the-same-bytes open (no environments yet). |
-<<<<<<< HEAD
-=======
 | req-cicd-image-context | [Keep Scanner Bait Out Of The Image](#keep-scanner-bait-out-of-the-image) | Proposed | The repository's `.dockerignore` keeps test inputs that name vulnerable software on purpose (the probe SBOM) out of the published images, so a scan of the image reports only what it really installs. Every line of the file is there for a numbered reason of the register, and cites it. |
->>>>>>> fc82b554 (docs(spec): make the .dockerignore reasons a numbered register)
 | req-cicd-supply-chain-provenance | [Sign Artifacts, Emit SBOM](#sign-artifacts-emit-sbom) | Partial | SLSA provenance attestations live on the published images; cosign signing, plugin-wheel attestations + CycloneDX/SPDX SBOM open. |
 | req-cicd-product-releases | [Product Releases](#product-releases) | Implemented | Semver product releases carrying release notes; cutting the first release must update `SECURITY.md`'s supported-versions statement. Consumers pin a version via `.env` (`-3`, Implemented 2026-08-13) rather than tracking `:latest`. |
 | req-cicd-release-artifacts | [Release Artifact Conventions](#release-artifact-conventions) | Implemented | One org-wide release model: tag grammar `[<dist-name>-]vX.Y.Z` (ecosystem-mandated grammars win), five artifact classes each naming their lane, standards homed in `.github` (policy) + tap core (executable lanes) — no third standards repo. |
@@ -489,8 +486,6 @@ Still open under this RID: promoting the *same bytes* through deploy environment
 idea (bake the migrated DB into the image), and product release versioning (semver for the
 app, not just plugins).
 
-<<<<<<< HEAD
-=======
 ### Keep Scanner Bait Out Of The Image
 
 RID: `req-cicd-image-context`
@@ -526,7 +521,6 @@ tap/tests/fixtures/sbom/
 | --- | --- | :---: | --- | --- |
 | req-cicd-image-context-reason-1 | Not Including Tests That Would Trigger Vulnerability Scanners | Proposed | No test input that names vulnerable software on purpose, such as a probe or trimmed SBOM, an advisory or scanner-output record, or a lock-shaped file, is in a published image. A new fixture of this kind lands under an excluded path or adds its own block citing this reason. Paths: `tap/tests/fixtures/sbom/`. | A scanner cannot tell a file that names vulnerable software on purpose from one that installs it, and whoever pulls the image scans it. Ruled by George, 2026-10-25. |
 
->>>>>>> fc82b554 (docs(spec): make the .dockerignore reasons a numbered register)
 ### Build The Dependency Closure Into The Artifact
 
 RID: `req-cicd-build-once-artifact-2`
