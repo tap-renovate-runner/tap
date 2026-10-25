@@ -497,8 +497,6 @@ RID: `req-cicd-image-context`
 
 Status: `Proposed`
 
-Trace: `non-python` — .dockerignore
-
 Ruled by George, 2026-10-25. The published images are scanned by us (`req-cicd-security-scanning-4`) and by everyone who pulls them. A scanner reads an image as an inventory of what is installed in it, and it cannot tell a file that names vulnerable software on purpose from a file that installs it. On 2026-10-25 the `tap-web` scan held 31 open alerts, about 22 of them `log4j-core 2.14.1` and `PyJWT 2.13.0`: the two components of the probe SBOM `tap/tests/fixtures/sbom/merge/sbom.cdx.json`, which `COPY . .` (Dockerfile, `app` stage) carried into the image because the repository has no `.dockerignore`. The repository's own lock pins PyJWT 2.15.0 and nothing installs log4j, so those alerts were never real, yet no rebuild can clear them and anyone who scans a pulled image sees them as ours.
 
 The web image is dependency substrate: compose bind-mounts the checkout over `/app`, and CI pulls the published image only when its inputs are unchanged (`.github/actions/ci-web-image/action.yml`, which already lists `.dockerignore` among the five inputs). So the tests run from the checkout, not from the image, and leaving a test fixture out of the build context costs the lanes nothing.
