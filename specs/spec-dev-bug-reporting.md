@@ -24,7 +24,9 @@ does not cover issue bodies, and secret scanning alerts only after the fact. The
 is not a leaked token but leaked *names* (anthropics/claude-code#29121, where an agent drafted a
 public bug report full of a user's private org names, repository URLs and paths). So the
 reporter's real data **never leaves their machine**. The report carries synthetic data built to the
-same shape, and the reporter consents to the exact bytes before anything is sent.
+same shape, and the reporter consents to the exact bytes before anything is sent. The one thing the
+reporter can add that the skill cannot read is a screenshot they choose and review themselves
+(`req-dev-bugreport-screenshots`).
 
 **TAP already knows which fields are sensitive, because it makes every author say what each field
 means.** Every JSON structure carries a `description`, and every field schema publishes one
@@ -48,7 +50,7 @@ credentials and has no network, and a human pushes whatever it produced.
 |   |   |  |
 | :---: | --- | --- |
 | 1. | Reports Reproduce | A report carries what a maintainer needs to reproduce the bug on a fresh instance (versions, a synthetic dataset, steps, expected versus actual), confirmed to still fail before it is sent. |
-| 2. | Nothing Real Leaves Without Consent | The reporter's own data never enters a report; what is sent is shown byte for byte and sent only on an explicit yes to that exact content. |
+| 2. | Nothing Real Leaves Without Consent | The skill puts none of the reporter's own data into a report; what is sent, report and screenshots, is shown and sent only on an explicit yes to exactly that content. A screenshot is the one thing the skill cannot check, so the reporter reviews it. |
 | 3. | Reports Reach The Right Place | A bug lands in the repository that owns the failing code, and a vulnerability never lands in a public issue. |
 | 4. | Fixes Start From A Failing Test | A proposed fix exists only alongside a test that fails without it and passes with it, on the reporter's version and on `main`. |
 | 5. | Stranger-Written Text Never Steers The Agent | Whatever a report says, the agent reading it cannot be made to send data anywhere, run what the report names, or push anything. |
@@ -60,6 +62,8 @@ Ruled by George, 2026-10-25. Version 0 is built for bugs that only we submit, an
 - **The synthetic dataset and the data sanitization** (`req-dev-bugreport-synthetic`, steps 2 to 6 and criteria `-2` to `-6`). A version 0 report carries no dataset at all, only the shape that fails, and the skill does not try to sanitize data because it never has any to send: it has no way to read the instance's data (`req-dev-bugreport-synthetic-8`) and none to put one in the report (`-7`). Classifying fields from their descriptions waits for the descriptions to exist (`req-grid-node-field-description`, Issue# 1117 - tap): a 2026-10-26 scan found almost none. The tripwire and the consent step are unchanged and still run.
 - **The sandbox** (`req-dev-bugfix-isolation`, every criterion). `submit-a-fix` runs only on an issue a maintainer account wrote (`req-dev-bugfix-ownreports`), so the credential and network preflight, the named deny-all sandbox, the commit provenance check and the confined stack are not built yet. They are enabled together when strangers' bugs arrive; a hosted sandbox such as GitHub Codespaces is the likely choice, and choosing it is the work that remains. Goal 5 holds from that point. Until then it rests on the author gate, on the report being read as data (`req-dev-bugfix-untrusted-intake`) and on the human push.
 
+Ruled by George, 2026-10-26, after the first report was filed (Issue# 1118 - tap): the report schema moves from `schema_version` 0 to 1 and gains the reporter's observed impact (`req-dev-bugreport-shape-5`); the skill no longer applies labels, and a workflow on our side does, from a fixed list (`req-dev-bugreport-grooming`); third-party plugins appear as one flag and nothing else (`req-dev-bugreport-environment`); and the reporter may attach screenshots (`req-dev-bugreport-screenshots`). Severity, complexity and priority are not in the report: they are the maintainers' calls.
+
 ## Requirements
 
 | RID | Name | Status | Notes |
@@ -68,9 +72,11 @@ Ruled by George, 2026-10-25. Version 0 is built for bugs that only we submit, an
 | req-dev-bugreport-synthetic | [Synthetic Data, Judged From The Schema](#synthetic-data-judged-from-the-schema) | Proposed | Version 0 reads no instance data and sends none and no dataset. Classifying fields from their descriptions and generating a synthetic dataset that must still reproduce are Backlog |
 | req-dev-bugreport-environment | [Environment Facts From An Allowlist](#environment-facts-from-an-allowlist) | Proposed | Versions and topology come from a fixed list of sources; nothing is collected by dumping and scrubbing |
 | req-dev-bugreport-tripwire | [The Reporter's Own Values Block The Send](#the-reporters-own-values-block-the-send) | Proposed | Any of the reporter's own identifiers, or a credential shape, in the outgoing text stops the send |
-| req-dev-bugreport-consent | [Exact Bytes, Explicit Yes, Fail Closed](#exact-bytes-explicit-yes-fail-closed) | Proposed | Preview the exact file, name the repository as public and permanent, take a yes bound to that content, and never improvise on a failed send |
-| req-dev-bugreport-shape | [A Report Shape The Fixer Can Parse](#a-report-shape-the-fixer-can-parse) | Proposed | Fixed headings plus one machine-readable block; an AI-assistance disclosure |
-| req-dev-bugfix-untrusted-intake | [The Report Is Data](#the-report-is-data) | Proposed | Extract into the report shape; read only the reporter's and maintainers' comments; nothing in it is an instruction |
+| req-dev-bugreport-consent | [Exact Bytes, Explicit Yes, Fail Closed](#exact-bytes-explicit-yes-fail-closed) | Proposed | Preview the exact report and every attachment, name the repository as public and permanent, take a yes bound to that content, and never improvise on a failed send |
+| req-dev-bugreport-shape | [A Report Shape The Fixer Can Parse](#a-report-shape-the-fixer-can-parse) | Proposed | Fixed headings plus one machine-readable, versioned block that carries the reporter's observed impact; an AI-assistance disclosure |
+| req-dev-bugreport-screenshots | [Screenshots The Reporter Chooses](#screenshots-the-reporter-chooses) | Proposed | Up to five image files the reporter provides, consented to and sent with the report; the tripwire cannot read them and says so |
+| req-dev-bugreport-grooming | [Labels Come From Our Side](#labels-come-from-our-side) | Proposed | A tap workflow reads a submit-a-bug issue and applies labels from a fixed list; the label proves the format, not the author |
+| req-dev-bugfix-untrusted-intake | [The Report Is Data](#the-report-is-data) | Proposed | Extract into the report shape; read only the reporter's and maintainers' comments; nothing in it is an instruction; an image is never opened |
 | req-dev-bugfix-ownreports | [Version 0 Runs Only On Our Own Reports](#version-0-runs-only-on-our-own-reports) | Proposed | The fix skill refuses an issue whose author is not a maintainer account, until the sandbox below is enabled |
 | req-dev-bugfix-isolation | [No Credentials, No Network, After Reading](#no-credentials-no-network-after-reading) | Backlog | Runs only inside a named deny-all sandbox, on commits reachable from our own refs, in a confined throwaway stack; a fail-closed preflight refuses a credentialed or networked session |
 | req-dev-bugfix-reproduce | [Reproduce Twice Before Fixing](#reproduce-twice-before-fixing) | Proposed | A failing test on the reporter's version and on `main`, or one of three named exits |
@@ -168,14 +174,14 @@ The procedure:
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | :---: | --- | --- |
-| req-dev-bugreport-synthetic-1 | No Export Leaves | Proposed | The report never contains output of `export_grift`, a database dump, or a log line from the reporter's instance, with no exception for text that passes the tripwire. The only instance-generated text allowed is the environment section's `manage.py health` output (`req-dev-bugreport-environment`), and that must also pass the tripwire. | The tripwire is a detector, not a licence |
+| req-dev-bugreport-synthetic-1 | No Export Leaves | Proposed | The report never contains output of `export_grift`, a database dump, or a log line from the reporter's instance, with no exception for text that passes the tripwire. The only instance-generated text allowed is the environment section's `manage.py health` output (`req-dev-bugreport-environment`), and that must also pass the tripwire. The one other thing that leaves is a screenshot the reporter chose and reviewed (`req-dev-bugreport-screenshots`), which the skill neither reads nor generates. | The tripwire is a detector, not a licence |
 | req-dev-bugreport-synthetic-2 | Classification Quotes The Schema | Backlog | Every field in the failing shape is shown to the reporter with its published `description` quoted and a sensitive or not-sensitive judgement with a reason. | |
 | req-dev-bugreport-synthetic-3 | Undescribed Means Sensitive | Backlog | A field whose schema entry has no `description` is classified sensitive and named as a schema gap. | |
 | req-dev-bugreport-synthetic-4 | Reserved Ranges Only | Backlog | Every synthetic IP, domain, AWS account ID and email address falls in the documentation-reserved ranges named above. | |
 | req-dev-bugreport-synthetic-5 | Consistent Mapping | Backlog | One real value maps to one synthetic value everywhere in the document, so a relationship between fields is preserved. | |
 | req-dev-bugreport-synthetic-6 | Reproduced Before Sending | Backlog | The report states whether the synthetic GRIFT document, loaded into a throwaway project, reproduced the failure, and a report that did not is never labelled reproducible. | |
-| req-dev-bugreport-synthetic-7 | Version 0 Carries No Dataset | Proposed | A version 0 report holds no value read from the reporter's instance and no GRIFT document: its failing shape names node and edge types, field names, cardinalities and value forms, never values, and its expected and actual results are counts and messages the reporter typed or that passed the tripwire. A value from the instance, planted in the shape, the steps or the results, blocks the send. | The customer-data guard of version 0, ruled by George 2026-10-25. Together with `-1` and `req-dev-bugreport-tripwire-1`. |
-| req-dev-bugreport-synthetic-8 | No Read Path To Instance Data | Proposed | The skill has no step that reads the instance's nodes, edges or other rows, a database dump, an export or a log. Its reads of the instance are the environment allowlist (`req-dev-bugreport-environment`) and the names of the node and edge types and fields from the registry, never a value. A test over the skill's declared tools and commands fails if one that reads instance data is added. | Prevention in place of sanitization (George, 2026-10-26): data that was never read cannot be sent. |
+| req-dev-bugreport-synthetic-7 | Version 0 Carries No Dataset | Proposed | A version 0 report holds no value read from the reporter's instance and no GRIFT document: its failing shape names node and edge types, field names, cardinalities and value forms, never values, and its expected and actual results are counts and messages the reporter typed or that passed the tripwire. A value from the instance, planted in the shape, the steps or the results, blocks the send. A screenshot is not part of the shape and is governed by `req-dev-bugreport-screenshots`: reporter-supplied, reviewed by the reporter, and not checkable by the tripwire. | The customer-data guard of version 0, ruled by George 2026-10-25. Together with `-1` and `req-dev-bugreport-tripwire-1`. |
+| req-dev-bugreport-synthetic-8 | No Read Path To Instance Data | Proposed | The skill has no step that reads the instance's nodes, edges or other rows, a database dump, an export or a log. Its reads of the instance are the environment allowlist (`req-dev-bugreport-environment`) and the names of the node and edge types and fields from the registry, never a value. It never opens an attached image to look at its pixels; it checks only the file's size, its magic bytes and its hash. A test over the skill's declared tools and commands fails if one that reads instance data is added. | Prevention in place of sanitization (George, 2026-10-26): data that was never read cannot be sent. |
 
 ### Environment Facts From An Allowlist
 ----
@@ -186,7 +192,7 @@ Status: `Proposed`
 The environment section is built from a fixed list of sources and nothing else:
 
 - the TAP version and image tag;
-- the boot record's plugin list with each plugin's `slug`, `rev` and `commit`, for plugins sourced from `unified-systems-com`. Any other plugin appears only as "third-party plugin" with its `rev`, because its slug and repository may be private;
+- the boot record's plugin list with each plugin's `slug`, `rev` and `commit`, for plugins sourced from `unified-systems-com`. Any other plugin appears only through one boolean, `versions.third_party_plugins_in_use`, true when at least one enabled plugin's source URL is outside `unified-systems-com`. A disabled plugin does not count. The flag carries no slug, no `rev` and no count, because a third-party plugin's name, repository and version may be private and a count narrows who is reporting;
 - the boot profile's `profile_kind`;
 - the host OS and architecture;
 - the Docker and Compose versions;
@@ -204,7 +210,8 @@ excluded rather than filtered.
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | :---: | --- | --- |
-| req-dev-bugreport-environment-1 | Fixed Source List | Proposed | Every environment fact in a report comes from a source on the list above or from text the reporter explicitly added. | |
+| req-dev-bugreport-environment-1 | Fixed Source List | Proposed | Every environment fact in a report comes from a source on the list above, including the third-party flag, or from text the reporter explicitly added. | |
+| req-dev-bugreport-environment-3 | Third-Party Plugins Are One Flag | Proposed | With a plugin sourced outside `unified-systems-com` enabled, the report holds `versions.third_party_plugins_in_use` true and no slug, repository, `rev` or count of such a plugin; with only disabled ones, or none, it is false. | The tripwire still catches a planted third-party name (`req-dev-bugreport-tripwire-4`). |
 | req-dev-bugreport-environment-2 | Env Files And Secrets Are Never Read | Proposed | Building a report reads no `.env*` file and nothing under the secrets store. | |
 
 ### The Reporter's Own Values Block The Send
@@ -221,7 +228,8 @@ Before the preview, the skill builds a **deny list from the reporter's own insta
 - the local username and home path.
 
 The outgoing text is checked against that list, and against `tap/credential_patterns.py`, the
-scanner the repository's own guards use. Any hit blocks the send and names the match, with its
+scanner the repository's own guards use. The tripwire checks text only: it cannot check an attached
+image, and the skill says so wherever it reports a pass (`req-dev-bugreport-screenshots`). Any hit blocks the send and names the match, with its
 line, to the reporter. A clean pass means only that the deny list found nothing, and the skill says
 so in exactly those words: it is a tripwire, not a guarantee. The deny list itself is never written
 into the report, the repository, or anywhere outside the session.
@@ -232,7 +240,7 @@ into the report, the repository, or anywhere outside the session.
 | --- | --- | :---: | --- | --- |
 | req-dev-bugreport-tripwire-1 | Planted Value Is Caught | Proposed | A value on the deny list (the instance's hostnames, the names of non-`unified-systems-com` plugin sources, the local username or home path) planted into the draft blocks the send and is named with its line. | The X3 done-test |
 | req-dev-bugreport-tripwire-2 | Planted Credential Is Caught | Proposed | A string matching a `CREDENTIAL_PATTERNS` shape planted into the draft blocks the send. | |
-| req-dev-bugreport-tripwire-3 | Clean Is Not Called Safe | Proposed | On a pass, the skill reports "no match against your instance's values" and does not call the report safe. | |
+| req-dev-bugreport-tripwire-3 | Clean Is Not Called Safe | Proposed | On a pass, the skill reports "no match against your instance's values" and does not call the report safe. With screenshots attached, it adds that the tripwire cannot check images, so the pass does not cover them. | |
 | req-dev-bugreport-tripwire-4 | Private Plugin Names Are Caught | Proposed | A third-party plugin's slug or repository name, planted into the draft or the environment section, blocks the send. | |
 
 ### Exact Bytes, Explicit Yes, Fail Closed
@@ -241,19 +249,21 @@ RID: `req-dev-bugreport-consent`
 
 Status: `Proposed`
 
-The report is written to a local file, and that file is what gets sent. The skill shows the
-reporter:
+The report is written to a local file, and that file, with any screenshots the reporter named, is
+what gets sent. The skill shows the reporter:
 
 - the file's path;
 - its full contents;
+- each attached image's path, size and sha256, and the line that the tripwire cannot check images;
 - the target repository by name, with the words "public" and "permanent";
 - the list of what was replaced with synthetic values.
 
-It asks for a typed yes. The yes is bound to a hash of that file's contents. Any change, by the
-reporter or the agent, produces a new preview and needs a new yes.
+It asks for a typed yes. The yes is bound to a hash that covers the report and every attachment. Any
+change to either, by the reporter or the agent, produces a new preview and needs a new yes.
 
-The send is `gh issue create --body-file <file>`. If it fails for any reason, the skill stops and
-reports the failure verbatim. It does not retry with another method, re-quote the body, split it,
+The send is `gh issue create --body-file <file>`, with one `--attach` for each screenshot. It
+applies no label: labels come from our side (`req-dev-bugreport-grooming`) and are not part of the
+consented bytes. If the send fails for any reason, the skill stops and reports the failure verbatim. It does not retry with another method, re-quote the body, split it,
 or post it some other way. Improvising after a failed post is how an agent once posted internal
 documents as PR comments (anthropics/claude-code-action#957). Two alternatives are always offered:
 save the report locally only, or open the repository's new-issue page and paste it there.
@@ -262,10 +272,11 @@ save the report locally only, or open the repository's new-issue page and paste 
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | :---: | --- | --- |
-| req-dev-bugreport-consent-1 | Preview Is The Sent File | Proposed | The bytes previewed are the bytes in the file passed to `--body-file`; the skill sends no text that was not in that file. | |
-| req-dev-bugreport-consent-2 | Consent Bound To Content | Proposed | A change to the file after consent invalidates it; sending requires a new preview and yes. | |
+| req-dev-bugreport-consent-1 | Preview Is The Sent File | Proposed | The bytes previewed are the bytes in the file passed to `--body-file` and in each file passed to `--attach`; the skill sends no text and no file that was not previewed. | |
+| req-dev-bugreport-consent-2 | Consent Bound To Content | Proposed | A change to the report file or to any attachment after consent invalidates it; sending requires a new preview and yes. | The hash covers the report and every attachment. |
 | req-dev-bugreport-consent-3 | Public And Permanent Named | Proposed | The consent prompt names the target repository and states that the issue is public and that edits do not remove earlier text. | |
-| req-dev-bugreport-consent-4 | One Attempt, No Improvising | Proposed | A failed send is reported verbatim and not retried by any other route; the local-only and paste-it-yourself alternatives are offered. | |
+| req-dev-bugreport-consent-4 | One Attempt, No Improvising | Proposed | A failed send is reported verbatim and not retried by any other route; the local-only and paste-it-yourself alternatives are offered. A partial failure, where the issue was created and its attachments were not, is reported with the issue URL and is never retried, since a retry would create a second public issue. | A partial failure is not a failed single attempt: the issue exists. |
+| req-dev-bugreport-consent-5 | No Label In The Send | Proposed | The send passes no `--label` and the skill makes no label lookup; no label is part of the consented bytes. | Moved to `req-dev-bugreport-grooming` (George, 2026-10-26). |
 
 ### A Report Shape The Fixer Can Parse
 ----
@@ -277,20 +288,38 @@ A report has fixed headings, the same as tap's existing bug form: what happened,
 reproduce, TAP version, how it is run, health output and anything else. It also has one fenced
 block holding a single JSON document that `submit-a-fix` reads. That block carries:
 
+- `schema_version`, a number, 1 from 2026-10-26 (0 before);
 - the target repository;
-- the versions and commits;
+- the versions and commits, including the third-party flag (`req-dev-bugreport-environment`);
 - the failing operation;
 - expected and actual results, with counts where there are any;
+- the reporter's observed impact (see below);
 - whether the synthetic data reproduced;
+- an optional `screenshots` array of file and description (`req-dev-bugreport-screenshots`);
 - the synthetic GRIFT document, or a pointer to it as a second fenced block (Backlog: absent in version 0, see `req-dev-bugreport-synthetic-7`).
+
+**The reporter's observed impact** is what the reporter saw, as enums and booleans and never a value from the instance. It is not a priority; severity, complexity and priority are maintainer calls (ruled 2026-10-26) and are labelled separately, later. The fields, all required from `schema_version` 1 except where marked:
+
+| Field | Values |
+| --- | --- |
+| `customer_impact` | `blocks-work-no-workaround`, `function-broken-workaround-exists`, `works-but-wrong-slow-or-annoying`, `cosmetic-only` |
+| `workaround` | an object: `exists` (`yes`, `no`, `unknown`) and an optional one-line `description` that holds no values |
+| `wrong_or_lost_data` | `yes`, `no`, `unknown` |
+| `scope` | `this-install-only`, `more-than-one-install`, `unknown` |
+| `frequency` | `always`, `sometimes`, `once` |
+| `regression` | `worked-before`, `never-worked`, `unknown`, and an optional string `last_good_version`, allowed only with `worked-before` |
+| `reproduces_with_only_our_plugins` (optional) | `yes`, `no`, `unknown`: whether the failure remains with every third-party plugin disabled, the analogue of the extensions-disabled check in VS Code; it extends the third-party flag |
+
+Every field, and the `workaround` object's own properties, carries a `description` in the schema (`req-grid-node-field-description` is the rule for node and edge fields; the same reasoning applies here). The free-text `workaround.description` passes the tripwire like any text.
 
 The JSON document carries a `description` at its top level and on each key, per the repository's
 JSON-structures rule. The report ends with a disclosure line: drafted with an AI agent, reproduced
 on synthetic data yes or no, and reviewed by the reporter.
 
 Plugin repositories have no issue forms today, so the report shape is the template wherever the
-skill files. The skill applies the label `via:submit-a-bug` when the repository has it, and reports
-in the skill output that it didn't when it doesn't.
+skill files. The skill applies no label. Ruled 2026-10-26: an outside reporter has no permission to
+triage, and labels are not part of what the reporter consents to; a workflow on our side applies
+them (`req-dev-bugreport-grooming`).
 
 #### Acceptance Criteria
 
@@ -299,7 +328,63 @@ in the skill output that it didn't when it doesn't.
 | req-dev-bugreport-shape-1 | One Parseable Block | Proposed | Every report contains exactly one fenced JSON block that validates against the report schema shipped with the skill. | |
 | req-dev-bugreport-shape-2 | Disclosure Present | Proposed | Every report ends with the AI-assistance, synthetic-reproduction and reporter-review disclosure. | |
 | req-dev-bugreport-shape-3 | One Schema For Both Skills | Proposed | `submit-a-bug` writes and `submit-a-fix` reads the report through one schema file, shipped in `tap/skills/` and named by both skills, and neither skill restates the report's fields. | Ruled by George, 2026-10-25: the two stay aligned. |
-| req-dev-bugreport-shape-4 | A Round-Trip Test | Proposed | A test builds a sample report from the `submit-a-bug` template and extracts it with the `submit-a-fix` reader, and fails when a field written by one is not read by the other. | The check that a tweak to one skill is carried to the other. |
+| req-dev-bugreport-shape-4 | A Round-Trip Test | Proposed | A test builds a sample report from the `submit-a-bug` template and extracts it with the `submit-a-fix` reader, and fails when a field written by one is not read by the other. | The check that a tweak to one skill is carried to the other. A change to the schema, to either skill and to `tap/tests/test_bug_report.py` is made in one change. |
+| req-dev-bugreport-shape-5 | Observed Impact Is Enums And Booleans | Proposed | The schema requires `customer_impact`, `workaround`, `wrong_or_lost_data`, `scope`, `frequency` and `regression` with exactly the values in the table above, and accepts the optional `reproduces_with_only_our_plugins`. Each field has a `description`. A free string in any enum field fails validation, and `last_good_version` without `worked-before` fails validation. | Observed by the reporter, never read from the instance. |
+| req-dev-bugreport-shape-6 | The Schema Is Versioned | Proposed | Every report carries `schema_version`, and the schema file rejects a report whose version it does not know. A report with `schema_version` 0 stays readable by the `submit-a-fix` reader. | The grooming workflow labels from this field. |
+| req-dev-bugreport-shape-7 | No Maintainer Judgements | Proposed | The schema has no field named `severity`, `complexity` or `priority`, and the template does not ask the reporter for one. | Ruled by George, 2026-10-26. |
+
+### Screenshots The Reporter Chooses
+----
+RID: `req-dev-bugreport-screenshots`
+
+Status: `Proposed`
+
+Ruled by George, 2026-10-26: a reporter may attach screenshots. A screenshot is reporter-supplied data that the tripwire cannot inspect, so it is the one exception to a report holding nothing the skill did not generate or check, and its safety rests on the reporter looking at it. The skill takes only the files the reporter names; it never captures the screen, searches for images or opens one to read its pixels (`req-dev-bugreport-synthetic-8`).
+
+The defaults are: png, jpg, jpeg and gif only; at most five files; each between one byte and 5 MiB; plain files inside `.bug-reports/`; and the file's magic bytes must match its suffix. The report schema has an optional `screenshots` array of `file` and `description`. The preview lists each image with its path, size and sha256 and says that the tripwire cannot check images (`req-dev-bugreport-consent`). The send passes one `--attach` per image to `gh issue create`, and stops before sending if `gh issue create --help` does not list `--attach`.
+
+**Open, not yet observed:** a real upload has not been run, only a stand-in `gh`. Three behaviours of `gh` are unverified: whether it rewrites the relative `./file` form of an attachment, how an alt text containing `#` is handled, and the lowest `gh` version that has `--attach` (only 2.100.0 is known). They are settled before the first real send, and this text is updated with what was observed.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-dev-bugreport-screenshots-1 | Only Named, Small, Real Images | Proposed | A file is attached only if the reporter named it, it is a plain file inside `.bug-reports/`, its suffix is png, jpg, jpeg or gif, its magic bytes match the suffix, and its size is 1 byte to 5 MiB; at most five are attached. Any other file stops the send and names the reason. | The limits are defaults. |
+| req-dev-bugreport-screenshots-2 | The Reporter Sees Each One | Proposed | The preview lists each image with its path, size and sha256 and states that the tripwire cannot check images; the typed yes covers the report and every image. | `req-dev-bugreport-consent-2`. |
+| req-dev-bugreport-screenshots-3 | Pixels Are Never Read By The Skill | Proposed | Nothing in the skill opens an attached image for its content; it reads only size, magic bytes and hash. | The skill's reads are the guard (`req-dev-bugreport-synthetic-8`). |
+| req-dev-bugreport-screenshots-4 | Attach Support Is Checked | Proposed | If `gh issue create --help` does not list `--attach`, the skill stops before the send and says so; the check gives the same result when `gh` prints a long help text and the shell runs with `pipefail`. | A regression test with a long help text covers a defect found on 2026-10-26. |
+| req-dev-bugreport-screenshots-5 | Partial Failure Is Reported, Not Retried | Proposed | When the issue is created and an attachment fails, the skill prints the issue URL and what failed, and does not retry. | `req-dev-bugreport-consent-4`. |
+
+### Labels Come From Our Side
+----
+RID: `req-dev-bugreport-grooming`
+
+Status: `Proposed`
+
+Ruled by George, 2026-10-26. `submit-a-bug` applies no label (`req-dev-bugreport-shape`). Instead a GitHub Action in `unified-systems-com/tap`, run on issues opened and edited, recognises a report in the submit-a-bug format and labels it. Recognising it means the fixed headings, exactly one fenced JSON block, the disclosure line and a `schema_version`. The Action reads the block with the same reader `submit-a-fix` uses (`tap/bug_report.py`), validates it against the shared schema, and applies labels from a fixed list only:
+
+- `via:submit-a-bug`;
+- `report-schema:N`, where N is the report's `schema_version`;
+- `customer-impact:<value>`, where the value is one of the four `customer_impact` enums.
+
+Report text never becomes a label name: a label comes from this list, and a value outside the enums applies no label. The labels exist beforehand and the Action never creates one.
+
+**The label proves the format and nothing else.** Anyone can paste the format into an issue, so a label is not a trust signal, not evidence of who wrote the report and not a reason to read it. `submit-a-fix` keeps its own author gate (`req-dev-bugfix-ownreports`) and does not look at labels.
+
+The Action reads the issue body, which a stranger wrote, so it is built as the workflows that do the same are: it runs a script from `main`, never from the issue or a branch; it holds `issues: write` and no other permission; the body reaches the script as data (a file or an environment variable) and is never interpolated into a command; it fails closed, so anything it cannot parse or validate applies no label; and its actions are pinned. The workflow file has a CODEOWNERS rule.
+
+**Open for the build:** whether an edit that makes a labelled report invalid, or changes its `schema_version` or `customer_impact`, removes or replaces the labels the Action applied earlier. The reasoning for removing them is that a stale label then misdescribes the body; this text is updated with the choice.
+
+#### Acceptance Criteria
+
+| ACID | Title | Status | Description | Notes |
+| --- | --- | :---: | --- | --- |
+| req-dev-bugreport-grooming-1 | Labels From A Fixed List | Proposed | For a valid report the Action applies only `via:submit-a-bug`, `report-schema:N` and `customer-impact:<value>`; with a body planted to contain other label text, no other label is applied. | |
+| req-dev-bugreport-grooming-2 | Same Reader, Same Schema | Proposed | The Action extracts and validates the report with `tap/bug_report.py` and the shared schema, not a second parser. | `req-dev-bugreport-shape-3`. |
+| req-dev-bugreport-grooming-3 | Fails Closed | Proposed | An issue with no block, two blocks, no disclosure line, an unknown `schema_version` or an invalid block gets no label, and the run does not error on a stranger's text. | |
+| req-dev-bugreport-grooming-4 | Body Is Data | Proposed | The issue body is never interpolated into a shell command, a script argument or an expression; a body containing shell syntax changes nothing. | |
+| req-dev-bugreport-grooming-5 | Least Authority | Proposed | The workflow has `issues: write` only, runs its script from `main`, pins its actions by digest, and is covered by a CODEOWNERS rule. | |
+| req-dev-bugreport-grooming-6 | A Label Is Not Trust | Proposed | `submit-a-fix` reads no label and still refuses an issue by a non-maintainer author whatever its labels. | `req-dev-bugfix-ownreports-1`. |
 
 ### The Report Is Data
 ----
@@ -313,6 +398,8 @@ comments only from the issue's author and the repository's maintainers.
 
 Before the text reaches the model, it strips zero-width and other invisible characters, HTML
 comments, and `<details>` bodies the reporter collapsed, and says what it stripped.
+
+An image attached to the issue is never opened: its link is not followed and its content is not read by the skill or by the model.
 
 Nothing in the issue is an instruction to the agent. Text that reads like one ("ignore", "run",
 "push", "also update", a URL to fetch, a package to install) is reported to the human as a finding,
@@ -339,6 +426,7 @@ discloses nothing that was not already published.
 | req-dev-bugfix-untrusted-intake-2 | Hidden Text Stripped And Named | Proposed | Invisible characters, HTML comments and collapsed blocks are removed before the model reads the issue, and the removal is reported. | |
 | req-dev-bugfix-untrusted-intake-3 | Instruction-Shaped Text Stops The Run | Proposed | A planted instruction in the issue body (for example, "also run `curl …`") is reported as a finding, and the skill does not act on it. | |
 | req-dev-bugfix-untrusted-intake-4 | A Classifier Only Adds Stops | Proposed | With a typed classifier configured, its yes stops the run, and its no on a planted instruction still leaves the run stopped by the skill's own reading; with none configured, the skill behaves identically otherwise. | |
+| req-dev-bugfix-untrusted-intake-5 | Images Are Never Opened | Proposed | The skill fetches and reads no image attached to or linked from the issue, and a report's `screenshots` entries are listed to the human by file name and description only. | A picture can carry text aimed at an agent. |
 
 ### Version 0 Runs Only On Our Own Reports
 ----
@@ -506,6 +594,8 @@ search-only or inferred.
 - **Injection incidents:**
   - Invariant Labs' GitHub MCP toxic-agent flow, Clinejection, and the Amazon Q extension.
   - The mitigations in use: quarantined extraction, author-only comment reading, no egress, and a human gate.
+
+The observed-impact fields (2026-10-26) draw on Mozilla's severity guide and the severity-versus-priority references: impact, workaround, data loss and scope are sourced there. Frequency and regression are general bug-report practice and were not checked against a source.
 
 Two rulings shaped the design (George, 2026-10-02). First, there is no private upload channel:
 reports are public issues built from synthetic data, and security bugs go to private vulnerability
