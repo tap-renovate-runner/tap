@@ -31,7 +31,7 @@ means.** Every JSON structure carries a `description`, and every field schema pu
 (`req-grid-keystone-self-describing`; the field-schema `description` in `spec-grid-node.md`). A
 generic bug reporter has to guess which values in a dump are sensitive. This one reads the field's
 own description, so the judgement is made per field, with the author's words as evidence, and is
-shown to the reporter. Where a field has no description, the skill treats it as sensitive. A
+shown to the reporter. **As of 2026-10-26 almost no field has a description, so version 0 does not rely on this (see Version 0); it is the design for when they do.** Where a field has no description, the skill treats it as sensitive. A
 missing description is the one case where it is guessing, so it guesses safe.
 
 **A bug report is text a stranger wrote, and the fixing agent will read it.** Any agent that reads
@@ -57,7 +57,7 @@ credentials and has no network, and a human pushes whatever it produced.
 
 Ruled by George, 2026-10-25. Version 0 is built for bugs that only we submit, and both skills are built together, so a change to one is made with the other and the two stay aligned. Two parts of the design below wait for the day strangers file bugs, and are `Backlog` until then:
 
-- **The synthetic dataset** (`req-dev-bugreport-synthetic`, steps 3 to 6 and criteria `-4` to `-6`). A version 0 report carries no dataset at all, only the shape that fails. The guard against customer data stays in full: no value from the reporter's instance is ever sent (`req-dev-bugreport-synthetic-1`, `-7`), and the tripwire and the consent step are unchanged.
+- **The synthetic dataset and the data sanitization** (`req-dev-bugreport-synthetic`, steps 2 to 6 and criteria `-2` to `-6`). A version 0 report carries no dataset at all, only the shape that fails, and the skill does not try to sanitize data because it never has any to send: it has no way to read the instance's data (`req-dev-bugreport-synthetic-8`) and none to put one in the report (`-7`). Classifying fields from their descriptions waits for the descriptions to exist (`req-grid-node-field-description`, Issue# 1117 - tap): a 2026-10-26 scan found almost none. The tripwire and the consent step are unchanged and still run.
 - **The sandbox** (`req-dev-bugfix-isolation`, every criterion). `submit-a-fix` runs only on an issue a maintainer account wrote (`req-dev-bugfix-ownreports`), so the credential and network preflight, the named deny-all sandbox, the commit provenance check and the confined stack are not built yet. They are enabled together when strangers' bugs arrive; a hosted sandbox such as GitHub Codespaces is the likely choice, and choosing it is the work that remains. Goal 5 holds from that point. Until then it rests on the author gate, on the report being read as data (`req-dev-bugfix-untrusted-intake`) and on the human push.
 
 ## Requirements
@@ -65,7 +65,7 @@ Ruled by George, 2026-10-25. Version 0 is built for bugs that only we submit, an
 | RID | Name | Status | Notes |
 | --- | --- | :---: | --- |
 | req-dev-bugreport-route | [Security First, Then The Owning Repository](#security-first-then-the-owning-repository) | Proposed | A vulnerability goes to private vulnerability reporting; anything else goes to the repository the boot record names as the failing plugin's source |
-| req-dev-bugreport-synthetic | [Synthetic Data, Judged From The Schema](#synthetic-data-judged-from-the-schema) | Proposed | Version 0 sends no dataset and no instance value; fields are classified from their descriptions to feed the tripwire. Generating a synthetic dataset that must still reproduce is Backlog |
+| req-dev-bugreport-synthetic | [Synthetic Data, Judged From The Schema](#synthetic-data-judged-from-the-schema) | Proposed | Version 0 reads no instance data and sends none and no dataset. Classifying fields from their descriptions and generating a synthetic dataset that must still reproduce are Backlog |
 | req-dev-bugreport-environment | [Environment Facts From An Allowlist](#environment-facts-from-an-allowlist) | Proposed | Versions and topology come from a fixed list of sources; nothing is collected by dumping and scrubbing |
 | req-dev-bugreport-tripwire | [The Reporter's Own Values Block The Send](#the-reporters-own-values-block-the-send) | Proposed | Any of the reporter's own identifiers, or a credential shape, in the outgoing text stops the send |
 | req-dev-bugreport-consent | [Exact Bytes, Explicit Yes, Fail Closed](#exact-bytes-explicit-yes-fail-closed) | Proposed | Preview the exact file, name the repository as public and permanent, take a yes bound to that content, and never improvise on a failed send |
@@ -125,7 +125,7 @@ RID: `req-dev-bugreport-synthetic`
 
 Status: `Proposed`
 
-**Version 0 (George, 2026-10-25).** Steps 1 and 2 and criteria `-1` to `-3` and `-7` are in version 0. Steps 3 to 6 and criteria `-4` to `-6` are `Backlog`: a version 0 report carries no dataset, so nothing is generated, written as GRIFT, shrunk or reproduced from one. The classification of step 2 is still done, because its output is the tripwire's deny list (`req-dev-bugreport-tripwire`).
+**Version 0 (George, 2026-10-25 and 2026-10-26).** Step 1 and criteria `-1`, `-7` and `-8` are in version 0. Steps 2 to 6 and criteria `-2` to `-6` are `Backlog`: a version 0 report carries no dataset and the skill reads none, so nothing is classified, generated, written as GRIFT, shrunk or reproduced from one. Step 2 waits for the field descriptions it reads (`req-grid-node-field-description`).
 
 The dataset in a report is **generated**, not exported. The skill never attaches an export of the
 reporter's graph, including `export_grift` output, a database dump or log excerpts that contain
@@ -138,7 +138,7 @@ The procedure:
 1. **Find the shape that fails.** With the reporter, identify which node and edge types, which
    fields and which relationships are involved. The shape is types, field names, cardinalities and
    value *forms*, never values.
-2. **Classify every field from its own description.** For each field in the shape, read its
+2. (Backlog) **Classify every field from its own description.** For each field in the shape, read its
    published schema entry: the `description`, its type and format, and `x-tap-absence` where
    present. Judge whether a real value would identify the reporter, their organisation, their
    infrastructure or a person, or would grant access. Show the reporter the classification as a
@@ -169,12 +169,13 @@ The procedure:
 | ACID | Title | Status | Description | Notes |
 | --- | --- | :---: | --- | --- |
 | req-dev-bugreport-synthetic-1 | No Export Leaves | Proposed | The report never contains output of `export_grift`, a database dump, or a log line from the reporter's instance, with no exception for text that passes the tripwire. The only instance-generated text allowed is the environment section's `manage.py health` output (`req-dev-bugreport-environment`), and that must also pass the tripwire. | The tripwire is a detector, not a licence |
-| req-dev-bugreport-synthetic-2 | Classification Quotes The Schema | Proposed | Every field in the failing shape is shown to the reporter with its published `description` quoted and a sensitive or not-sensitive judgement with a reason. | |
-| req-dev-bugreport-synthetic-3 | Undescribed Means Sensitive | Proposed | A field whose schema entry has no `description` is classified sensitive and named as a schema gap. | |
+| req-dev-bugreport-synthetic-2 | Classification Quotes The Schema | Backlog | Every field in the failing shape is shown to the reporter with its published `description` quoted and a sensitive or not-sensitive judgement with a reason. | |
+| req-dev-bugreport-synthetic-3 | Undescribed Means Sensitive | Backlog | A field whose schema entry has no `description` is classified sensitive and named as a schema gap. | |
 | req-dev-bugreport-synthetic-4 | Reserved Ranges Only | Backlog | Every synthetic IP, domain, AWS account ID and email address falls in the documentation-reserved ranges named above. | |
 | req-dev-bugreport-synthetic-5 | Consistent Mapping | Backlog | One real value maps to one synthetic value everywhere in the document, so a relationship between fields is preserved. | |
 | req-dev-bugreport-synthetic-6 | Reproduced Before Sending | Backlog | The report states whether the synthetic GRIFT document, loaded into a throwaway project, reproduced the failure, and a report that did not is never labelled reproducible. | |
 | req-dev-bugreport-synthetic-7 | Version 0 Carries No Dataset | Proposed | A version 0 report holds no value read from the reporter's instance and no GRIFT document: its failing shape names node and edge types, field names, cardinalities and value forms, never values, and its expected and actual results are counts and messages the reporter typed or that passed the tripwire. A value from the instance, planted in the shape, the steps or the results, blocks the send. | The customer-data guard of version 0, ruled by George 2026-10-25. Together with `-1` and `req-dev-bugreport-tripwire-1`. |
+| req-dev-bugreport-synthetic-8 | No Read Path To Instance Data | Proposed | The skill has no step that reads the instance's nodes, edges or other rows, a database dump, an export or a log. Its reads of the instance are the environment allowlist (`req-dev-bugreport-environment`) and the names of the node and edge types and fields from the registry, never a value. A test over the skill's declared tools and commands fails if one that reads instance data is added. | Prevention in place of sanitization (George, 2026-10-26): data that was never read cannot be sent. |
 
 ### Environment Facts From An Allowlist
 ----
@@ -214,7 +215,7 @@ Status: `Proposed`
 
 Before the preview, the skill builds a **deny list from the reporter's own instance**:
 
-- the values held in the fields classified sensitive in `req-dev-bugreport-synthetic`, read locally and kept local;
+- (Backlog) the values held in the fields classified sensitive in `req-dev-bugreport-synthetic`, read locally and kept local; version 0 reads no instance values, so this source waits for the classification;
 - the instance's own hostnames;
 - every repository owner and repository name in the boot record's plugin sources outside `unified-systems-com`, plus those plugins' slugs;
 - the local username and home path.
@@ -229,7 +230,7 @@ into the report, the repository, or anywhere outside the session.
 
 | ACID | Title | Status | Description | Notes |
 | --- | --- | :---: | --- | --- |
-| req-dev-bugreport-tripwire-1 | Planted Value Is Caught | Proposed | A value present in the reporter's instance and planted into the draft blocks the send and is named with its line. | The X3 done-test |
+| req-dev-bugreport-tripwire-1 | Planted Value Is Caught | Proposed | A value on the deny list (the instance's hostnames, the names of non-`unified-systems-com` plugin sources, the local username or home path) planted into the draft blocks the send and is named with its line. | The X3 done-test |
 | req-dev-bugreport-tripwire-2 | Planted Credential Is Caught | Proposed | A string matching a `CREDENTIAL_PATTERNS` shape planted into the draft blocks the send. | |
 | req-dev-bugreport-tripwire-3 | Clean Is Not Called Safe | Proposed | On a pass, the skill reports "no match against your instance's values" and does not call the report safe. | |
 | req-dev-bugreport-tripwire-4 | Private Plugin Names Are Caught | Proposed | A third-party plugin's slug or repository name, planted into the draft or the environment section, blocks the send. | |
