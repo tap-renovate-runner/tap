@@ -330,7 +330,7 @@ them (`req-dev-bugreport-grooming`).
 | req-dev-bugreport-shape-3 | One Schema For Both Skills | Proposed | `submit-a-bug` writes and `submit-a-fix` reads the report through one schema file, shipped in `tap/skills/` and named by both skills, and neither skill restates the report's fields. | Ruled by George, 2026-10-25: the two stay aligned. |
 | req-dev-bugreport-shape-4 | A Round-Trip Test | Proposed | A test builds a sample report from the `submit-a-bug` template and extracts it with the `submit-a-fix` reader, and fails when a field written by one is not read by the other. | The check that a tweak to one skill is carried to the other. A change to the schema, to either skill and to `tap/tests/test_bug_report.py` is made in one change. |
 | req-dev-bugreport-shape-5 | Observed Impact Is Enums And Booleans | Proposed | The schema requires `customer_impact`, `workaround`, `wrong_or_lost_data`, `scope`, `frequency` and `regression` with exactly the values in the table above, and accepts the optional `reproduces_with_only_our_plugins`. Each field has a `description`. A free string in any enum field fails validation, and `last_good_version` without `worked-before` fails validation. | Observed by the reporter, never read from the instance. |
-| req-dev-bugreport-shape-6 | The Schema Is Versioned | Proposed | Every report carries `schema_version`, and the schema file rejects a report whose version it does not know. A report with `schema_version` 0 stays readable by the `submit-a-fix` reader. | The grooming workflow labels from this field. |
+| req-dev-bugreport-shape-6 | The Schema Is Versioned | Proposed | Every report carries `schema_version`, and the schema file rejects a report whose version it does not know. The `submit-a-fix` reader accepts `schema_version` 0 and 1 and rejects any other value. | The grooming workflow labels from this field. |
 | req-dev-bugreport-shape-7 | No Maintainer Judgements | Proposed | The schema has no field named `severity`, `complexity` or `priority`, and the template does not ask the reporter for one. | Ruled by George, 2026-10-26. |
 
 ### Screenshots The Reporter Chooses
@@ -373,7 +373,7 @@ Report text never becomes a label name: a label comes from this list, and a valu
 
 The Action reads the issue body, which a stranger wrote, so it is built as the workflows that do the same are: it runs a script from `main`, never from the issue or a branch; it holds `issues: write` and no other permission; the body reaches the script as data (a file or an environment variable) and is never interpolated into a command; it fails closed, so anything it cannot parse or validate applies no label; and its actions are pinned. The workflow file has a CODEOWNERS rule.
 
-**Open for the build:** whether an edit that makes a labelled report invalid, or changes its `schema_version` or `customer_impact`, removes or replaces the labels the Action applied earlier. The reasoning for removing them is that a stale label then misdescribes the body; this text is updated with the choice.
+**Labels follow the current body.** On every edit the Action recomputes the labels from the body as it stands now. It removes a label it manages that no longer matches, and removes all of them when the body no longer parses as the format. A stale label would misdescribe the body. Only the labels on the fixed list are managed; a label a person added is never touched.
 
 #### Acceptance Criteria
 
@@ -385,6 +385,7 @@ The Action reads the issue body, which a stranger wrote, so it is built as the w
 | req-dev-bugreport-grooming-4 | Body Is Data | Proposed | The issue body is never interpolated into a shell command, a script argument or an expression; a body containing shell syntax changes nothing. | |
 | req-dev-bugreport-grooming-5 | Least Authority | Proposed | The workflow has `issues: write` only, runs its script from `main`, pins its actions by digest, and is covered by a CODEOWNERS rule. | |
 | req-dev-bugreport-grooming-6 | A Label Is Not Trust | Proposed | `submit-a-fix` reads no label and still refuses an issue by a non-maintainer author whatever its labels. | `req-dev-bugfix-ownreports-1`. |
+| req-dev-bugreport-grooming-7 | Labels Are Recomputed On Edit | Proposed | After an edit that changes `customer_impact` or `schema_version`, the issue carries the labels for the new values and not the old ones; after an edit that stops the body parsing as the format, it carries none of the managed labels; a label not on the fixed list is left alone. | Ruled in the build, 2026-10-26. |
 
 ### The Report Is Data
 ----
