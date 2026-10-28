@@ -2424,10 +2424,25 @@ def _pattern_position_paths(
     return node_paths, edge_paths
 
 
+def _node_edge_name_clash(var: str) -> SearchExecutionError:
+    """The one refusal for a name used as both a node and an edge.
+
+    Shared by the chain lowering (`_repeated_variable_equality_filters`) and the
+    OPTIONAL MATCH builder, so the rule and its remedy cannot hold at one site and
+    not the other (req-grid-traversal-lang-shape-9).
+    """
+    return SearchExecutionError(
+        f"Variable '{var}' names both a node and an edge in the same pattern. "
+        "A node binds an Entity and an edge binds an Edge record, so no value "
+        "can be both and there is no join to apply. Use distinct names — e.g. "
+        f"(...)-[{var}_edge:E]->({var})."
+    )
+
+
 def _repeated_variable_equality_filters(pattern: PathPattern, hop_paths: list[dict[str, str]]) -> dict[str, Any]:
     """Unify a variable that occurs at more than one position in ONE pattern.
 
-    TAP-IMPLEMENTS: req-grid-traversal-lang-shape@0f9be1cd3ff0/ed5a2974378f (derivation) —
+    TAP-IMPLEMENTS: req-grid-traversal-lang-shape@1ea7ff0cf469/75ae565cf150 (derivation) —
         `req-grid-traversal-lang-shape-9`: in-pattern variable reuse is a join, and this
         is the join — the one place the equality between two positions is emitted.
 
@@ -2469,12 +2484,7 @@ def _repeated_variable_equality_filters(pattern: PathPattern, hop_paths: list[di
             return
         seen = first_seen.setdefault(var, (role, path))
         if seen[0] != role:
-            raise SearchExecutionError(
-                f"Variable '{var}' names both a node and an edge in the same pattern. "
-                "A node binds an Entity and an edge binds an Edge record, so no value "
-                "can be both and there is no join to apply. Use distinct names — e.g. "
-                f"(...)-[{var}_edge:E]->({var})."
-            )
+            raise _node_edge_name_clash(var)
         if seen[1] == path:
             return
 
@@ -2792,7 +2802,7 @@ def _apply_predicate_to_qs(
 ):
     """Apply a WHERE predicate tree to an already-built chain queryset.
 
-    TAP-IMPLEMENTS: req-grid-traversal-lang-filters@2d322ef99b10/7b84984d6834 (derivation) —
+    TAP-IMPLEMENTS: req-grid-traversal-lang-filters@6de95ee80557/7b84984d6834 (derivation) —
         WHERE field filtering lowers to the queryset here.
 
     TAP-IMPLEMENTS: req-grid-traversal-lang-combinators@0e5170677022/7b84984d6834 (derivation) —
@@ -4671,7 +4681,7 @@ def _execute_optional_match(
 ) -> dict[str, Any]:
     """Execute a MATCH + OPTIONAL MATCH query — left-outer-join semantics.
 
-    TAP-IMPLEMENTS: req-grid-gryphon-optional-match@15c86aacbfad/c4283cd7b217 (derivation) —
+    TAP-IMPLEMENTS: req-grid-gryphon-optional-match@15c86aacbfad/12b2ba11a1a2 (derivation) —
         OPTIONAL MATCH left-join semantics execute here.
 
     v0 scope: exactly one node-only mandatory MATCH (a labelled type scan
@@ -4761,6 +4771,20 @@ def _execute_optional_match(
             f"The OPTIONAL MATCH pattern must start from the MATCH variable '{v}', e.g. OPTIONAL MATCH ({v})-[:E]->(w)."
         )
 
+    # A name may repeat across the optional pattern only in the same role (the
+    # mandatory node `v` and the pattern's left node). The edge and the optional
+    # node bind into one dict below, so a node/edge clash would let one overwrite
+    # the other — refuse it through the same helper the chain path uses.
+    roles: dict[str, str] = {v: "node"}
+    for role_var, role in ((opt_edge.variable, "edge"), (w_node.variable, "node")):
+        if role_var is not None and roles.setdefault(role_var, role) != role:
+            raise _node_edge_name_clash(role_var)
+    if left_node.label and left_node.label != anchor_node.label:
+        raise SearchExecutionError(
+            f"The OPTIONAL MATCH anchor ({v}:{left_node.label}) repeats the MATCH variable with a different "
+            f"label than its MATCH '{anchor_node.label}'. Drop the label or make it match."
+        )
+
     try:
         model_cls = get_model_class(anchor_node.label)
     except KeyError:
@@ -4810,6 +4834,19 @@ def _execute_optional_match(
             inputs,
             _binding_path_resolver(w_binding),
             _label_declared_types(w_node.label) if w_node.label else None,
+        ).items():
+            opt_q &= Q(**{orm_path: value})
+    # An inline map on the repeated anchor `(t {k: v})-[...]` is a condition of
+    # the optional JOIN, not of the outer scan: a row of `t` that fails it stays
+    # in the result with COUNT 0 (Cypher semantics), so it joins `opt_q` and is
+    # NOT applied to `qs` the way the MATCH anchor's own map is. Dropping it was
+    # accept-and-drop (req-grid-traversal-lang-filters-1).
+    if left_node.inline_props:
+        for orm_path, value in _node_inline_prop_filters(
+            left_node,
+            inputs,
+            lambda fp: _typescan_orm_path(fp, model_cls),
+            lambda fp: _declared_data_types(model_cls, fp),
         ).items():
             opt_q &= Q(**{orm_path: value})
 

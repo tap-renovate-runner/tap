@@ -1,54 +1,19 @@
-"""Confirmed adjacent defects from the one-pass Gryphon repair sweep.
+"""Confirmed adjacent defects from the one-pass Gryphon repair sweep, still open.
 
-Registered locally in docs/misc/gryphon-query-defect-repair-2026-10-27.md.
-External issue creation was rejected by automatic approval review; these strict
-xfails preserve the reproductions until publication is explicitly approved.
+The OPTIONAL MATCH anchor-map and role-collision siblings are repaired and pinned in
+`test_gryphon_construct_effect.py` and `test_gryphon.py`; the literal dimension key
+(unified-systems-com/tap#1125) remains a strict expected failure until its repair lands.
 """
 
 import pytest
 from tap_grid.gryphon import explain_gryphon_raw
-from tap_grid.exceptions import SearchExecutionError
 from tap_grid.service_types import WriteOperation
 from tap_grid.services import write_batch
 
 pytestmark = pytest.mark.django_db(transaction=True, databases=["default", "search_readonly"])
 
 
-@pytest.mark.xfail(
-    strict=True, reason="pending-optional-anchor-map: documented local sibling; not repaired in this pass"
-)
-def test_optional_repeated_anchor_map():
-    a = explain_gryphon_raw(
-        'MATCH (t:batch) OPTIONAL MATCH (t {name: "required"})-[:X]->(w:batch) RETURN t.entity_id AS id, COUNT(w) AS c',
-        {},
-    )["sql"]
-    b = explain_gryphon_raw(
-        "MATCH (t:batch) OPTIONAL MATCH (t)-[:X]->(w:batch) RETURN t.entity_id AS id, COUNT(w) AS c", {}
-    )["sql"]
-    lhs = [(st.sql, repr(st.params)) for st in a.statements]
-    rhs = [(st.sql, repr(st.params)) for st in b.statements]
-    assert lhs and rhs
-    assert lhs != rhs, "OPTIONAL repeated anchor map accepted and dropped"
-
-
-@pytest.mark.xfail(
-    strict=True, reason="pending-optional-role-collision: documented local sibling; not repaired in this pass"
-)
-@pytest.mark.parametrize(
-    "query",
-    [
-        "MATCH (t:batch) OPTIONAL MATCH (t)-[w:X]->(w:batch) RETURN t.entity_id AS id, COUNT(w) AS c",
-        "MATCH (t:batch) OPTIONAL MATCH (t)-[t:X]->(w:batch) RETURN t.entity_id AS id, COUNT(w) AS c",
-    ],
-)
-def test_optional_cross_role_collision(query):
-    with pytest.raises(SearchExecutionError):
-        explain_gryphon_raw(query, {})
-
-
-@pytest.mark.xfail(
-    strict=True, reason="pending-literal-dimension-key: documented local sibling; not repaired in this pass"
-)
+@pytest.mark.xfail(strict=True, reason="unified-systems-com/tap#1125: literal dimension key; repair is a separate PR")
 def test_literal_dimension_key():
     result = write_batch(
         [

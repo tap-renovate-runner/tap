@@ -2558,7 +2558,7 @@ class TestGryphonOptionalMatchParser:
 class TestGryphonOptionalMatchExecutor:
     """Executor coverage for OPTIONAL MATCH — zero-preservation plus the v0 scope bounds."""
 
-    def _setup(self):
+    def _setup(self) -> dict[str, Any]:
         """Three characters (with backing ConstrainedSource rows); only Frodo wields an artifact."""
         import uuid
 
@@ -2584,7 +2584,7 @@ class TestGryphonOptionalMatchExecutor:
         )
         return chars
 
-    def _search(self, query):
+    def _search(self, query: str) -> Search:
         return Search(search_type="gryphon", root="node", name="om", definition={"query": query})
 
     def test_optional_match_keeps_zero_match_rows(self):
@@ -2598,6 +2598,27 @@ class TestGryphonOptionalMatchExecutor:
         assert rows[str(chars["Frodo"].pk)] == 1
         assert rows[str(chars["Sam"].pk)] == 0
         assert rows[str(chars["Merry"].pk)] == 0
+
+    def test_optional_anchor_map_conditions_the_join_not_the_scan(self):
+        """A map on the repeated anchor `(c {name: ...})` constrains the optional JOIN: every
+        mandatory row still appears, and only the matching one counts its edges."""
+        chars = self._setup()
+        base = (
+            "MATCH (c:grid_fixtures__constrained_source) OPTIONAL MATCH (c {{name: {name}}})"
+            "-[:SCHEMA_LINK__grid_fixtures]->(a:grid_fixtures__dual_endpoint) "
+            "RETURN c.entity_id AS character, COUNT(a) AS wielded"
+        )
+        frodo = {
+            r["character"]: r["wielded"]
+            for r in execute_search(self._search(base.format(name='"Frodo"')), inputs={})["rows"]
+        }
+        assert frodo == {str(chars["Frodo"].pk): 1, str(chars["Sam"].pk): 0, str(chars["Merry"].pk): 0}
+        sam = {
+            r["character"]: r["wielded"]
+            for r in execute_search(self._search(base.format(name='"Sam"')), inputs={})["rows"]
+        }
+        # Frodo owns the only edge, but the map names Sam: nobody counts, nobody is dropped.
+        assert sam == {str(chars["Frodo"].pk): 0, str(chars["Sam"].pk): 0, str(chars["Merry"].pk): 0}
 
     def test_optional_match_multi_hop_rejected(self):
         """req-grid-gryphon-optional-match-8: a multi-hop optional pattern is rejected in v0."""

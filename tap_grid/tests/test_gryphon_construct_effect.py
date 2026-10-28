@@ -152,6 +152,12 @@ CASES = [
         "MATCH (t:batch) OPTIONAL MATCH (t)-[:X]->(g:batch) RETURN t.entity_id AS a, COUNT(g) AS c",
         id="node-inline-prop-on-optional-anchor",
     ),
+    pytest.param(
+        'MATCH (t:batch) OPTIONAL MATCH (t {name: "required"})-[:X]->(w:batch) '
+        "RETURN t.entity_id AS a, COUNT(w) AS c",
+        "MATCH (t:batch) OPTIONAL MATCH (t)-[:X]->(w:batch) RETURN t.entity_id AS a, COUNT(w) AS c",
+        id="node-inline-prop-on-optional-repeated-anchor",
+    ),
     # Labelless bare scan with a map — consumed by REJECTION (there is no model
     # to resolve `data.k` against); lands in the rejection branch above.
     pytest.param(
@@ -313,6 +319,30 @@ class TestInPatternVariableReuseIsAJoin:
         # refuses rather than counting any matching edge as a self-loop.
         with pytest.raises(SearchExecutionError, match="cannot reuse the MATCH variable"):
             _issued("MATCH (t:batch) OPTIONAL MATCH (t)-[:X]->(t) RETURN t.entity_id AS a, COUNT(t) AS c")
+
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "MATCH (t:batch) OPTIONAL MATCH (t)-[w:X]->(w:batch) RETURN t.entity_id AS id, COUNT(w) AS c",
+            "MATCH (t:batch) OPTIONAL MATCH (t)-[t:X]->(w:batch) RETURN t.entity_id AS id, COUNT(w) AS c",
+        ],
+    )
+    def test_optional_match_node_and_edge_sharing_a_name_is_rejected(self, query):
+        # The OPTIONAL builder shares the chain path's refusal (one helper), so the
+        # rule holds at both sites; before, the edge binding overwrote the node's.
+        with pytest.raises(SearchExecutionError, match="names both a node and an edge"):
+            _issued(query)
+
+    def test_optional_match_distinct_edge_name_is_still_accepted(self):
+        assert _issued("MATCH (t:batch) OPTIONAL MATCH (t)-[e:X]->(w:batch) RETURN t.entity_id AS id, COUNT(w) AS c")
+
+    def test_optional_match_anchor_label_must_match_the_mandatory_label(self):
+        with pytest.raises(SearchExecutionError, match="repeats the MATCH variable with a different label"):
+            _issued(
+                'MATCH (t:batch) OPTIONAL MATCH (t:other {name: "x"})-[:X]->(w:batch) '
+                "RETURN t.entity_id AS id, COUNT(w) AS c"
+            )
 
 
 class TestWhereOnAnUnboundVariable:
