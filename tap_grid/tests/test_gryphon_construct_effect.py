@@ -457,3 +457,17 @@ class TestInputNullPredicateEffect:
     def test_constant_false_where_is_refused(self):
         with pytest.raises(SearchExecutionError, match="constant FALSE"):
             _issued("MATCH (b:batch) WHERE $p IS NOT NULL RETURN b", {"p": None})
+
+
+@pytest.mark.spec("req-grid-dimension-query-form-2")
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (n) WHERE n.dimensions.tap.cloud IS NOT NULL RETURN n",
+        'MATCH (n) WHERE n.dimensions["tap"]["cloud"] IS NOT NULL RETURN n',
+        'MATCH (n) WHERE n.dimensions["tap"].cloud = "aws" RETURN n',
+    ],
+)
+def test_bare_dimension_paths_are_refused_before_sql(query: str) -> None:
+    with pytest.raises(SearchExecutionError, match=r'\["tap\.cloud"\]'):
+        _issued(query)

@@ -68,7 +68,6 @@ tap_grid/gryphon/executor.py:no-redef:1
 tap_grid/gryphon/executor.py:no-untyped-call:1
 tap_grid/gryphon/executor.py:no-untyped-def:15
 tap_grid/gryphon/executor.py:type-arg:1
-tap_grid/gryphon/executor.py:union-attr:2
 tap_grid/gryphon/parser.py:arg-type:1
 tap_grid/gryphon/parser.py:no-any-return:2
 tap_grid/gryphon/parser.py:type-arg:1

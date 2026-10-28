@@ -4724,3 +4724,60 @@ class TestGryphonNodeOnlyAggregates(_MinMaxFixture):
             (False, "x", 2),
             (True, "None", 3),
         ]
+
+
+@pytest.mark.django_db(transaction=True, databases=["default", "search_readonly"])
+class TestGryphonBareDimensionsMultiStep:
+    """The labelless spine scan obeys the same flat-key rule as typed scans."""
+
+    @staticmethod
+    def _fixture() -> str:
+        from tap_grid.service_types import WriteOperation
+        from tap_grid.services import write_batch
+
+        result = write_batch(
+            [
+                WriteOperation(
+                    verb="create_node",
+                    type_slug="grid_fixtures__node",
+                    payload={"name": "flat-dimension-target", "kind": "fixture"},
+                    dimensions={"tap.cloud": "aws", "dcom": "design"},
+                )
+            ],
+            batch_name="Gryphon bare dimension regression",
+            batch_description="Seed one flat-dimension node through the public write service.",
+        )
+        assert result.success, result
+        return str(result.results[0].entity_id)
+
+    @pytest.mark.spec("req-grid-dimension-query-form-2")
+    @pytest.mark.parametrize(
+        "path",
+        ["n.dimensions.tap.cloud", 'n.dimensions["tap"]["cloud"]', 'n.dimensions["tap"].cloud'],
+    )
+    @pytest.mark.parametrize("predicate", ["IS NOT NULL", '= "aws"', 'IN ["aws"]'])
+    def test_bare_multi_step_dimension_is_refused(self, path: str, predicate: str) -> None:
+        from tap_grid.gryphon import execute_gryphon_raw
+
+        self._fixture()
+        with pytest.raises(SearchExecutionError, match=r'\["tap\.cloud"\]'):
+            execute_gryphon_raw(f"MATCH (n) WHERE {path} {predicate} RETURN n", {})
+
+    @pytest.mark.spec("req-grid-dimension-query-form-1")
+    @pytest.mark.parametrize(
+        ("path", "value", "matches"),
+        [
+            ('n.dimensions["tap.cloud"]', "aws", True),
+            ('n.dimensions["tap.cloud"]', "gcp", False),
+            ('n.dimensions["tap.region"]', "aws", False),
+            ("n.dimensions.dcom", "design", True),
+        ],
+    )
+    def test_bare_single_step_dimension_keeps_its_answer(self, path: str, value: str, matches: bool) -> None:
+        from tap_grid.gryphon import explain_gryphon_raw
+
+        entity_id = self._fixture()
+        capture = explain_gryphon_raw(f'MATCH (n) WHERE {path} = "{value}" RETURN n', {})
+        assert capture["sql"].statements, "empty answer must still execute real SQL"
+        result_ids = {str(node["entity_id"]) for node in capture["envelope"]["nodes"]}
+        assert (entity_id in result_ids) is matches

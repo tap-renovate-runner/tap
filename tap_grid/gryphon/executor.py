@@ -1792,10 +1792,9 @@ def _bare_spine_orm_path(field_path: FieldPath) -> str:
         if not rest:
             return first
         if first in _JSON_TYPED_SPINE_FIELDS:
-            for step in rest:
-                if not isinstance(step, (DotStep, KeyStep)):
-                    raise SearchExecutionError("Spine JSON access supports dot-steps and bracket-key steps only.")
-            inner = "__".join(s.name if isinstance(s, DotStep) else s.key for s in rest)
+            # The bare spine scan must enforce the same flat-key invariant as
+            # typed scans and chain bindings; a private join bypassed B2 here.
+            inner = _json_spine_inner_path(rest, context="Spine JSON access")
             return f"{first}__{inner}"
         raise SearchExecutionError(f"Spine field {first!r} is a scalar; it cannot be walked into.")
     raise SearchExecutionError(
