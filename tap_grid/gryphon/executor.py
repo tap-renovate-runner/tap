@@ -2793,7 +2793,7 @@ def _apply_predicate_to_qs(
 ):
     """Apply a WHERE predicate tree to an already-built chain queryset.
 
-    TAP-IMPLEMENTS: req-grid-traversal-lang-filters@24f593de1742/7b84984d6834 (derivation) —
+    TAP-IMPLEMENTS: req-grid-traversal-lang-filters@2d322ef99b10/7b84984d6834 (derivation) —
         WHERE field filtering lowers to the queryset here.
 
     TAP-IMPLEMENTS: req-grid-traversal-lang-combinators@0e5170677022/7b84984d6834 (derivation) —
@@ -3815,7 +3815,7 @@ def _lookup_value_expr(source: _LookupSource, path: FieldPath) -> Any:
 def _temporal_to_q(leaf: TemporalComparison, bindings: dict[str, dict[str, Any]], inputs: dict[str, Any]) -> Any:
     """Lower a temporal leaf to a ``Q``: the comparison conjoined with a not-null guard on the base.
 
-    TAP-IMPLEMENTS: req-grid-traversal-lang-temporal-offset@f1096576be62/46caab7a343b (derivation) — the offset comparison
+    TAP-IMPLEMENTS: req-grid-traversal-lang-temporal-offset@7531c8606d14/46caab7a343b (derivation) — the offset comparison
         lowers here: base shifted by whole hours, compared with the clock or a supplied instant.
 
     Rung 1: ``F``/``Cast`` of the base, plus-or-minus an ``ExpressionWrapper`` of the integer

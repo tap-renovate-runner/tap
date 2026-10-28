@@ -27,6 +27,7 @@ file depends on no plugin — the data-lane allowlist tests established that veh
 from typing import Any
 
 import pytest
+from psycopg.types.json import Json, Jsonb
 
 from tap_grid.exceptions import SearchExecutionError
 from tap_grid.gryphon import explain_gryphon_raw
@@ -37,7 +38,13 @@ pytestmark = pytest.mark.django_db(databases=["default", "search_readonly"])
 def _issued(query: str, inputs: dict[str, Any] | None = None) -> list[tuple[str, tuple[Any, ...]]]:
     """The ordered (sql, params) pairs a query's execution issued."""
     capture = explain_gryphon_raw(query, inputs or {})["sql"]
-    return [(stmt.sql, tuple(stmt.params or ())) for stmt in capture.statements]
+    # psycopg JSON wrappers have identity equality, so compare their stable
+    # representations too: equal edge-map predicates must not look different
+    # merely because the two executions allocated different Jsonb objects.
+    return [
+        (stmt.sql, tuple(repr(param) if isinstance(param, (Json, Jsonb)) else param for param in (stmt.params or ())))
+        for stmt in capture.statements
+    ]
 
 
 def _assert_construct_has_effect(with_construct: str, without_construct: str) -> None:
@@ -67,6 +74,35 @@ def _assert_construct_has_effect(with_construct: str, without_construct: str) ->
 
 
 CASES = [
+    # Duplicate authored constraints must never collapse to the later value.
+    # The shared parser must refuse before any dispatch/parameter extraction.
+    pytest.param(
+        'MATCH (b:batch {name: "required", name: "later"}) RETURN b',
+        'MATCH (b:batch {name: "later"}) RETURN b',
+        id="duplicate-inline-node-key",
+    ),
+    pytest.param(
+        'MATCH (a:batch {name: "required", name: "later"})-[e]->(b:batch) RETURN a, b',
+        'MATCH (a:batch {name: "later"})-[e]->(b:batch) RETURN a, b',
+        id="duplicate-inline-chain-node-key",
+    ),
+    pytest.param(
+        'MATCH (a:batch)-[e {kind: "required", kind: "later"}]->(b:batch) RETURN a, b',
+        'MATCH (a:batch)-[e {kind: "later"}]->(b:batch) RETURN a, b',
+        id="duplicate-inline-edge-key",
+    ),
+    pytest.param(
+        'MATCH (t:batch {name: "required", name: "later"}) OPTIONAL MATCH (t)-[:X]->(w:batch) '
+        "RETURN t.entity_id AS a, COUNT(w) AS c",
+        'MATCH (t:batch {name: "later"}) OPTIONAL MATCH (t)-[:X]->(w:batch) ' "RETURN t.entity_id AS a, COUNT(w) AS c",
+        id="duplicate-inline-optional-mandatory-key",
+    ),
+    pytest.param(
+        'MATCH (t:batch) OPTIONAL MATCH (t)-[:X]->(w:batch {name: "required", name: "later"}) '
+        "RETURN t.entity_id AS a, COUNT(w) AS c",
+        'MATCH (t:batch) OPTIONAL MATCH (t)-[:X]->(w:batch {name: "later"}) ' "RETURN t.entity_id AS a, COUNT(w) AS c",
+        id="duplicate-inline-optional-node-key",
+    ),
     # The #196 defect: node inline property map, string value. The WHERE-spelled
     # control below proves the same filter IS expressible, so a drop here is a
     # defect in the construct, not in the field path.

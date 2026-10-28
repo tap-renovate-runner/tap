@@ -117,6 +117,27 @@ class TestGryphonParser:
         assert node.label == "host"
         assert node.variable == "h"
 
+    @pytest.mark.spec("req-grid-traversal-lang-filters-1")
+    @pytest.mark.parametrize(
+        "query",
+        [
+            'MATCH (b:batch {name: "required", name: "later"}) RETURN b',
+            'MATCH (b:batch {name: "same", name: "same"}) RETURN b',
+            "MATCH (b:batch {name: $required_name, name: $later_name}) RETURN b",
+            'MATCH (a:batch)-[e {kind: "required", kind: "later"}]->(b:batch) RETURN a',
+            'LOOKUP cfg = (:batch {name: "required", name: "later"}) MATCH (b:batch) '
+            "WHERE b.data.created_at + hours(cfg.data.version) < now() RETURN b",
+        ],
+    )
+    def test_duplicate_inline_keys_are_refused_before_reduction(self, query):
+        with pytest.raises(GryphonParseError, match=r"Duplicate inline property key.*WHERE.*AND"):
+            parse_gryphon(query)
+
+    def test_same_property_key_on_distinct_patterns_is_legal(self):
+        ast = parse_gryphon('MATCH (a:batch {name: "a"})-[e]->(b:batch {name: "b"}) RETURN a')
+        assert ast.match_clauses[0].patterns[0].nodes[0].inline_props == {"name": "a"}
+        assert ast.match_clauses[0].patterns[0].nodes[1].inline_props == {"name": "b"}
+
     def test_path_variable(self):
         """req-grid-traversal-lang-patterns-4: path variable binding."""
         ast = parse_gryphon("MATCH p = (a)-[e]-(b) WHERE a.entity_id = $id RETURN p")
@@ -984,7 +1005,6 @@ class TestGryphonDimensionsMultiStep:
             'MATCH (c:grid_fixtures__constrained_source) WHERE c.dimensions["tap.cloud"] = "aws" RETURN c.entity_id'
         )
         assert any("tap.cloud" in params for _stage, _sql, params in captured), captured
-
 
 
 # ---------------------------------------------------------------------------
@@ -2857,9 +2877,7 @@ class TestGryphonBareMatchExecutor:
         """The reported form: a labelless scan with a spine-only WHERE."""
         made = self._setup()
         self._retire(made["Node A"].id)
-        result = execute_search(
-            self._search('MATCH (n) WHERE n.entity_type = "grid_fixtures__node"'), inputs={}
-        )
+        result = execute_search(self._search('MATCH (n) WHERE n.entity_type = "grid_fixtures__node"'), inputs={})
         names = {node["name"] for node in result["nodes"]}
         assert "Node A" not in names, f"retired node returned: {sorted(names)}"
         assert "Node B" in names, "the live sibling of the retired node must still be returned"
@@ -2873,9 +2891,7 @@ class TestGryphonBareMatchExecutor:
         """
         made = self._setup()
         self._retire(made["Node A"].id)
-        labelless = execute_search(
-            self._search('MATCH (n) WHERE n.entity_type = "grid_fixtures__node"'), inputs={}
-        )
+        labelless = execute_search(self._search('MATCH (n) WHERE n.entity_type = "grid_fixtures__node"'), inputs={})
         labelled = execute_search(self._search("MATCH (n:grid_fixtures__node)"), inputs={})
         assert {n["name"] for n in labelless["nodes"]} == {n["name"] for n in labelled["nodes"]}
 
@@ -3798,7 +3814,7 @@ class TestGryphonParamNullParser:
         """req-grid-traversal-lang-param-null-2: the optional-filter idiom parses as an OR tree."""
         from tap_grid.gryphon.ast_nodes import ParamNullTest
 
-        ast = parse_gryphon('MATCH (n:grid_fixtures__node) WHERE $org IS NULL OR n.data.org = $org')
+        ast = parse_gryphon("MATCH (n:grid_fixtures__node) WHERE $org IS NULL OR n.data.org = $org")
         assert ast.where_clause is not None  # nosec B101
         pred = ast.where_clause.predicate
         assert isinstance(pred, OrPred)
@@ -3913,10 +3929,7 @@ class TestParamNullFoldCoversEveryWhereSlot:
 class TestGryphonParamNullExecutor:
     """Executor coverage: absent vs null vs empty-string, and the fold's construct effect."""
 
-    OPTIONAL_FILTER = (
-        "MATCH (c:grid_fixtures__constrained_source) "
-        "WHERE $org IS NULL OR c.name = $org"
-    )
+    OPTIONAL_FILTER = "MATCH (c:grid_fixtures__constrained_source) " "WHERE $org IS NULL OR c.name = $org"
 
     def _setup(self, names: tuple[str, ...] = ("Aragorn", "Boromir", "Celeborn", "Denethor", "Eowyn")) -> None:
         import uuid
@@ -3972,8 +3985,7 @@ class TestGryphonParamNullExecutor:
         selects 'ababa' when asked for 'aba'. The param-null idiom does not."""
         self._setup(names=("aba", "ababa"))
         over = self._run(
-            "MATCH (c:grid_fixtures__constrained_source) "
-            "WHERE c.name STARTS_WITH $x AND c.name ENDS_WITH $x",
+            "MATCH (c:grid_fixtures__constrained_source) " "WHERE c.name STARTS_WITH $x AND c.name ENDS_WITH $x",
             inputs={"x": "aba"},
         )
         assert sorted(n["name"] for n in over["nodes"]) == ["aba", "ababa"]  # the defect, pinned
@@ -4142,6 +4154,7 @@ class _MinMaxFixture:
         search = Search(search_type="gryphon", root="node", name="minmax", definition={"query": query})
         rows: list[dict[str, Any]] = execute_search(search, inputs=inputs or {})["rows"]
         return rows
+
 
 @pytest.mark.django_db(transaction=True, databases=["default", "search_readonly"])
 class TestGryphonMinMaxExecutor(_MinMaxFixture):
@@ -4499,7 +4512,7 @@ class TestGryphonNodeOnlyAggregates(_MinMaxFixture):
         self._build()
         assert self._rows(self.SCAN + "RETURN COUNT(a) AS n") == [{"n": 6}]
         assert self._rows(self.SCAN + 'WHERE a.data.kind = "scanner-x" RETURN COUNT(a) AS n') == [{"n": 3}]
-        assert self._rows("MATCH (a:grid_fixtures__node {kind: \"scanner-y\"}) RETURN COUNT(a) AS n") == [{"n": 3}]
+        assert self._rows('MATCH (a:grid_fixtures__node {kind: "scanner-y"}) RETURN COUNT(a) AS n') == [{"n": 3}]
 
     def test_count_excludes_soft_deleted_nodes(self):
         from tap_grid.models import Entity
@@ -4524,7 +4537,7 @@ class TestGryphonNodeOnlyAggregates(_MinMaxFixture):
 
     def test_all_null_field_is_null(self):
         self._build()
-        assert self._rows(self.SCAN + 'WHERE a.data.severity_score < 5 RETURN MIN(a.data.observed_at) AS t') == [
+        assert self._rows(self.SCAN + "WHERE a.data.severity_score < 5 RETURN MIN(a.data.observed_at) AS t") == [
             {"t": None}
         ]
 
@@ -4539,7 +4552,9 @@ class TestGryphonNodeOnlyAggregates(_MinMaxFixture):
             {"scanner": "scanner-x", "n": 3, "hi": 8},
             {"scanner": "scanner-y", "n": 3, "hi": 9},
         ]
-        top = self._rows(self.SCAN + "RETURN a.data.kind AS scanner, MAX(a.data.severity_score) AS hi ORDER BY hi DESC LIMIT 1")
+        top = self._rows(
+            self.SCAN + "RETURN a.data.kind AS scanner, MAX(a.data.severity_score) AS hi ORDER BY hi DESC LIMIT 1"
+        )
         assert top == [{"scanner": "scanner-y", "hi": 9}]
         assert self._rows(self.SCAN + "RETURN COUNT(a) AS n LIMIT 0") == []
 
@@ -4578,11 +4593,17 @@ class TestGryphonNodeOnlyAggregates(_MinMaxFixture):
         "query, message",
         [
             ("MATCH (a) RETURN COUNT(a) AS n", "needs a labelled node"),
-            ("MATCH (a:grid_fixtures__node) MATCH (b:grid_fixtures__leaf) RETURN COUNT(a) AS n", "exactly one top-level MATCH"),
+            (
+                "MATCH (a:grid_fixtures__node) MATCH (b:grid_fixtures__leaf) RETURN COUNT(a) AS n",
+                "exactly one top-level MATCH",
+            ),
             ("MATCH (a:grid_fixtures__node) RETURN COUNT(b) AS n", "Unknown variable 'b'"),
             ("MATCH (a:grid_fixtures__node) RETURN MAX(b.data.severity_score) AS n", "Unknown variable 'b'"),
             ("MATCH (a:grid_fixtures__node) RETURN a, COUNT(a) AS n", "bare 'a' cannot be a group key"),
-            ("MATCH (a:grid_fixtures__node) RETURN a.data.tags AS t, COUNT(a.data.tags.x) AS n", "COUNT argument must be"),
+            (
+                "MATCH (a:grid_fixtures__node) RETURN a.data.tags AS t, COUNT(a.data.tags.x) AS n",
+                "COUNT argument must be",
+            ),
             ("MATCH (a:grid_fixtures__node) RETURN COUNT(a.data.kind) AS n", "COUNT argument must be"),
             ("MATCH (a:grid_fixtures__node) RETURN MIN(a.name) AS n", "typed data-lane field"),
             ("MATCH (a:grid_fixtures__node) RETURN MAX(a.data.kind) AS n", "declared {string}"),
@@ -4646,8 +4667,6 @@ class TestGryphonNodeOnlyAggregates(_MinMaxFixture):
             )["sql"].statements
         )
         assert "MAX(" in sql and "COUNT(" in sql and "GROUP BY" in sql
-
-
 
     # -- JSON group key: a stored JSON null and an absent key are one group (nodeonly-agg-9) --
 
