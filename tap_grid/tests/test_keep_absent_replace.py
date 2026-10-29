@@ -220,3 +220,10 @@ class TestGriftUpsertKeepsAbsentFields:
             result = grift_import(_doc(str(uuid.uuid4()), nodes, [edge(properties)]))
             assert result.success, result.errors
         assert Edge.objects.get(entity_id=uuid.UUID(eid)).properties == {"z": 3}
+
+
+@pytest.mark.spec("req-grid-import-grift-ordering-10")
+def test_edge_replace_surface_is_only_properties():
+    # The import spec says keep-absent changes nothing observable for edges today. That holds only while
+    # the edge replace schema writes nothing but ``properties``; a new writable edge field must be decided.
+    assert set(Edge.SERVICE_CRUD_SCHEMA["replace"]["properties"]) == {"properties"}
